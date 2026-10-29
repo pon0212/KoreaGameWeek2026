@@ -1,0 +1,32 @@
+# Unity generated data and local editor state
+Assets/_Recovery/
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Ll]ogs/
+[Uu]serSettings/
+[Bb]uilds/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+*.log
+
+# IDE generated files
+.vs/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+PROJECT_CONTEXT_HANDOFF.md
+*.csproj
+*.sln
+*.slnx
+*.user
+*.pidb
+*.booproj
+*.svclog
+*.pdb
+*.mdb
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
