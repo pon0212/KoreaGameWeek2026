@@ -177,8 +177,10 @@ namespace TastePassport.Core
             string backdropPath = koreanBackdrop ? "Art/KoreaJourney" : "Art/VietnamJourney";
             backdrop.sprite = Resources.Load<Sprite>(backdropPath);
             backdrop.type = Image.Type.Simple;
-            backdrop.color = new Color(1f, 1f, 1f, backdrop.sprite == null ? 1f : .34f);
-            Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, backdrop.sprite == null ? 1f : .64f), true);
+            // Keep the supplied destination illustration recognizable between cards.
+            // Cards stay opaque so the foreground copy and controls remain crisp.
+            backdrop.color = new Color(1f, 1f, 1f, backdrop.sprite == null ? 1f : .82f);
+            Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, backdrop.sprite == null ? 1f : .24f), true);
             var scrollObject = new GameObject("Page Scroll", typeof(RectTransform), typeof(ScrollRect));
             scrollObject.transform.SetParent(safeRoot, false);
             var fadeGroup = scrollObject.AddComponent<CanvasGroup>();
