@@ -26,9 +26,13 @@ namespace TastePassport.UI
                 {
                     var frame = parent.gameObject.AddComponent<RectMask2D>();
                     frame.padding = Vector4.zero;
+                    var printFrame = parent.gameObject.AddComponent<Outline>();
+                    printFrame.effectColor = ColorOf("#8A6748");
+                    printFrame.effectDistance = new Vector2(2, -2);
                     var picture = Box(parent, "Original location painting", Color.white, 0, 0, 1, 1).GetComponent<Image>();
                     picture.sprite = painting;
                     picture.type = Image.Type.Simple;
+                    picture.raycastTarget = false;
                     var fit = picture.gameObject.AddComponent<AspectRatioFitter>();
                     fit.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
                     fit.aspectRatio = painting.rect.width / painting.rect.height;

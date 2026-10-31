@@ -12,7 +12,7 @@ namespace TastePassport.Core
 {
     public sealed class PassportApp : MonoBehaviour
     {
-        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame }
+        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult }
         private static readonly Color Cream = Hex("#F6E9D4");
         private static readonly Color Lantern = Hex("#E6A14D");
         private static readonly Color Jade = Hex("#357E84");
@@ -53,6 +53,10 @@ namespace TastePassport.Core
         private Coroutine pageFade;
         private bool resetScroll = true;
         private bool koreanBackdrop;
+        private float finaleDeadline;
+        private Text finaleTimer;
+        private int finaleTarget;
+        private int[] finaleOrder;
 
         private string T(string key, string place = null) => GameText.Get(profile.language, key, profile.playerName, place);
 
@@ -110,6 +114,12 @@ namespace TastePassport.Core
                 int remaining = Mathf.Max(0, Mathf.CeilToInt(recipeDeadline - Time.time));
                 if (recipeTimer != null) recipeTimer.text = T("time_left") + ": " + remaining + "s";
                 if (remaining == 0) Navigate(Page.RecipeFail);
+            }
+            if (page == Page.Finale && finaleOrder != null)
+            {
+                int remaining = Mathf.Max(0, Mathf.CeilToInt(finaleDeadline - Time.time));
+                if (finaleTimer != null) finaleTimer.text = T("time_left") + ": " + remaining + "s";
+                if (remaining == 0) { finaleOrder = null; Navigate(Page.Map); notice = T("finale_timeout"); Show(); }
             }
         }
 
@@ -233,6 +243,8 @@ namespace TastePassport.Core
                 case Page.RecipeFail: DrawRecipeFail(content); break;
                 case Page.MatchDialogue: DrawMatchDialogue(content); break;
                 case Page.MatchGame: DrawMatchGame(content); break;
+                case Page.Finale: DrawFinale(content); break;
+                case Page.FinaleResult: DrawFinaleResult(content); break;
             }
             if (!string.IsNullOrEmpty(notice))
             {
@@ -270,13 +282,17 @@ namespace TastePassport.Core
         private void DrawMenu(Transform parent)
         {
             Header(parent, T("subtitle"));
-            var destinations = NewRect("Two culture destinations", parent);
-            SetHeight(destinations, 230);
+            var spread = Card(parent, 330);
+            Label(spread, T("living_passport"), 30, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var destinations = NewRect("Two culture destinations", spread);
+            SetHeight(destinations, 190);
             AddHorizontal(destinations);
-            Artwork(destinations, TravelArtworkKind.HoiAn, 220);
-            Artwork(destinations, TravelArtworkKind.Jeonju, 220);
-            var card = Card(parent, 146);
-            Label(card, T("welcome"), 31, 94, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Artwork(destinations, TravelArtworkKind.HoiAn, 184);
+            Artwork(destinations, TravelArtworkKind.Jeonju, 184);
+            AddJourneyThread(spread);
+            var card = Card(parent, 118);
+            Label(card, T("welcome"), 31, 78, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(parent, "◆  " + T("tomorrow_note"), 23, 76, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Button(parent, profile.created ? T("continue") : T("start"), Jade, () => Navigate(profile.created ? Page.Map : Page.Language));
             Button(parent, T("language"), Lantern, () => Navigate(Page.Language));
             if (profile.created) Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
@@ -378,7 +394,7 @@ namespace TastePassport.Core
             if (!definition.IsUnlocked(profile)) { Navigate(Page.Passport); return; }
             Header(parent, T(definition.TitleKey));
             Label(parent, T(postcardBack ? "back_side" : "front"), 29, 65, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            var card = Card(parent, postcardBack ? 460 : 490);
+            var card = Card(parent, postcardBack ? 460 : 535);
             if (!postcardBack)
             {
                 Label(card, T(definition.TitleKey), 31, 85, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
@@ -391,6 +407,7 @@ namespace TastePassport.Core
                 var right = NewRect("Korea picture", pair);
                 SetHeight(right, 220);
                 TravelArtwork.Draw(right, postcardIndex == 1 ? TravelArtworkKind.Bibimbap : TravelArtworkKind.Jeonju);
+                AddJourneyThread(card);
                 Label(card, T(definition.FrontLeftKey) + "  •  " + T(definition.FrontRightKey), 26, 58, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
                 Label(card, "◆  ◆  ◆", 28, 44, Vermilion, TextAnchor.MiddleCenter);
             }
@@ -401,6 +418,7 @@ namespace TastePassport.Core
                 Rule(card);
                 Label(card, T("culture_note"), 27, 54, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
                 Label(card, T(definition.FactKey), 26, 115, Ink, TextAnchor.MiddleCenter);
+                Label(card, T("tomorrow_clue_" + (postcardIndex + 1)), 24, 82, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             }
             Button(parent, T("flip_postcard"), Jade, () => { postcardBack = !postcardBack; Show(); });
             Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
@@ -410,22 +428,26 @@ namespace TastePassport.Core
         {
             Header(parent, T("map"));
             if (FirstJourneyComplete()) Label(parent, T("first_journey_complete"), 29, 110, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (FirstJourneyComplete()) CompactButton(parent, T("finale_start"), Vermilion, StartFinale, Color.white);
             Label(parent, T("map_intro"), 27, 54, Ink, TextAnchor.MiddleCenter);
             Label(parent, T("map_illustration"), 22, 42, Muted, TextAnchor.MiddleCenter);
-            var hoian = Card(parent, 640);
-            Artwork(hoian, TravelArtworkKind.VietnamJourney, 270);
+            var hoian = Card(parent, 790);
+            Artwork(hoian, TravelArtworkKind.VietnamJourney, 220);
             Label(hoian, T("hoian"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             Label(hoian, T("hoian_desc"), 25, 40, Muted, TextAnchor.MiddleCenter);
-            Artwork(hoian, TravelArtworkKind.CaoLau, 96);
+            Label(hoian, HasAnyStamp(LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id) ? "◆  " + T("echo_from_jeonju") : "○  " + T("echo_waiting"), 22, 34, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Artwork(hoian, TravelArtworkKind.CaoLau, 84);
             Label(hoian, T("location_hoian_food"), 23, 36, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             CompactButton(hoian, MissionLabel("hoian", LevelCatalog.HoiAn.Id), Lantern, () => StartLevel(LevelCatalog.HoiAn));
             CompactButton(hoian, MissionLabel("cao_lau", RecipeCatalog.CaoLau.Id), Jade, () => StartRecipe(RecipeCatalog.CaoLau));
             CompactButton(hoian, MissionLabel("hoian_exchange", MatchCatalog.HoiAn.Id), Paper, () => StartMatch(MatchCatalog.HoiAn), Ink);
-            var jeonju = Card(parent, 640);
-            Artwork(jeonju, TravelArtworkKind.KoreaJourney, 270);
+            AddJourneyThread(parent);
+            var jeonju = Card(parent, 790);
+            Artwork(jeonju, TravelArtworkKind.KoreaJourney, 220);
             Label(jeonju, T("jeonju"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             Label(jeonju, T("jeonju_desc"), 25, 40, Muted, TextAnchor.MiddleCenter);
-            Artwork(jeonju, TravelArtworkKind.Bibimbap, 112);
+            Label(jeonju, HasAnyStamp(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id) ? "◆  " + T("echo_from_hoian") : "○  " + T("echo_waiting"), 22, 34, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Artwork(jeonju, TravelArtworkKind.Bibimbap, 84);
             Label(jeonju, T("location_jeonju_food"), 23, 36, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             CompactButton(jeonju, MissionLabel("jeonju", LevelCatalog.Jeonju.Id), Lantern, () => StartLevel(LevelCatalog.Jeonju));
             CompactButton(jeonju, MissionLabel("bibimbap", RecipeCatalog.Bibimbap.Id), Jade, () => StartRecipe(RecipeCatalog.Bibimbap));
@@ -486,6 +508,65 @@ namespace TastePassport.Core
             Button(parent, T("back"), Paper, () => Navigate(settingsReturnPage), Ink);
         }
 
+        private void StartFinale()
+        {
+            if (!FirstJourneyComplete()) { Navigate(Page.Map); return; }
+            finaleTarget = 6;
+            finaleOrder = new int[] { 0, 1, 2, 3, 4, 5, 6 };
+            for (int i = finaleOrder.Length - 1; i > 0; i--)
+            {
+                int j = UnityEngine.Random.Range(0, i + 1);
+                int value = finaleOrder[i]; finaleOrder[i] = finaleOrder[j]; finaleOrder[j] = value;
+            }
+            finaleDeadline = Time.time + 60f;
+            Navigate(Page.Finale);
+        }
+
+        private void DrawFinale(Transform parent)
+        {
+            Header(parent, T("finale_title"));
+            Artwork(parent, TravelArtworkKind.Passport, 180);
+            Label(parent, T("finale_clue"), 29, 120, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            finaleTimer = Label(parent, T("time_left") + ": 60s", 34, 64, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            for (int row = 0; row < 4; row++)
+            {
+                var choices = NewRect("Finale stamp choices", parent);
+                SetHeight(choices, 86);
+                AddHorizontal(choices);
+                for (int col = 0; col < 2; col++)
+                {
+                    int index = row * 2 + col;
+                    if (index >= finaleOrder.Length) break;
+                    int mark = finaleOrder[index];
+                    Button(choices, T("finale_mark_" + mark), Paper, () => ChooseFinaleMark(mark), Ink);
+                }
+            }
+            Button(parent, T("back_map"), Paper, () => { finaleOrder = null; Navigate(Page.Map); }, Ink);
+        }
+
+        private void ChooseFinaleMark(int mark)
+        {
+            if (mark == finaleTarget)
+            {
+                finaleOrder = null;
+                Navigate(Page.FinaleResult);
+            }
+            else
+            {
+                notice = T("finale_wrong");
+            }
+        }
+
+        private void DrawFinaleResult(Transform parent)
+        {
+            Header(parent, T("finale_reveal_title"));
+            Artwork(parent, TravelArtworkKind.Friendship, 240);
+            var card = Card(parent, 320);
+            Label(card, T("finale_reveal"), 29, 245, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Button(parent, T("replay"), Jade, StartFinale);
+            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+        }
+
         private void StartLevel(LevelDefinition level)
         {
             koreanBackdrop = level != LevelCatalog.HoiAn;
@@ -504,6 +585,7 @@ namespace TastePassport.Core
             SpeakerBadge(parent, run.Level == LevelCatalog.HoiAn ? "Mai" : "Joon");
             var card = Card(parent, 220);
             Label(card, T(run.Level.GuideKey), 31, 172, Ink, TextAnchor.MiddleCenter);
+            Label(parent, "◆  " + T("tomorrow_note"), 23, 96, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Button(parent, T("mission_start"), Jade, () => Navigate(Page.Explore));
             Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
@@ -674,6 +756,46 @@ namespace TastePassport.Core
             Label(card, T(titleKey), 25, 64, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
         }
 
+        private bool HasAnyStamp(params string[] levelIds)
+        {
+            foreach (string id in levelIds)
+                if (ProgressService.HasStamp(profile, id)) return true;
+            return false;
+        }
+
+        // Red stitched route used as a visual link between the two passport pages.
+        private void AddJourneyThread(Transform parent)
+        {
+            var row = NewRect("Red passport thread", parent);
+            SetHeight(row, 34);
+            var line = Panel("Journey thread", row, Vermilion).rectTransform;
+            line.anchorMin = new Vector2(.08f, .45f);
+            line.anchorMax = new Vector2(.92f, .55f);
+            line.offsetMin = line.offsetMax = Vector2.zero;
+            for (int i = 0; i < 7; i++)
+            {
+                var stitch = Panel("Thread stitch " + i, row, Paper).rectTransform;
+                float x = .18f + i * .107f;
+                stitch.anchorMin = stitch.anchorMax = new Vector2(x, .5f);
+                stitch.sizeDelta = new Vector2(4, 11);
+                stitch.anchoredPosition = Vector2.zero;
+            }
+            ThreadSeal(row, .08f);
+            ThreadSeal(row, .92f);
+        }
+
+        private void ThreadSeal(Transform parent, float x)
+        {
+            var seal = NewRect("Route seal", parent);
+            seal.anchorMin = seal.anchorMax = new Vector2(x, .5f);
+            seal.sizeDelta = new Vector2(25, 25);
+            seal.anchoredPosition = Vector2.zero;
+            var image = seal.gameObject.AddComponent<Image>();
+            image.sprite = CircleSprite();
+            image.color = Vermilion;
+            image.raycastTarget = false;
+        }
+
         private void SpeakerBadge(Transform parent, string speaker)
         {
             var badge = Card(parent, 82);
@@ -729,6 +851,10 @@ namespace TastePassport.Core
             Label(card, T("stars") + ": " + new string('★', stars), 30, 60, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             var stamp = Card(parent, 108);
             Label(stamp, "◆  " + T("stamp") + ": " + T(subjectKey), 28, 66, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            string speaker = koreanBackdrop ? "Joon" : "Mai";
+            var letter = Card(parent, 142);
+            Label(letter, "◆  " + speaker, 25, 36, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(letter, T(koreanBackdrop ? "stamp_message_joon" : "stamp_message_mai", T(subjectKey)), 24, 58, Ink, TextAnchor.MiddleCenter);
             Button(parent, T("passport"), Jade, () => Navigate(Page.Passport));
             Button(parent, T("replay"), Lantern, () => { if (matchResult) StartMatch(matchRun.Definition); else if (recipeResult) StartRecipe(recipeRun.Recipe); else StartLevel(run.Level); });
             Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
@@ -750,6 +876,7 @@ namespace TastePassport.Core
             var card = Card(parent, 218);
             Label(card, T(recipeRun.Recipe.GuideKey), 30, 170, Ink, TextAnchor.MiddleCenter);
             Label(parent, T("recipe_hint"), 25, 110, Jade, TextAnchor.MiddleCenter);
+            Label(parent, "◆  " + T("tomorrow_note"), 23, 96, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Button(parent, T("mission_start"), Jade, () =>
             {
                 recipeDeadline = Time.time + 90f;
@@ -761,7 +888,7 @@ namespace TastePassport.Core
         private void DrawRecipeGame(Transform parent)
         {
             Header(parent, T(recipeRun.Recipe.DishKey));
-            Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 145);
+            Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 220);
             if (recipeRun.Complete)
             {
                 Label(parent, T("save_result"), 32, 180, Jade, TextAnchor.MiddleCenter);
@@ -847,6 +974,7 @@ namespace TastePassport.Core
             SpeakerBadge(parent, matchRun.Definition == MatchCatalog.HoiAn ? "Mai" : "Joon");
             var card = Card(parent, 230);
             Label(card, T(matchRun.Definition.GuideKey), 29, 180, Ink, TextAnchor.MiddleCenter);
+            Label(parent, "◆  " + T("tomorrow_note"), 23, 96, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Button(parent, T("mission_start"), Jade, () => Navigate(Page.MatchGame));
             Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
@@ -877,7 +1005,10 @@ namespace TastePassport.Core
         {
             MatchResult result = matchRun.Choose(choice);
             if (result == MatchResult.Complete) { CompleteMatch(); return; }
-            notice = T(result == MatchResult.Correct ? "match_correct" : "match_wrong");
+            bool hoiAn = matchRun.Definition == MatchCatalog.HoiAn;
+            notice = T(result == MatchResult.Correct
+                ? (hoiAn ? "match_correct_hoian" : "match_correct_jeonju")
+                : (hoiAn ? "match_wrong_hoian" : "match_wrong_jeonju"));
             Show();
         }
 
@@ -988,6 +1119,23 @@ namespace TastePassport.Core
             PortraitPart(parent, "Fringe", hair[index], new Vector2(index == 1 ? 12 : -8, 48), new Vector2(index == 2 ? 61 : 49, 25), RoundedSprite());
             if (outfitId == 3) PortraitPart(parent, "Lantern hair pin", Lantern, new Vector2(36, 49), new Vector2(16, 22), CircleSprite());
             if (outfitId == 4) PortraitPart(parent, "Hanji hair pin", Paper, new Vector2(-36, 49), new Vector2(18, 18), CircleSprite());
+            PortraitPart(parent, "Left ink eye", Hex("#43372F"), new Vector2(-14, 19), new Vector2(5, 7), CircleSprite());
+            PortraitPart(parent, "Right ink eye", Hex("#43372F"), new Vector2(14, 19), new Vector2(5, 7), CircleSprite());
+            PortraitPart(parent, "Smile", Hex("#A94A42"), new Vector2(0, 3), new Vector2(11, 3), RoundedSprite());
+            if (outfitId == 1)
+            {
+                PortraitPart(parent, "Ao dai collar", Hex("#FFF1D5"), new Vector2(0, 31), new Vector2(20, 10), RoundedSprite());
+                PortraitPart(parent, "Ao dai piping", Hex("#E6A14D"), new Vector2(0, -8), new Vector2(3, 29), RoundedSprite());
+            }
+            else if (outfitId == 2)
+            {
+                PortraitPart(parent, "Hanbok collar left", Hex("#F7E8D0"), new Vector2(-9, 27), new Vector2(22, 9), RoundedSprite());
+                PortraitPart(parent, "Hanbok collar right", Hex("#A94A42"), new Vector2(9, 27), new Vector2(22, 9), RoundedSprite());
+            }
+            else
+            {
+                PortraitPart(parent, "Classic coat button", Hex("#E6A14D"), new Vector2(0, -18), new Vector2(7, 7), CircleSprite());
+            }
         }
         private static void PortraitPart(Transform parent, string name, Color color, Vector2 position, Vector2 size, Sprite sprite)
         {
