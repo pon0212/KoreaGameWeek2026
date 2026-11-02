@@ -45,7 +45,7 @@ namespace TastePassport.Save
                     throw new InvalidDataException("Profile file size is outside the supported range");
 
                 var profile = JsonUtility.FromJson<PlayerProfile>(File.ReadAllText(file));
-                if (profile == null || profile.schemaVersion != 1)
+                if (profile == null || profile.schemaVersion < 1 || profile.schemaVersion > PlayerProfile.CurrentSchemaVersion)
                     throw new InvalidDataException("Unsupported profile version");
 
                 Normalize(profile);
@@ -66,7 +66,7 @@ namespace TastePassport.Save
             {
                 if (profile == null) throw new ArgumentNullException(nameof(profile));
                 var snapshot = JsonUtility.FromJson<PlayerProfile>(JsonUtility.ToJson(profile));
-                if (snapshot == null || snapshot.schemaVersion != 1)
+                if (snapshot == null || snapshot.schemaVersion != PlayerProfile.CurrentSchemaVersion)
                     throw new InvalidDataException("Unsupported profile version");
                 Normalize(snapshot);
 
@@ -114,6 +114,7 @@ namespace TastePassport.Save
 
         private static void Normalize(PlayerProfile profile)
         {
+            PlayerProfileMigration.Normalize(profile);
             profile.language = profile.language == "ko" ? "ko" : "vi";
             profile.playerName = profile.playerName == null ? "" : profile.playerName.Trim();
             profile.playerName = LimitTextElements(profile.playerName, MaxPlayerNameTextElements);
@@ -161,15 +162,7 @@ namespace TastePassport.Save
 
         private static void CopySnapshot(PlayerProfile destination, PlayerProfile source)
         {
-            destination.schemaVersion = source.schemaVersion;
-            destination.playerName = source.playerName;
-            destination.language = source.language;
-            destination.avatarIndex = source.avatarIndex;
-            destination.coins = source.coins;
-            destination.outfitId = source.outfitId;
-            destination.ownedOutfits = source.ownedOutfits;
-            destination.created = source.created;
-            destination.levels = source.levels;
+            destination.CopyFrom(source);
         }
     }
 }

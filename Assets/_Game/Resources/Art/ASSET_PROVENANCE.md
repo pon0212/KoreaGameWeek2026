@@ -12,3 +12,13 @@ These are atmospheric illustrations, not documentary reconstructions. A local cu
 - VietnamJourney.png: supplied by the project owner from Downloads/Hội An trong sắc màu Việt Nam.png; copied without editing. Used as the Vietnam destination banner. Rights/provenance are user-supplied; retain attribution/permission confirmation from the owner if the image was created by another artist.
 
 - KoreaJourney.png: supplied by the project owner from Downloads/Hàn Quốc_ Hương vị Jeonju.png; copied without editing. Used as the Korea/Jeonju destination banner. Rights/provenance are user-supplied; retain attribution/permission confirmation from the owner if the image was created by another artist.
+
+## Walkable character sprites (02 November 2026)
+
+`Characters/Traveler.png`, `Characters/Nhung.png`, and `Characters/GaBo.png` were generated as original transparent full-body Unity sprites with Codex's built-in image generation tool. The three prompts requested a consistent cozy, hand-painted storybook style, readable refined chibi proportions, no text, no flags, no watermark, and a transparent background.
+
+- `Traveler.png`: gender-neutral young traveler in a cream jacket with teal/lantern-orange accents and a journal satchel; intended as the controllable player, separate from companion NPCs.
+- `Nhung.png`: friendly, energetic young Vietnamese companion in a contemporary yellow-and-jade outfit with a small woven bag and lantern charm.
+- `GaBo.png`: curious, playful young Korean companion in contemporary ivory/navy/coral travel clothes with a camera.
+
+The portraits are single idle poses, not animated spritesheets. The backgrounds are illustrative and the character clothing is a stylized game design; review cultural details locally before submission. Unity import and in-game scale have not yet been verified because the Unity Editor is unavailable in this environment.

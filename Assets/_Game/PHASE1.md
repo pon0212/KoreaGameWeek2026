@@ -1,11 +1,51 @@
-# Taste Passport — MVP and UI review (29 October 2026)
+# DẤU XỨ VIỆT HÀN – Báo cáo giai đoạn nền tảng
 
-Open `Assets/_Game/Scenes/TastePassport_MVP.unity`, then press Play. If the scene is missing, run **Tools > Taste Passport > Setup MVP**. The setup command is safe to rerun. To view the portrait layout in Game View, choose a fixed resolution such as **720 × 1280** (do not enter 9 × 16 as pixel dimensions), or use **1080 × 2400**. The UI has a 720 × 1280 reference CanvasScaler, scrollable pages, and safe-area anchors.
+**Tên tiếng Anh:** TALES OF TWO LANDS
+**Tagline:** Mỗi vùng đất một câu chuyện – Mỗi hành trình một dấu ấn.
+**Cập nhật:** 02/11/2026
 
-Create a profile with a name, language and one of three temporary character portraits. Continue to the map, play the six missions, earn stamps and unlock three two-sided postcards. Profile data is stored at Unity's `Application.persistentDataPath/taste_passport_profile.json` with a `.bak` recovery copy. Settings preserves the selected language and sound state. The Noto Sans KR font and license are in `Resources/`.
+## Mở và kiểm tra trong Unity
 
-The redesigned UI uses shared cards, buttons, progress bars, stamp tiles, dialogue badges and touch feedback. Original generated paintings for Hội An and Jeonju are in `Resources/Art/`; their creation and limitations are described in `Resources/Art/ASSET_PROVENANCE.md`. Passport symbols, portraits, food and puzzle pictures remain temporary code-drawn art.
+Mở project bằng Unity **6000.6.7f1**, mở Scene `Assets/_Game/Scenes/TastePassport_MVP.unity` rồi nhấn **Play**. Tạo hồ sơ hoặc tiếp tục hồ sơ đã lưu. Giao diện mặc định là tiếng Việt; có thể đổi sang tiếng Hàn tại trang Ngôn ngữ hoặc Cài đặt.
 
-Verification on 29 October 2026: `dotnet build Assembly-CSharp-Editor.csproj` completed with 0 warnings and 0 errors. Unity batch smoke `Logs/TastePassportSmokeUiFinal.log` passed all six mission loops, replay, save/reload, three postcards and Korean switching. It invokes UI button actions and does not verify physical dragging. A Unity render capture (`Logs/TastePassportUiCaptureFinal.log`) produced seven pages in `Logs/UiPreview/` at both 720 × 1280 and 1080 × 2400: Menu, Map, Passport, Dialogue, Explore, RecipeGame and Postcard. The captures use a temporary in-memory profile and do not overwrite the player's save. The 720 × 1280 images and key 1080 × 2400 images were visually inspected. Real touch, Safe Area on a device, sound, and the remaining gameplay panels still need hands-on QA.
+Từ Bản đồ, chọn **Đi bộ khám phá Hội An**. Dùng cần gạt cảm ứng hoặc WASD/phím mũi tên để di chuyển; tiến lại gần Nhung hoặc dấu địa điểm rồi chọn **Tương tác** (phím E/Space trên máy tính). Nút **Về bản đồ** hoặc Escape sẽ lưu vị trí và quay lại bản đồ. Jeonju mở sau khi hoàn thành ba mốc chính Hội An: kiến trúc, Cao Lầu và giao lưu văn hóa.
 
-The redesigned Windows player was built successfully on 29 October 2026; see `Logs/TastePassportBuildWindowsUi.log` and `Builds/Windows/TastePassport.exe`. Run **Tools > Taste Passport > Build Windows MVP** to rebuild it. The player has not been manually played after this build. For Android, install **Android Build Support**, **SDK & NDK Tools** and **OpenJDK** for Unity 6000.6.7f1 through Unity Hub first, then run **Tools > Taste Passport > Build Android APK**. Android support is currently absent, so no APK or device test is claimed.
+Hồ sơ offline nằm tại `Application.persistentDataPath/taste_passport_profile.json`; bản sao dự phòng dùng đuôi `.bak`.
+
+## Đã triển khai trong giai đoạn này
+
+- Thương hiệu DẤU XỨ VIỆT HÀN, tagline đã chốt, tiếng Việt mặc định và lựa chọn tiếng Hàn.
+- Hai khu vực đi bộ Hội An và Jeonju dùng ảnh nền riêng; người chơi di chuyển bằng bàn phím hoặc cần gạt cảm ứng.
+- Nhung, Ga Bo (가보), Chùa Cầu và điểm khám phá Hanok có tương tác; lời thoại đầu tiên và lời thoại khi quay lại khác nhau.
+- Hồ sơ schema 2 lưu chương, cờ cốt truyện, dấu ấn thế giới và checkpoint. Tọa độ khi tải được giới hạn trong bản đồ; camera cũ được khôi phục khi thoát.
+- Bản đồ có điều kiện mở khóa Jeonju; Hộ chiếu hiển thị chương hiện tại và các dấu ấn đã lưu.
+- Sáu vòng nhiệm vụ và ba bưu thiếp hai mặt vốn có vẫn còn dùng được. Thứ tự mở khóa nay đi từ các mốc Hội An sang Jeonju; hoàn tất nhiệm vụ lưu dấu vào hồ sơ.
+- Đã thêm ba hình nhân vật PNG nền trong suốt cho người chơi, Nhung và Ga Bo. Nguồn tạo và giới hạn được ghi trong `Assets/_Game/Resources/Art/ASSET_PROVENANCE.md`.
+
+## Chưa hoàn thành trong bản thiết kế tổng thể
+
+Đây là nền tảng chơi được, chưa phải toàn bộ game cuối cùng. Các phần sau vẫn cần phát triển:
+
+- Hoàn chỉnh đủ bốn chương, các đoạn chuyển cảnh và ngày hội giao lưu Chương 4; hiện trò chơi mở đầu tại Hội An và mở Jeonju theo mốc nhiệm vụ.
+- Các hoạt động riêng cho làm đèn lồng, Hanji, Bài Chòi, Gyeonggijeon, Pansori, chợ, nghề thủ công và nhiệm vụ phụ. Sáu vòng hiện có vẫn là giải đố khám phá, chế biến công thức giản lược và ghép địa điểm.
+- Môi trường đi bộ chi tiết hơn với kiến trúc và nhiều điểm đến tương tác, cùng hoạt ảnh nhân vật, hiệu ứng, nhạc và âm thanh môi trường.
+- Hoàn thiện túi đồ, bộ sưu tập sản phẩm, sắp đặt gian hội và hệ thống nhiệm vụ cho toàn bộ cốt truyện.
+- Chưa build phiên bản Windows/Android mới trong giai đoạn này và chưa thử trên thiết bị thật. Máy hiện có Unity Android Build Support, SDK/NDK và OpenJDK; điều đó chưa đồng nghĩa đã kiểm thử Android.
+
+## Scene, asset và âm thanh
+
+- Scene/prefab: không chỉnh sửa; vẫn dùng `TastePassport_MVP.unity` làm Scene khởi chạy. Thế giới đi bộ và HUD được tạo lúc chạy bằng code.
+- Asset mới: `Traveler.png`, `Nhung.png`, `GaBo.png` cùng metadata Unity. Hai ảnh nền Hội An/Jeonju hiện có được giữ riêng.
+- Âm thanh mới: chưa tạo trong giai đoạn này.
+- Các thay đổi chưa commit có trước của người dùng được giữ nguyên và không đưa vào phần triển khai này.
+
+## Kiểm thử đã chạy
+
+- `dotnet build Assembly-CSharp.csproj`: 0 warning, 0 error.
+- `dotnet build Assembly-CSharp-Editor.csproj`: 0 warning, 0 error.
+- Unity batch `RunProfileAndStoryChecks`: đạt — chuyển schema 1, giữ tiến độ cũ, lưu và tải lại dấu ấn.
+- Unity batch `RunWorldBoundsChecks`: đạt — giới hạn tọa độ và kiểm tra ảnh nền hai điểm đến khác nhau.
+- Unity batch `RunWorldSessionChecks`: đạt — lời thoại đầu/lặp, dấu không bị nhân đôi, nút Việt/Hàn, lưu lúc pause/quit, khôi phục camera và checkpoint.
+- Unity batch `TastePassportSmoke.Run`: đạt — mặc định tiếng Việt, bản đồ và hai lần vào thế giới, mở khóa Jeonju, sáu nhiệm vụ, tiến độ lưu lại, ba bưu thiếp và chuyển sang tiếng Hàn.
+
+Các smoke test gọi trực tiếp callback của nút; chưa thay thế kiểm tra chạm/kéo trên điện thoại, quan sát bố cục trên nhiều thiết bị, chạy game bằng tay hoặc kiểm tra build phát hành.

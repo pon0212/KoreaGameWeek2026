@@ -3,7 +3,9 @@ using System.Collections;
 using TastePassport.Gameplay;
 using TastePassport.Localization;
 using TastePassport.Save;
+using TastePassport.Story;
 using TastePassport.UI;
+using TastePassport.World;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -59,6 +61,7 @@ namespace TastePassport.Core
         private Text finaleTimer;
         private int finaleTarget;
         private int[] finaleOrder;
+        private WalkableWorldSession worldSession;
 
         private string T(string key, string place = null) => GameText.Get(profile.language, key, profile.playerName, place);
 
@@ -93,6 +96,7 @@ namespace TastePassport.Core
             store = new ProfileStore();
 #endif
             profile = store.Load();
+            MigrateWorldUnlockFromExistingProgress(profile);
             AudioListener.volume = PlayerPrefs.GetInt("tp_sound", 1) == 1 ? 1 : 0;
             feedbackSound = GetComponent<UiFeedbackSound>();
             if (feedbackSound == null) feedbackSound = gameObject.AddComponent<UiFeedbackSound>();
@@ -364,7 +368,9 @@ namespace TastePassport.Core
 
         private void DrawMenu(Transform parent)
         {
-            Header(parent, T("subtitle"));
+            Header(parent, T("title"));
+            Label(parent, T("subtitle"), 26, 42, Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(parent, T("tagline"), 28, 62, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var spread = Card(parent, 362);
             Label(spread, T("living_passport"), 30, 80, Jade, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             var destinations = NewRect("Two culture destinations", spread);
@@ -455,6 +461,7 @@ namespace TastePassport.Core
             StampRow(parent, LevelCatalog.HoiAn.Id, "hoian", LevelCatalog.Jeonju.Id, "jeonju");
             StampRow(parent, RecipeCatalog.CaoLau.Id, "cao_lau", RecipeCatalog.Bibimbap.Id, "bibimbap");
             StampRow(parent, MatchCatalog.HoiAn.Id, "hoian_exchange", MatchCatalog.Jeonju.Id, "jeonju_exchange");
+            DrawWorldImprints(parent);
             if (FirstJourneyComplete()) Label(parent, T("achievement_explorer"), 27, 72, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int i = 0; i < PostcardCatalog.All.Length; i++)
             {
@@ -515,10 +522,9 @@ namespace TastePassport.Core
         {
             Header(parent, T("map"));
             if (FirstJourneyComplete()) Label(parent, T("first_journey_complete"), 29, 110, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            if (FirstJourneyComplete()) CompactButton(parent, T("finale_start"), Vermilion, StartFinale, Color.white);
             Label(parent, T("map_intro"), 27, 54, Ink, TextAnchor.MiddleCenter);
             Label(parent, T("map_illustration"), 22, 42, Muted, TextAnchor.MiddleCenter);
-            var hoian = Card(parent, 790);
+            var hoian = Card(parent, 900);
             Artwork(hoian, TravelArtworkKind.VietnamJourney, 220);
             Label(hoian, T("hoian"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             DestinationFlag(hoian, "Art/FlagVietnam", "hoian_desc");
@@ -526,23 +532,129 @@ namespace TastePassport.Core
             Artwork(hoian, TravelArtworkKind.CaoLau, 84);
             Label(hoian, T("location_hoian_food"), 23, 36, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             CompactButton(hoian, MissionLabel("hoian", LevelCatalog.HoiAn.Id), Lantern, () => StartLevel(LevelCatalog.HoiAn));
-            MissionButton(hoian, "cao_lau", RecipeCatalog.CaoLau.Id, LevelCatalog.Jeonju.Id, Jade, () => StartRecipe(RecipeCatalog.CaoLau));
-            MissionButton(hoian, "hoian_exchange", MatchCatalog.HoiAn.Id, RecipeCatalog.Bibimbap.Id, Paper, () => StartMatch(MatchCatalog.HoiAn), Ink);
+            MissionButton(hoian, "cao_lau", RecipeCatalog.CaoLau.Id, LevelCatalog.HoiAn.Id, Jade, () => StartRecipe(RecipeCatalog.CaoLau));
+            MissionButton(hoian, "hoian_exchange", MatchCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, Paper, () => StartMatch(MatchCatalog.HoiAn), Ink);
+            CompactButton(hoian, T("explore_hoian"), Jade, () => OpenWorld("hoian"));
             HoiAnVisuals.DecorateLocationCard(hoian);
             AddJourneyThread(parent);
-            var jeonju = Card(parent, 790);
+            var jeonju = Card(parent, 900);
             Artwork(jeonju, TravelArtworkKind.KoreaJourney, 220);
             Label(jeonju, T("jeonju"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             DestinationFlag(jeonju, "Art/FlagKorea", "jeonju_desc");
             Label(jeonju, HasAnyStamp(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id) ? "◆  " + T("echo_from_hoian") : "○  " + T("echo_waiting"), 22, 34, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             Artwork(jeonju, TravelArtworkKind.Bibimbap, 84);
             Label(jeonju, T("location_jeonju_food"), 23, 36, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            MissionButton(jeonju, "jeonju", LevelCatalog.Jeonju.Id, LevelCatalog.HoiAn.Id, Lantern, () => StartLevel(LevelCatalog.Jeonju));
-            MissionButton(jeonju, "bibimbap", RecipeCatalog.Bibimbap.Id, RecipeCatalog.CaoLau.Id, Jade, () => StartRecipe(RecipeCatalog.Bibimbap));
-            MissionButton(jeonju, "jeonju_exchange", MatchCatalog.Jeonju.Id, MatchCatalog.HoiAn.Id, Paper, () => StartMatch(MatchCatalog.Jeonju), Ink);
+            MissionButton(jeonju, "jeonju", LevelCatalog.Jeonju.Id, MatchCatalog.HoiAn.Id, Lantern, () => StartLevel(LevelCatalog.Jeonju));
+            MissionButton(jeonju, "bibimbap", RecipeCatalog.Bibimbap.Id, LevelCatalog.Jeonju.Id, Jade, () => StartRecipe(RecipeCatalog.Bibimbap));
+            MissionButton(jeonju, "jeonju_exchange", MatchCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, Paper, () => StartMatch(MatchCatalog.Jeonju), Ink);
+            bool jeonjuUnlocked = IsJeonjuUnlocked(profile);
+            CompactButton(jeonju, jeonjuUnlocked ? T("explore_jeonju") : "○  " + T("explore_jeonju") + " · " + T("locked"),
+                jeonjuUnlocked ? Jade : Border,
+                jeonjuUnlocked ? () => OpenWorld("jeonju") : () => Toast(T("jeonju_not_unlocked")),
+                jeonjuUnlocked ? Color.white : Ink);
             KoreaVisuals.DecorateLocationCard(jeonju);
             Button(parent, T("passport"), Jade, () => Navigate(Page.Passport));
             Button(parent, T("settings"), Paper, () => { settingsReturnPage = Page.Map; Navigate(Page.Settings); }, Ink);
+        }
+
+        private void OpenWorld(string worldId)
+        {
+            if (worldId == "jeonju" && !IsJeonjuUnlocked(profile))
+            {
+                Toast(T("jeonju_not_unlocked"));
+                return;
+            }
+
+            try
+            {
+                if (worldSession == null) worldSession = GetComponent<WalkableWorldSession>();
+                if (worldSession == null) worldSession = gameObject.AddComponent<WalkableWorldSession>();
+                safeRoot.gameObject.SetActive(false);
+                worldSession.Open(worldId, profile, store, ReturnFromWorld);
+            }
+            catch (Exception error)
+            {
+                safeRoot.gameObject.SetActive(true);
+                Debug.LogException(error);
+                notice = T("world_open_error");
+                Show();
+            }
+        }
+
+        private void ReturnFromWorld()
+        {
+            if (safeRoot != null) safeRoot.gameObject.SetActive(true);
+            page = Page.Map;
+            notice = worldSession != null && !worldSession.LastSaveSucceeded ? T("save_error") : null;
+            Show();
+        }
+
+        private bool IsJeonjuUnlocked(PlayerProfile target) =>
+            StoryProgressService.HasFlag(target, "jeonju-unlocked") || HasHoiAnStoryMilestone(target);
+
+        private static bool HasHoiAnStoryMilestone(PlayerProfile target) =>
+            ProgressService.HasStamp(target, LevelCatalog.HoiAn.Id) &&
+            ProgressService.HasStamp(target, RecipeCatalog.CaoLau.Id) &&
+            ProgressService.HasStamp(target, MatchCatalog.HoiAn.Id);
+
+        private void MigrateWorldUnlockFromExistingProgress(PlayerProfile target)
+        {
+            if (!HasHoiAnStoryMilestone(target)) return;
+            bool changed = StoryProgressService.AddFlag(target, "jeonju-unlocked");
+            changed |= StoryProgressService.AdvanceToChapter(target, 3);
+            if (changed && !store.TrySave(target)) Debug.LogError("DẤU XỨ: Could not save the Jeonju story unlock migration.");
+        }
+
+        private void RecordMissionWorldMark(PlayerProfile target, string missionId)
+        {
+            if (missionId == LevelCatalog.HoiAn.Id)
+                StoryProgressService.RecordInteraction(target, "hoian-architecture-seen", "stamp-hoian-architecture");
+            else if (missionId == RecipeCatalog.CaoLau.Id)
+                StoryProgressService.RecordInteraction(target, "cao-lau-discovered", "stamp-cao-lau");
+            else if (missionId == MatchCatalog.HoiAn.Id)
+                StoryProgressService.RecordInteraction(target, "hoian-cultural-exchange-complete", "stamp-hoian-exchange");
+            else if (missionId == LevelCatalog.Jeonju.Id)
+                StoryProgressService.RecordInteraction(target, "hanok-village-observed", "stamp-jeonju-hanok");
+            else if (missionId == RecipeCatalog.Bibimbap.Id)
+                StoryProgressService.RecordInteraction(target, "bibimbap-discovered", "stamp-bibimbap");
+            else if (missionId == MatchCatalog.Jeonju.Id)
+                StoryProgressService.RecordInteraction(target, "jeonju-cultural-exchange-complete", "stamp-jeonju-exchange");
+
+            if (HasHoiAnStoryMilestone(target))
+            {
+                StoryProgressService.AddFlag(target, "jeonju-unlocked");
+                StoryProgressService.AdvanceToChapter(target, 3);
+            }
+        }
+
+        private void DrawWorldImprints(Transform parent)
+        {
+            int count = profile.worldImprints == null ? 0 : profile.worldImprints.Count;
+            var card = Card(parent, 150 + Mathf.Max(1, count) * 44);
+            Label(card, T("current_chapter"), 27, 42, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(card, T("chapter_title_" + Mathf.Clamp(profile.chapterIndex, 1, 4)), 30, 54, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(card, T("world_imprints") + ": " + count, 25, 38, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (count == 0)
+            {
+                Label(card, T("no_world_imprints"), 24, 44, Muted, TextAnchor.MiddleCenter);
+                return;
+            }
+            foreach (string imprint in profile.worldImprints)
+                Label(card, "◆  " + T(ImprintNameKey(imprint)), 24, 38, Ink, TextAnchor.MiddleCenter);
+        }
+
+        private static string ImprintNameKey(string id)
+        {
+            if (id == "dau-xu-book-discovered") return "imprint_book";
+            if (id == "stamp-chuacau") return "imprint_chuacau";
+            if (id == "stamp-hanok") return "imprint_hanok";
+            if (id == "stamp-hoian-architecture") return "imprint_hoian_architecture";
+            if (id == "stamp-cao-lau") return "imprint_cao_lau";
+            if (id == "stamp-hoian-exchange") return "imprint_hoian_exchange";
+            if (id == "stamp-jeonju-hanok") return "imprint_jeonju_hanok";
+            if (id == "stamp-bibimbap") return "imprint_bibimbap";
+            if (id == "stamp-jeonju-exchange") return "imprint_jeonju_exchange";
+            return "imprint_unknown";
         }
 
         private void DrawWardrobe(Transform parent)
@@ -681,7 +793,7 @@ namespace TastePassport.Core
         {
             Header(parent, T(run.Level.PlaceKey));
             Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 230);
-            SpeakerBadge(parent, run.Level == LevelCatalog.HoiAn ? "Mai" : "Joon");
+            SpeakerBadge(parent, T(run.Level == LevelCatalog.HoiAn ? "character_nhung" : "character_gabo"));
             var card = Card(parent, 220);
             Label(card, T(run.Level.GuideKey), 31, 172, Ink, TextAnchor.MiddleCenter);
             NarrationButtons(parent, T(run.Level.GuideKey));
@@ -942,6 +1054,7 @@ namespace TastePassport.Core
             resultCommitted = true;
             var saved = JsonUtility.FromJson<PlayerProfile>(JsonUtility.ToJson(profile));
             ProgressService.Record(saved, run.Level.Id, run.Score, run.Stars);
+            RecordMissionWorldMark(saved, run.Level.Id);
             saved.coins += 20 + run.Stars * 5;
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
@@ -964,10 +1077,10 @@ namespace TastePassport.Core
             Label(card, T("stars") + ": " + new string('★', stars), 30, 60, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             var stamp = Card(parent, 128);
             Label(stamp, "◆  " + T("stamp") + ": " + T(subjectKey), 28, 80, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            string speaker = koreanBackdrop ? "Joon" : "Mai";
+            string speaker = T(koreanBackdrop ? "character_gabo" : "character_nhung");
             var letter = Card(parent, 174);
             Label(letter, "◆  " + speaker, 25, 36, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(letter, T(koreanBackdrop ? "stamp_message_joon" : "stamp_message_mai", T(subjectKey)), 24, 90, Ink, TextAnchor.MiddleCenter);
+            Label(letter, T(koreanBackdrop ? "stamp_message_gabo" : "stamp_message_nhung", T(subjectKey)), 24, 90, Ink, TextAnchor.MiddleCenter);
             Button(parent, T("passport"), Jade, () => Navigate(Page.Passport));
             Button(parent, T("replay"), Lantern, () => { if (matchResult) StartMatch(matchRun.Definition); else if (recipeResult) StartRecipe(recipeRun.Recipe); else StartLevel(run.Level); });
             Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
@@ -988,7 +1101,7 @@ namespace TastePassport.Core
         {
             Header(parent, T(recipeRun.Recipe.DishKey));
             Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 230);
-            SpeakerBadge(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? "Kim" : "Lan");
+            SpeakerBadge(parent, T(recipeRun.Recipe == RecipeCatalog.Bibimbap ? "character_kim" : "character_lan"));
             var card = Card(parent, 218);
             Label(card, T(recipeRun.Recipe.GuideKey), 30, 170, Ink, TextAnchor.MiddleCenter);
             NarrationButtons(parent, T(recipeRun.Recipe.GuideKey));
@@ -1080,6 +1193,7 @@ namespace TastePassport.Core
             resultCommitted = true;
             var saved = JsonUtility.FromJson<PlayerProfile>(JsonUtility.ToJson(profile));
             ProgressService.Record(saved, recipeRun.Recipe.Id, recipeRun.Score, recipeRun.Stars);
+            RecordMissionWorldMark(saved, recipeRun.Recipe.Id);
             saved.coins += 20 + recipeRun.Stars * 5;
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
@@ -1102,7 +1216,7 @@ namespace TastePassport.Core
         {
             Header(parent, T(matchRun.Definition.TitleKey));
             Artwork(parent, TravelArtworkKind.Friendship, 200);
-            SpeakerBadge(parent, matchRun.Definition == MatchCatalog.HoiAn ? "Mai" : "Joon");
+            SpeakerBadge(parent, T(matchRun.Definition == MatchCatalog.HoiAn ? "character_nhung" : "character_gabo"));
             var card = Card(parent, 230);
             Label(card, T(matchRun.Definition.GuideKey), 29, 180, Ink, TextAnchor.MiddleCenter);
             NarrationButtons(parent, T(matchRun.Definition.GuideKey));
@@ -1150,6 +1264,7 @@ namespace TastePassport.Core
             resultCommitted = true;
             var saved = JsonUtility.FromJson<PlayerProfile>(JsonUtility.ToJson(profile));
             ProgressService.Record(saved, matchRun.Definition.Id, matchRun.Score, matchRun.Stars);
+            RecordMissionWorldMark(saved, matchRun.Definition.Id);
             saved.coins += 20 + matchRun.Stars * 5;
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;

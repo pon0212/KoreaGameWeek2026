@@ -5,6 +5,7 @@ using System.Linq;
 using TastePassport.Gameplay;
 using TastePassport.Localization;
 using TastePassport.Save;
+using TastePassport.World;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
@@ -14,12 +15,12 @@ namespace TastePassport.Core
     // Activated only by the headless smoke command. Never included in a player build.
     public sealed class TastePassportSmokeDriver : MonoBehaviour
     {
-        private static readonly string[] Ids = { LevelCatalog.HoiAn.Id, LevelCatalog.Jeonju.Id, RecipeCatalog.CaoLau.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.HoiAn.Id, MatchCatalog.Jeonju.Id };
-        private static readonly string[] MapLabels = { "Hội An", "Jeonju", "Cao Lầu", "Bibimbap", "Vị khách phương xa", "Hành trình giao lưu" };
+        private static readonly string[] Ids = { LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id, LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id };
+        private static readonly string[] MapLabels = { "Hội An", "Cao Lầu", "Vị khách phương xa", "Jeonju", "Bibimbap", "Hành trình giao lưu" };
         private PassportApp app;
         private string testPath;
         private int stage, mission, searchIndex, pieceIndex, recipeStep;
-        private bool replaying;
+        private bool replaying, hoianWorldChecked, jeonjuWorldChecked;
         private float started, nextTick;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -45,7 +46,7 @@ namespace TastePassport.Core
             app = GetComponent<PassportApp>();
             testPath = Environment.GetEnvironmentVariable("TP_SMOKE_PROFILE");
             stage = mission = searchIndex = pieceIndex = recipeStep = 0;
-            replaying = false;
+            replaying = hoianWorldChecked = jeonjuWorldChecked = false;
             started = Time.realtimeSinceStartup;
             nextTick = started + 0.3f;
         }
@@ -59,7 +60,16 @@ namespace TastePassport.Core
                 if (Time.realtimeSinceStartup - started > 120) throw new TimeoutException("Smoke test timed out at stage " + stage);
                 switch (stage)
                 {
-                    case 0: Click("Bắt đầu hành trình"); stage = 1; break;
+                    case 0:
+                        if (new ProfileStore(testPath).Load().language != "vi")
+                            throw new InvalidDataException("A fresh profile did not default to Vietnamese");
+                        if (GameText.Get("vi", "title") != "DẤU XỨ VIỆT HÀN" ||
+                            GameText.Get("vi", "tagline") != "Mỗi vùng đất một câu chuyện – Mỗi hành trình một dấu ấn.")
+                            throw new InvalidDataException("Vietnamese brand title or tagline is incorrect");
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "title")) ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "tagline")))
+                            throw new InvalidOperationException("The main menu is missing the Vietnamese-first brand heading");
+                        Click("Bắt đầu hành trình"); stage = 1; break;
                     case 1: Click("Tiếp theo"); stage = 2; break;
                     case 2:
                         var input = app.GetComponentInChildren<InputField>();
@@ -73,8 +83,22 @@ namespace TastePassport.Core
                             throw new InvalidDataException("Profile creation was not saved");
                         VerifyBackupRecovery();
                         Click("Mở bản đồ"); stage = 5; break;
-                    case 5: Click(MapLabels[mission]); stage = 6; break;
-                    case 6: Click("Bắt đầu khám phá"); stage = mission < 2 ? 7 : mission < 4 ? 10 : 11; break;
+                    case 5:
+                        if (mission == 0 && !hoianWorldChecked)
+                        {
+                            CheckWorldEntry("hoian", "explore_hoian", "prologue_nhung_first", "nhung-intro-seen", () => hoianWorldChecked = true);
+                            break;
+                        }
+                        if (mission == 3 && !jeonjuWorldChecked)
+                        {
+                            CheckWorldEntry("jeonju", "explore_jeonju", "gabo_first", "gabo-met", () => jeonjuWorldChecked = true);
+                            break;
+                        }
+                        Click(MapLabels[mission]); stage = 6; break;
+                    case 6:
+                        Click("Bắt đầu khám phá");
+                        stage = mission == 0 || mission == 3 ? 7 : mission == 1 || mission == 4 ? 10 : 11;
+                        break;
                     case 7:
                         if (Find("Mảnh 1") != null) { stage = 8; break; }
                         var objects = mission == 0 ? LevelCatalog.HoiAn.ObjectKeys : LevelCatalog.Jeonju.ObjectKeys;
@@ -87,9 +111,9 @@ namespace TastePassport.Core
                         stage = pieceIndex == 3 ? 12 : 8;
                         break;
                     case 10:
-                        var recipe = mission == 2 ? RecipeCatalog.CaoLau : RecipeCatalog.Bibimbap;
+                        var recipe = mission == 1 ? RecipeCatalog.CaoLau : RecipeCatalog.Bibimbap;
                         if (recipeStep < recipe.Steps.Length) Click(GameText.Get("vi", recipe.Steps[recipeStep++]));
-                        else if (mission == 3) { Click("Trộn đều"); stage = 12; }
+                        else if (mission == 4) { Click("Trộn đều"); stage = 12; }
                         else stage = 12;
                         break;
                     case 11:
@@ -149,7 +173,7 @@ namespace TastePassport.Core
                         var translated = new ProfileStore(testPath).Load();
                         if (translated.language != "ko" || Find("뒤로") == null)
                             throw new InvalidDataException("Korean switch was not saved or rendered");
-                        Finish(0, "Taste Passport smoke PASS: six missions, replay, saved progress, three postcards, flip, and Korean switch");
+                        Finish(0, "DẤU XỨ smoke PASS: Vietnamese brand, Hội An/Jeonju exploration, six missions, saved marks, postcards and Korean switch");
                         break;
                 }
             }
@@ -157,6 +181,49 @@ namespace TastePassport.Core
         }
 
         private Button Find(string label) => app.GetComponentsInChildren<Button>().FirstOrDefault(b => b.name.StartsWith("Button " + label, StringComparison.Ordinal));
+
+        private void CheckWorldEntry(string worldId, string buttonKey, string firstDialogueKey, string expectedFlag, Action passed)
+        {
+            string buttonLabel = GameText.Get("vi", buttonKey);
+            if (worldId == "hoian" && Find(buttonLabel) == null)
+                throw new InvalidOperationException("The Hội An exploration entry is missing from the map");
+
+            if (worldId == "jeonju")
+            {
+                var profileBeforeUnlock = new ProfileStore(testPath).Load();
+                if (!profileBeforeUnlock.storyFlags.Contains("jeonju-unlocked"))
+                    throw new InvalidDataException("Jeonju did not unlock after the Hội An story milestone");
+                if (profileBeforeUnlock.chapterIndex != 3)
+                    throw new InvalidDataException("The story chapter did not advance after the Hội An milestone");
+                if (Find(buttonLabel) == null)
+                    throw new InvalidOperationException("The Jeonju exploration entry is missing after unlock");
+            }
+
+            Click(buttonLabel);
+            var session = app.GetComponent<WalkableWorldSession>();
+            if (session == null || !session.IsOpen) throw new InvalidOperationException("Map entry did not open " + worldId);
+            if (GameText.Get("vi", "character_nhung") != "Nhung" || GameText.Get("vi", "character_gabo") != "Ga Bo (가보)")
+                throw new InvalidDataException("The official companion names were changed");
+
+            var definition = WorldCatalog.Get(worldId);
+            var npc = definition.Interactables.First(i => i.IsNpc);
+            session.SetPlayerPosition(npc.Position);
+            string expectedAction = GameText.Get("vi", "world_action") + " · " + GameText.Get("vi", npc.NameKey);
+            if (session.InteractionButtonLabel != expectedAction)
+                throw new InvalidOperationException("The Vietnamese world action button did not name its companion");
+            var interaction = session.InteractNearest();
+            if (interaction == null || interaction.DialogueKey != firstDialogueKey)
+                throw new InvalidDataException("The first companion dialogue is incorrect in " + worldId);
+            if (worldId == "hoian" && !session.CurrentDialogueText.Contains("DẤU XỨ"))
+                throw new InvalidDataException("The Vietnamese prologue did not mention the DẤU XỨ book");
+            var profileAfterInteraction = new ProfileStore(testPath).Load();
+            if (!profileAfterInteraction.storyFlags.Contains(expectedFlag))
+                throw new InvalidDataException("Companion interaction was not saved: " + expectedFlag);
+            session.Close();
+            if (Find(MapLabels[mission]) == null)
+                throw new InvalidOperationException("Closing " + worldId + " did not return to the map");
+            passed();
+        }
         private void VerifyBackupRecovery()
         {
             string recoveryPath = testPath + ".recovery";
