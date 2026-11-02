@@ -87,8 +87,17 @@ namespace TastePassport.World
             {
                 new WorldInteractableDefinition("gabo", "character_gabo", "character_gabo", "gabo_first", "gabo_repeat",
                     "gabo-met", "jeonju-postcard-opened", "Art/Characters/GaBo", new Vector2(-3.7f, -1.72f), 1.35f, true),
+                new WorldInteractableDefinition("bkim", "character_kim", "character_kim", "bkim_first", "bkim_repeat",
+                    "bkim-met", "hanji-workshop-opened", "Art/Characters/BKim", new Vector2(-0.75f, -1.72f), 1.35f, true, "hanji-craft"),
                 new WorldInteractableDefinition("hanok", "landmark_hanok", "dauxu_speaker", "hanok_discovery_first", "hanok_discovery_repeat",
-                    "hanok-observed", "stamp-hanok", null, new Vector2(1.45f, -1.7f), 1.25f, false)
+                    "hanok-observed", "stamp-hanok", null, new Vector2(1.05f, -1.7f), 1.25f, false),
+                new WorldInteractableDefinition("gyeonggijeon", "landmark_gyeonggijeon", "dauxu_speaker", "gyeonggijeon_first", "gyeonggijeon_repeat",
+                    "gyeonggijeon-discovered", "stamp-gyeonggijeon", null, new Vector2(2.65f, -1.7f), 1.2f, false),
+                new WorldInteractableDefinition("pansori", "landmark_pansori", "dauxu_speaker", "pansori_first", "pansori_repeat",
+                    "pansori-discovered", "stamp-pansori", null, new Vector2(4.15f, -1.7f), 1.2f, false),
+                new WorldInteractableDefinition("hanji-display", "hanji_display", "dauxu_speaker", "hanji_display_first", "hanji_display_repeat",
+                    "hanji-display-seen", "hanji-display-visited", "Art/Props/HanjiFan", new Vector2(5.55f, -1.7f), 1.15f, false,
+                    null, "hanji-display-ready")
             });
 
         public static WorldDefinition Get(string worldId) => worldId == "jeonju" ? Jeonju : HoiAn;

@@ -30,3 +30,15 @@ The portraits are single idle poses, not animated spritesheets. The backgrounds 
 - `Characters/Lan.png`: Cô Lan's companion sprite was generated in the same visual style as the other walkable characters. She is a fictional guide and is not modeled on a named living artisan.
 
 The craft activity stores the selected frame and fabric color in the inventory variant ID and applies a light color tint to the shared preview/display sprite. It does not isolate the silk for color changes or redraw the frame geometry for each selected shape.
+
+## Jeonju Hanji activity (03 November 2026)
+
+- `Props/HanjiFan.png`, `Props/HanjiBookmark.png`, and `Props/HanjiFlower.png`: original transparent product illustrations generated for this project with Codex's built-in image generation tool. The prompts requested three clearly distinct 2:3 Hanji craft objects—a folding fan, a bookmark, and a paper flower—in a warm, hand-painted storybook style, centered with clear margins, no text, and transparent backgrounds.
+- The workshop colors tint the whole illustration lightly; they do not recolor an isolated paper layer. The selected motif is recorded in the product variant and shown in the label, but is not drawn as a separate overlay. The model represents a short paper-craft activity, not the complete traditional Hanji paper-making process.
+- Unity imports were checked as single 2:3 sprites at 200 pixels per unit. The focused smoke verified that all three shapes load and that the most recently saved product appears in Jeonju's display. No Android device-scale review has been performed.
+
+## Jeonju character sprite (03 November 2026)
+
+- `Characters/BKim.png`: original 1024×1536 transparent sprite generated with Codex's built-in image generation tool. Prompt: “Create Bác Kim, a warm Korean hanji artisan and mentor, as a single standing character asset. Friendly Korean man in his late 50s, gently smiling, holding a small handmade paper sheet; modest indigo work vest over a cream traditional Korean hanbok top and dark trousers; premium cozy storybook illustration, refined chibi proportions, painterly watercolor-like texture, soft dimensional shading, 2:3 full-body portrait, transparent background, no text or watermark.”
+- The character is fictional and is not modeled on a specific artisan. The paper prop represents the craft theme, not a claim that the pictured paper reproduces a full traditional production stage.
+- Unity import is configured as a single 2:3 sprite at 200 pixels per unit. The sprite was checked in the editor smoke; no Android device-scale review has been performed.

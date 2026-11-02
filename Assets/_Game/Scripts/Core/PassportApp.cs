@@ -14,7 +14,7 @@ namespace TastePassport.Core
 {
     public sealed class PassportApp : MonoBehaviour
     {
-        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, Inventory, CultureCards }
+        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards }
         private static readonly Color Cream = Hex("#F6E9D4");
         private static readonly Color Lantern = Hex("#E6A14D");
         private static readonly Color Jade = Hex("#357E84");
@@ -66,6 +66,8 @@ namespace TastePassport.Core
         private string selectedLanternMaterialId;
         private string lanternResultItemId;
         private Text lanternMaterialStatus;
+        private HanjiCraftRun hanjiCraftRun;
+        private string hanjiResultItemId;
 
         private string T(string key, string place = null) => GameText.Get(profile.language, key, profile.playerName, place);
 
@@ -268,6 +270,8 @@ namespace TastePassport.Core
                 case Page.FinaleResult: DrawFinaleResult(content); break;
                 case Page.LanternCraft: DrawLanternCraft(content); break;
                 case Page.LanternResult: DrawLanternResult(content); break;
+                case Page.HanjiCraft: DrawHanjiCraft(content); break;
+                case Page.HanjiResult: DrawHanjiResult(content); break;
                 case Page.Inventory: DrawInventory(content); break;
                 case Page.CultureCards: DrawCultureCards(content); break;
             }
@@ -696,6 +700,176 @@ namespace TastePassport.Core
             Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
+        private void StartHanjiCraft()
+        {
+            StoryNarration.Stop();
+            hanjiCraftRun = new HanjiCraftRun();
+            hanjiResultItemId = null;
+            koreanBackdrop = true;
+            Navigate(Page.HanjiCraft);
+        }
+
+        private void DrawHanjiCraft(Transform parent)
+        {
+            Header(parent, T("hanji_craft_title"));
+            if (hanjiCraftRun == null) hanjiCraftRun = new HanjiCraftRun();
+            Label(parent, T("hanji_craft_intro"), 27, 86, Ink, TextAnchor.MiddleCenter);
+            DrawHanjiPreview(parent, 250, hanjiCraftRun.ShapeId, hanjiCraftRun.PaperColorId);
+            if (!string.IsNullOrEmpty(hanjiCraftRun.ShapeId))
+                Label(parent, HanjiVariantLabel(hanjiCraftRun.ShapeId, hanjiCraftRun.PaperColorId, hanjiCraftRun.MotifId),
+                    25, 52, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+
+            var colorCard = Card(parent, 300);
+            Label(colorCard, T("hanji_choose_color"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            for (int rowIndex = 0; rowIndex < 2; rowIndex++)
+            {
+                var row = NewRect("Hanji paper color choices", colorCard);
+                SetHeight(row, 82);
+                AddHorizontal(row);
+                for (int column = 0; column < 2; column++)
+                {
+                    string colorId = new[] { "indigo", "vermilion", "gold", "jade" }[rowIndex * 2 + column];
+                    bool selected = hanjiCraftRun.PaperColorId == colorId;
+                    Button(row, T("hanji_color_" + colorId) + (selected ? " ✓" : ""),
+                        selected ? ColorForHanji(colorId) : Paper,
+                        () => SelectHanjiColor(colorId), selected ? Color.white : Ink);
+                }
+            }
+
+            var shapeCard = Card(parent, 250);
+            Label(shapeCard, T("hanji_choose_shape"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var shapeRow = NewRect("Hanji product shape choices", shapeCard);
+            SetHeight(shapeRow, 132);
+            AddHorizontal(shapeRow);
+            foreach (string shapeId in new[] { "fan", "bookmark", "flower" })
+            {
+                string chosenShape = shapeId;
+                bool selected = hanjiCraftRun.ShapeId == shapeId;
+                Button(shapeRow, T("hanji_shape_" + shapeId) + (selected ? " ✓" : ""),
+                    selected ? Jade : Paper, () => SelectHanjiShape(chosenShape), selected ? Color.white : Ink);
+            }
+
+            var motifCard = Card(parent, 210);
+            Label(motifCard, T("hanji_choose_motif"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var motifRow = NewRect("Hanji motif choices", motifCard);
+            SetHeight(motifRow, 108);
+            AddHorizontal(motifRow);
+            foreach (string motifId in new[] { "flower", "cloud", "stripe" })
+            {
+                string chosenMotif = motifId;
+                bool selected = hanjiCraftRun.MotifId == motifId;
+                Button(motifRow, T("hanji_motif_" + motifId) + (selected ? " ✓" : ""),
+                    selected ? Lantern : Paper, () => SelectHanjiMotif(chosenMotif), selected ? Color.white : Ink);
+            }
+
+            var processCard = Card(parent, 360);
+            Label(processCard, T("hanji_process_title"), 27, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(processCard, T("hanji_process_copy"), 24, 88, Ink, TextAnchor.MiddleCenter);
+            Button(processCard, T("hanji_cut") + StepMark(hanjiCraftRun.CutApplied),
+                hanjiCraftRun.CutApplied ? Jade : Paper, () => ApplyHanjiAction("cut"), hanjiCraftRun.CutApplied ? Color.white : Ink);
+            Button(processCard, T("hanji_fold") + StepMark(hanjiCraftRun.FoldApplied),
+                hanjiCraftRun.FoldApplied ? Jade : Paper, () => ApplyHanjiAction("fold"), hanjiCraftRun.FoldApplied ? Color.white : Ink);
+            Button(processCard, T("hanji_decorate") + StepMark(hanjiCraftRun.DecorationApplied),
+                hanjiCraftRun.DecorationApplied ? Jade : Paper, () => ApplyHanjiAction("decorate"), hanjiCraftRun.DecorationApplied ? Color.white : Ink);
+            if (hanjiCraftRun.Complete)
+            {
+                Label(processCard, T("hanji_completed_pending_save"), 23, 54, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                Button(processCard, T("save_result"), Jade, CompleteHanjiCraft);
+            }
+            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+        }
+
+        private static string StepMark(bool applied) => applied ? "  ✓" : "";
+
+        private void SelectHanjiColor(string colorId)
+        {
+            if (hanjiCraftRun != null && hanjiCraftRun.SelectPaperColor(colorId)) Show();
+        }
+
+        private void SelectHanjiShape(string shapeId)
+        {
+            if (hanjiCraftRun != null && hanjiCraftRun.SelectShape(shapeId)) Show();
+        }
+
+        private void SelectHanjiMotif(string motifId)
+        {
+            if (hanjiCraftRun != null && hanjiCraftRun.SelectMotif(motifId)) Show();
+        }
+
+        private void ApplyHanjiAction(string actionId)
+        {
+            if (hanjiCraftRun == null) return;
+            HanjiCraftActionResult result = hanjiCraftRun.ApplyAction(actionId);
+            if (result == HanjiCraftActionResult.MissingDesign) notice = T("hanji_missing_design");
+            else if (result == HanjiCraftActionResult.OutOfOrder) notice = T("hanji_out_of_order");
+            else if (result == HanjiCraftActionResult.AlreadyApplied) notice = T("hanji_already_applied");
+            else if (result == HanjiCraftActionResult.Applied) notice = T("hanji_step_applied");
+            Show();
+            if (result == HanjiCraftActionResult.Completed) CompleteHanjiCraft();
+        }
+
+        private void CompleteHanjiCraft()
+        {
+            if (hanjiCraftRun == null || !hanjiCraftRun.Complete)
+            {
+                notice = T("hanji_save_error");
+                Show();
+                return;
+            }
+            var candidate = new PlayerProfile();
+            candidate.CopyFrom(profile);
+            if (!InventoryService.RecordHanjiCraft(candidate, hanjiCraftRun.ShapeId,
+                    hanjiCraftRun.PaperColorId, hanjiCraftRun.MotifId))
+            {
+                notice = T("inventory_full");
+                Show();
+                return;
+            }
+            if (!store.TrySave(candidate))
+            {
+                notice = T("save_error");
+                Show();
+                return;
+            }
+            profile = candidate;
+            hanjiResultItemId = InventoryService.HanjiProductPrefix + hanjiCraftRun.ShapeId + "-" +
+                                hanjiCraftRun.PaperColorId + "-" + hanjiCraftRun.MotifId;
+            Navigate(Page.HanjiResult);
+        }
+
+        private void DrawHanjiPreview(Transform parent, float height, string shapeId, string colorId)
+        {
+            RectTransform preview = NewRect("Hanji Product Preview", parent);
+            SetHeight(preview, height);
+            var image = preview.gameObject.AddComponent<Image>();
+            image.sprite = Resources.Load<Sprite>(HanjiSpritePath(shapeId));
+            image.color = string.IsNullOrEmpty(colorId) ? Color.white : Color.Lerp(Color.white, ColorForHanji(colorId), 0.22f);
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+            if (image.sprite == null) Debug.LogError("DẤU XỨ: Missing Hanji sprite for " + (shapeId ?? "default"));
+        }
+
+        private static string HanjiSpritePath(string shapeId)
+        {
+            if (shapeId == "bookmark") return "Art/Props/HanjiBookmark";
+            if (shapeId == "flower") return "Art/Props/HanjiFlower";
+            return "Art/Props/HanjiFan";
+        }
+
+        private void DrawHanjiResult(Transform parent)
+        {
+            Header(parent, T("hanji_result_title"));
+            DrawHanjiPreview(parent, 300, InventoryService.GetHanjiShapeId(hanjiResultItemId),
+                InventoryService.GetHanjiColorId(hanjiResultItemId));
+            Label(parent, T("hanji_result_copy"), 28, 88, Ink, TextAnchor.MiddleCenter);
+            Label(parent, T("hanji_item") + ": " + HanjiVariantLabel(hanjiResultItemId),
+                27, 74, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Button(parent, T("inventory"), Jade, () => Navigate(Page.Inventory));
+            Button(parent, T("culture_cards"), Lantern, () => Navigate(Page.CultureCards));
+            Button(parent, T("hanji_again"), Paper, StartHanjiCraft, Ink);
+            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+        }
+
         private void DrawInventory(Transform parent)
         {
             Header(parent, T("inventory"));
@@ -706,9 +880,20 @@ namespace TastePassport.Core
                 foreach (string itemId in profile.inventoryItems)
                 {
                     var card = Card(parent, 250);
-                    Label(card, T("lantern_item"), 29, 52, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-                    Label(card, LanternVariantLabel(itemId), 26, 50, Ink, TextAnchor.MiddleCenter);
-                    DrawLanternPreview(card, 120, InventoryService.GetLanternColorId(itemId));
+                    string hanjiShape = InventoryService.GetHanjiShapeId(itemId);
+                    if (!string.IsNullOrEmpty(hanjiShape))
+                    {
+                        Label(card, T("hanji_item"), 29, 52, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+                        Label(card, HanjiVariantLabel(itemId), 26, 50, Ink, TextAnchor.MiddleCenter);
+                        DrawHanjiPreview(card, 120, hanjiShape, InventoryService.GetHanjiColorId(itemId));
+                    }
+                    else if (!string.IsNullOrEmpty(InventoryService.GetLanternFrameId(itemId)))
+                    {
+                        Label(card, T("lantern_item"), 29, 52, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+                        Label(card, LanternVariantLabel(itemId), 26, 50, Ink, TextAnchor.MiddleCenter);
+                        DrawLanternPreview(card, 120, InventoryService.GetLanternColorId(itemId));
+                    }
+                    else Label(card, T("inventory_unknown_item"), 29, 60, Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
                 }
             }
             Button(parent, T("culture_cards"), Lantern, () => Navigate(Page.CultureCards));
@@ -721,6 +906,11 @@ namespace TastePassport.Core
             DrawCultureCard(parent, InventoryService.ChuaCauCardId, "culture_chuacau_title", "culture_chuacau_body", "culture_chuacau_source");
             DrawCultureCard(parent, InventoryService.CaoLauCardId, "culture_caolau_title", "culture_caolau_body", "culture_caolau_source");
             DrawCultureCard(parent, InventoryService.LanternCardId, "culture_lantern_title", "culture_lantern_body", "culture_lantern_source");
+            DrawCultureCard(parent, InventoryService.HanokCardId, "culture_hanok_title", "culture_hanok_body", "culture_hanok_source");
+            DrawCultureCard(parent, InventoryService.HanjiCardId, "culture_hanji_title", "culture_hanji_body", "culture_hanji_source");
+            DrawCultureCard(parent, InventoryService.BibimbapCardId, "culture_bibimbap_title", "culture_bibimbap_body", "culture_bibimbap_source");
+            DrawCultureCard(parent, InventoryService.GyeonggijeonCardId, "culture_gyeonggijeon_title", "culture_gyeonggijeon_body", "culture_gyeonggijeon_source");
+            DrawCultureCard(parent, InventoryService.PansoriCardId, "culture_pansori_title", "culture_pansori_body", "culture_pansori_source");
             Button(parent, T("inventory"), Lantern, () => Navigate(Page.Inventory));
             Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
         }
@@ -745,6 +935,27 @@ namespace TastePassport.Core
             if (colorId == "gold") return Hex("#C89136");
             if (colorId == "blue") return Hex("#3D6F91");
             return Hex("#56785E");
+        }
+
+        private Color ColorForHanji(string colorId)
+        {
+            if (colorId == "indigo") return Hex("#49658A");
+            if (colorId == "vermilion") return Hex("#B7473D");
+            if (colorId == "gold") return Hex("#C89136");
+            return Hex("#4F806C");
+        }
+
+        private string HanjiVariantLabel(string itemId)
+        {
+            return HanjiVariantLabel(InventoryService.GetHanjiShapeId(itemId),
+                InventoryService.GetHanjiColorId(itemId), InventoryService.GetHanjiMotifId(itemId));
+        }
+
+        private string HanjiVariantLabel(string shapeId, string colorId, string motifId)
+        {
+            if (string.IsNullOrEmpty(shapeId) || string.IsNullOrEmpty(colorId) || string.IsNullOrEmpty(motifId))
+                return T("inventory_unknown_item");
+            return T("hanji_shape_" + shapeId) + " · " + T("hanji_color_" + colorId) + " · " + T("hanji_motif_" + motifId);
         }
 
         private string LanternVariantLabel(string itemId)
@@ -830,6 +1041,10 @@ namespace TastePassport.Core
                 jeonjuUnlocked ? Jade : Border,
                 jeonjuUnlocked ? () => OpenWorld("jeonju") : () => Toast(T("jeonju_not_unlocked")),
                 jeonjuUnlocked ? Color.white : Ink);
+            CompactButton(jeonju, jeonjuUnlocked ? T("hanji_craft_map") : "○  " + T("hanji_craft_map") + " · " + T("locked"),
+                jeonjuUnlocked ? Lantern : Border,
+                jeonjuUnlocked ? StartHanjiCraft : () => Toast(T("jeonju_not_unlocked")),
+                jeonjuUnlocked ? Color.white : Ink);
             KoreaVisuals.DecorateLocationCard(jeonju);
             Button(parent, T("passport"), Jade, () => Navigate(Page.Passport));
             Button(parent, T("settings"), Paper, () => { settingsReturnPage = Page.Map; Navigate(Page.Settings); }, Ink);
@@ -870,6 +1085,7 @@ namespace TastePassport.Core
         private void HandleWorldActivity(string activityId)
         {
             if (activityId == "lantern-craft") StartLanternCraft();
+            else if (activityId == "hanji-craft") StartHanjiCraft();
         }
 
         private bool IsJeonjuUnlocked(PlayerProfile target) =>
@@ -903,9 +1119,15 @@ namespace TastePassport.Core
             else if (missionId == MatchCatalog.HoiAn.Id)
                 StoryProgressService.RecordInteraction(target, "hoian-cultural-exchange-complete", "stamp-hoian-exchange");
             else if (missionId == LevelCatalog.Jeonju.Id)
+            {
                 StoryProgressService.RecordInteraction(target, "hanok-village-observed", "stamp-jeonju-hanok");
+                InventoryService.AddCultureCard(target, InventoryService.HanokCardId);
+            }
             else if (missionId == RecipeCatalog.Bibimbap.Id)
+            {
                 StoryProgressService.RecordInteraction(target, "bibimbap-discovered", "stamp-bibimbap");
+                InventoryService.AddCultureCard(target, InventoryService.BibimbapCardId);
+            }
             else if (missionId == MatchCatalog.Jeonju.Id)
                 StoryProgressService.RecordInteraction(target, "jeonju-cultural-exchange-complete", "stamp-jeonju-exchange");
 

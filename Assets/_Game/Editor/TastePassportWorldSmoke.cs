@@ -15,6 +15,15 @@ namespace TastePassport.EditorTools
 {
     public static class TastePassportWorldSmoke
     {
+        [MenuItem("Tools/Taste Passport/Validate Phase Four")]
+        public static void RunPhaseFourChecks()
+        {
+            RunJeonjuInventoryChecks();
+            RunJeonjuWorldChecks();
+            RunHanjiCraftChecks();
+            Debug.Log("Dấu Xứ phase four smoke PASS: Jeonju collection, localized culture, Hanji workshop, and persistent world display");
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Phase Three")]
         public static void RunPhaseThreeChecks()
         {
@@ -25,6 +34,246 @@ namespace TastePassport.EditorTools
             RunLanternDragDropChecks();
             RunWorldSessionChecks();
             Debug.Log("Dấu Xứ phase three smoke PASS: save, cultural collections, lantern craft model, localized world activity, and art imports");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Jeonju Inventory")]
+        public static void RunJeonjuInventoryChecks()
+        {
+            var profile = new PlayerProfile();
+            var recordHanji = typeof(InventoryService).GetMethod("RecordHanjiCraft");
+            Require(recordHanji != null, "Hanji product recording is not implemented");
+            string itemId = "crafted-hanji-fan-indigo-flower";
+            Require((bool)recordHanji.Invoke(null, new object[] { profile, "fan", "indigo", "flower" }),
+                "valid Hanji craft was rejected");
+            Require(profile.inventoryItems.Contains(itemId) && profile.culturalCards.Contains("culture-jeonju-hanji") &&
+                    StoryProgressService.HasImprint(profile, "hanji-display-ready"),
+                "Hanji craft did not grant its product, cultural card, and display imprint");
+
+            Require((bool)recordHanji.Invoke(null, new object[] { profile, "fan", "indigo", "flower" }) &&
+                    profile.inventoryItems.FindAll(id => id == itemId).Count == 1,
+                "repeated Hanji craft duplicated the same product");
+            Require(!(bool)recordHanji.Invoke(null, new object[] { profile, "triangle", "indigo", "flower" }) &&
+                    !(bool)recordHanji.Invoke(null, new object[] { profile, "fan", "violet", "flower" }),
+                "invalid Hanji variants were accepted");
+            var latestHanji = typeof(InventoryService).GetMethod("GetLatestCraftedHanji");
+            Require(latestHanji != null && (string)latestHanji.Invoke(null, new object[] { profile }) == itemId,
+                "latest crafted Hanji product was not returned");
+
+            var fullProfile = new PlayerProfile();
+            for (int i = 0; i < 128; i++) fullProfile.inventoryItems.Add("full-item-" + i);
+            Require(!(bool)recordHanji.Invoke(null, new object[] { fullProfile, "fan", "indigo", "flower" }) &&
+                    !fullProfile.culturalCards.Contains("culture-jeonju-hanji") &&
+                    !StoryProgressService.HasImprint(fullProfile, "hanji-display-ready"),
+                "full inventory partially recorded a Hanji craft");
+
+            string path = Path.Combine(Path.GetTempPath(), "taste_passport_hanji_inventory_" + Guid.NewGuid().ToString("N") + ".json");
+            try
+            {
+                var store = new ProfileStore(path);
+                Require(store.TrySave(profile), "Hanji profile could not be saved");
+                var reloaded = new ProfileStore(path).Load();
+                Require(reloaded.inventoryItems.Contains(itemId) && reloaded.culturalCards.Contains("culture-jeonju-hanji") &&
+                        StoryProgressService.HasImprint(reloaded, "hanji-display-ready"),
+                    "Hanji product, card, or imprint did not survive reload");
+            }
+            finally
+            {
+                foreach (string file in new[] { path, path + ".bak", path + ".tmp", path + ".old" })
+                    if (File.Exists(file)) File.Delete(file);
+            }
+            Debug.Log("Dấu Xứ Jeonju inventory smoke PASS: Hanji product variants, idempotency, capacity, card, imprint, and reload");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Jeonju World")]
+        public static void RunJeonjuWorldChecks()
+        {
+            WorldDefinition world = WorldCatalog.Get("jeonju");
+            WorldInteractableDefinition kim = FindTarget(world, "bkim");
+            Require(kim != null && kim.IsNpc && kim.ActivityId == "hanji-craft" &&
+                    kim.SpriteResourcePath == "Art/Characters/BKim",
+                "Bác Kim or his Hanji activity is missing from Jeonju");
+            Require(FindTarget(world, "gyeonggijeon") != null && FindTarget(world, "pansori") != null,
+                "Gyeonggijeon or Pansori discovery is missing from Jeonju");
+            WorldInteractableDefinition display = FindTarget(world, "hanji-display");
+            Require(display != null && display.RequiredImprintId == "hanji-display-ready" &&
+                    display.SpriteResourcePath == "Art/Props/HanjiFan" && Resources.Load<Sprite>(display.SpriteResourcePath) != null,
+                "the Jeonju Hanji display is not gated by its saved craft imprint or its default sprite is missing");
+
+            string[] expectedObjects = { "hanok_roof_tiles", "hanok_wooden_door", "hanji_windows", "hanok_courtyard", "hanok_eaves", "hanok_stone_wall" };
+            for (int i = 0; i < expectedObjects.Length; i++)
+                Require(LevelCatalog.Jeonju.ObjectKeys[i] == expectedObjects[i] &&
+                        GameText.Get("vi", expectedObjects[i]) != expectedObjects[i] &&
+                        GameText.Get("ko", expectedObjects[i]) != expectedObjects[i],
+                    "Hanok detail or Vietnamese/Korean text is missing: " + expectedObjects[i]);
+            Require(GameText.Get("vi", "bkim_first").Contains("Hanji") &&
+                    GameText.Get("ko", "bkim_first").Contains("한지"),
+                "Bác Kim's Hanji introduction is missing in Vietnamese or Korean");
+            Require(GameText.Get("vi", "culture_gyeonggijeon_body").Contains("1410") &&
+                    GameText.Get("ko", "culture_pansori_body").Contains("유네스코"),
+                "Gyeonggijeon or Pansori cultural copy is missing");
+            string[] cultureCopyKeys =
+            {
+                "culture_hanok_title", "culture_hanji_title", "culture_hanji_body", "culture_hanji_source",
+                "culture_bibimbap_title", "culture_bibimbap_body", "culture_bibimbap_source",
+                "culture_gyeonggijeon_title", "culture_gyeonggijeon_source", "culture_pansori_title", "culture_pansori_source"
+            };
+            foreach (string key in cultureCopyKeys)
+                Require(GameText.Get("vi", key) != key && GameText.Get("ko", key) != key,
+                    "Jeonju culture card copy is missing in Vietnamese or Korean: " + key);
+            Require(GameText.Get("vi", "culture_hanji_source").Contains("chưa được ghi danh") &&
+                    GameText.Get("ko", "culture_hanji_source").Contains("아직 등재되지 않음"),
+                "The Hanji nomination was incorrectly described as inscribed or lacks its pending note");
+
+            CheckDiscoveryCard(FindTarget(world, "hanok"), InventoryService.HanokCardId);
+            CheckDiscoveryCard(FindTarget(world, "gyeonggijeon"), InventoryService.GyeonggijeonCardId);
+            CheckDiscoveryCard(FindTarget(world, "pansori"), InventoryService.PansoriCardId);
+            Sprite kimSprite = Resources.Load<Sprite>(kim.SpriteResourcePath);
+            Require(kimSprite != null, "Bác Kim sprite did not load from Resources");
+            Debug.Log("Dấu Xứ Jeonju world smoke PASS: Bác Kim activity, Hanok details, Gyeonggijeon/Pansori cards, VI/KO copy, and character art");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Hanji Craft")]
+        public static void RunHanjiCraftChecks()
+        {
+            RunHanjiSpriteChecks();
+            var assembly = typeof(InventoryService).Assembly;
+            var runType = assembly.GetType("TastePassport.Gameplay.HanjiCraftRun");
+            Require(runType != null, "Hanji craft state model is missing");
+            object run = Activator.CreateInstance(runType);
+            var completeProperty = runType.GetProperty("Complete");
+            var selectColor = runType.GetMethod("SelectPaperColor");
+            var selectShape = runType.GetMethod("SelectShape");
+            var selectMotif = runType.GetMethod("SelectMotif");
+            var applyAction = runType.GetMethod("ApplyAction");
+            Require(completeProperty != null && selectColor != null && selectShape != null &&
+                    selectMotif != null && applyAction != null,
+                "Hanji craft model is missing a public selection, action, or completion contract");
+            Require(!((bool)selectColor.Invoke(run, new object[] { "violet" })) &&
+                    !((bool)selectShape.Invoke(run, new object[] { "triangle" })) &&
+                    !((bool)selectMotif.Invoke(run, new object[] { "dragon" })),
+                "invalid Hanji color, shape, or decoration was accepted");
+            Require(applyAction.Invoke(run, new object[] { "fold" }).ToString() == "MissingDesign",
+                "Hanji action was accepted before the design was selected");
+            Require((bool)selectColor.Invoke(run, new object[] { "indigo" }) &&
+                    (bool)selectShape.Invoke(run, new object[] { "fan" }) &&
+                    (bool)selectMotif.Invoke(run, new object[] { "flower" }),
+                "valid Hanji color, shape, or decoration was rejected");
+            Require(applyAction.Invoke(run, new object[] { "fold" }).ToString() == "OutOfOrder",
+                "Hanji folding was allowed before cutting");
+            Require(applyAction.Invoke(run, new object[] { "cut" }).ToString() == "Applied" &&
+                    applyAction.Invoke(run, new object[] { "cut" }).ToString() == "AlreadyApplied",
+                "Hanji cutting did not enforce one application per step");
+            Require(applyAction.Invoke(run, new object[] { "fold" }).ToString() == "Applied" &&
+                    !(bool)completeProperty.GetValue(run),
+                "Hanji craft completed before decoration");
+            Require(applyAction.Invoke(run, new object[] { "decorate" }).ToString() == "Completed" &&
+                    (bool)completeProperty.GetValue(run),
+                "Hanji craft did not complete after cutting, folding, and decorating");
+            Require(!(bool)selectColor.Invoke(run, new object[] { "jade" }),
+                "completed Hanji product design remained mutable");
+
+            string path = Path.Combine(Path.GetTempPath(), "taste_passport_hanji_display_" + Guid.NewGuid().ToString("N") + ".json");
+            GameObject cameraObject = null;
+            GameObject sessionObject = null;
+            WalkableWorldSession session = null;
+            try
+            {
+                var profile = new PlayerProfile { playerName = "Nhà thám hiểm", created = true, language = "vi", lastWorldId = "jeonju" };
+                profile.lastWorldX = WorldCatalog.Get("jeonju").SpawnPoint.x;
+                profile.lastWorldY = WorldCatalog.Get("jeonju").SpawnPoint.y;
+                var store = new ProfileStore(path);
+                Require(store.TrySave(profile), "could not seed a Jeonju Hanji display profile");
+                cameraObject = new GameObject("Hanji Display Smoke Camera");
+                cameraObject.tag = "MainCamera";
+                cameraObject.AddComponent<Camera>();
+                sessionObject = new GameObject("Hanji Display Smoke Session");
+                session = sessionObject.AddComponent<WalkableWorldSession>();
+                session.Open("jeonju", profile, store, null);
+                Require(GameObject.Find("World Target - hanji-display") == null,
+                    "Hanji display appeared before the craft imprint was saved");
+                session.Close();
+
+                var saved = store.Load();
+                Require(InventoryService.RecordHanjiCraft(saved, "fan", "indigo", "flower") && store.TrySave(saved),
+                    "completed Hanji craft could not be saved before display");
+                session.Open("jeonju", store.Load(), store, null);
+                GameObject display = GameObject.Find("World Target - hanji-display");
+                Require(display != null && display.GetComponent<SpriteRenderer>() != null &&
+                        display.GetComponent<SpriteRenderer>().sprite == Resources.Load<Sprite>("Art/Props/HanjiFan") &&
+                        display.GetComponent<SpriteRenderer>().color != Color.white,
+                    "saved Hanji product did not appear as a styled Jeonju display after reload");
+                session.Close();
+
+                var secondSaved = store.Load();
+                Require(InventoryService.RecordHanjiCraft(secondSaved, "bookmark", "vermilion", "cloud") && store.TrySave(secondSaved),
+                    "second Hanji shape could not be saved for the Jeonju display");
+                session.Open("jeonju", store.Load(), store, null);
+                display = GameObject.Find("World Target - hanji-display");
+                Require(display != null && display.GetComponent<SpriteRenderer>().sprite == Resources.Load<Sprite>("Art/Props/HanjiBookmark"),
+                    "Jeonju display did not update to the latest crafted Hanji shape");
+                session.Close();
+                var reloaded = store.Load();
+                Require(reloaded.inventoryItems.Contains("crafted-hanji-fan-indigo-flower") &&
+                        reloaded.inventoryItems.Contains("crafted-hanji-bookmark-vermilion-cloud") &&
+                        InventoryService.HasCultureCard(reloaded, InventoryService.HanjiCardId) &&
+                        StoryProgressService.HasImprint(reloaded, "hanji-display-ready"),
+                    "Hanji product, culture card, or display imprint did not survive world reload");
+            }
+            finally
+            {
+                if (session != null && session.IsOpen) session.Close();
+                if (sessionObject != null) UnityEngine.Object.DestroyImmediate(sessionObject);
+                if (cameraObject != null) UnityEngine.Object.DestroyImmediate(cameraObject);
+                foreach (string file in new[] { path, path + ".bak", path + ".tmp", path + ".old" })
+                    if (File.Exists(file)) File.Delete(file);
+            }
+            Debug.Log("Dấu Xứ Hanji craft smoke PASS: validated choices, cut/fold/decorate order, product save, and Jeonju display reload");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Hanji Sprites")]
+        public static void RunHanjiSpriteChecks()
+        {
+            string[] names = { "HanjiFan", "HanjiBookmark", "HanjiFlower" };
+            foreach (string name in names)
+            {
+                Sprite sprite = Resources.Load<Sprite>("Art/Props/" + name);
+                Require(sprite != null, "Hanji product sprite did not load from Resources: " + name);
+                Require(Mathf.Abs(sprite.rect.width / sprite.rect.height - (2f / 3f)) < 0.01f,
+                    name + " sprite rectangle does not match the 2:3 source aspect");
+                string assetPath = "Assets/_Game/Resources/Art/Props/" + name + ".png";
+                var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+                Require(importer != null && importer.spriteImportMode == SpriteImportMode.Single &&
+                        Mathf.Abs(importer.spritePixelsPerUnit - 200f) < 0.01f,
+                    name + " sprite import mode or pixels-per-unit setting is incorrect");
+            }
+            Require(GameText.Get("vi", "hanji_craft_title").Contains("Xưởng") &&
+                    GameText.Get("vi", "hanji_shape_bookmark").Contains("sách") &&
+                    GameText.Get("ko", "hanji_craft_title").Contains("한지"),
+                "Vietnamese or Korean Hanji craft copy is missing");
+            Debug.Log("Dấu Xứ Hanji sprite smoke PASS: three product shapes load as 2:3 single sprites with VI/KO labels");
+        }
+
+        private static WorldInteractableDefinition FindTarget(WorldDefinition world, string id)
+        {
+            if (world?.Interactables == null) return null;
+            foreach (WorldInteractableDefinition target in world.Interactables)
+                if (target.Id == id) return target;
+            return null;
+        }
+
+        private static void CheckDiscoveryCard(WorldInteractableDefinition definition, string cardId)
+        {
+            Require(definition != null, "Missing world discovery for card " + cardId);
+            var gameObject = new GameObject("Jeonju discovery test - " + definition.Id);
+            try
+            {
+                WorldInteractable target = gameObject.AddComponent<WorldInteractable>();
+                target.Configure(definition);
+                var profile = new PlayerProfile();
+                target.Interact(profile);
+                Require(InventoryService.HasCultureCard(profile, cardId), "Discovery did not unlock cultural card " + cardId);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(gameObject); }
         }
 
         [MenuItem("Tools/Taste Passport/Validate Story Save")]
@@ -168,7 +417,11 @@ namespace TastePassport.EditorTools
             string[] assetPaths =
             {
                 "Assets/_Game/Resources/Art/Characters/Lan.png",
-                "Assets/_Game/Resources/Art/Props/HoiAnLantern.png"
+                "Assets/_Game/Resources/Art/Characters/BKim.png",
+                "Assets/_Game/Resources/Art/Props/HoiAnLantern.png",
+                "Assets/_Game/Resources/Art/Props/HanjiFan.png",
+                "Assets/_Game/Resources/Art/Props/HanjiBookmark.png",
+                "Assets/_Game/Resources/Art/Props/HanjiFlower.png"
             };
             foreach (string assetPath in assetPaths)
             {
@@ -199,13 +452,14 @@ namespace TastePassport.EditorTools
 
             RunCharacterSpriteChecks();
             RunLanternSpriteChecks();
-            Debug.Log("Dấu Xứ character and lantern sprite metadata repaired and verified");
+            RunHanjiSpriteChecks();
+            Debug.Log("Dấu Xứ character, lantern, and Hanji sprite metadata repaired and verified");
         }
 
         [MenuItem("Tools/Taste Passport/Validate Character Sprites")]
         public static void RunCharacterSpriteChecks()
         {
-            string[] names = { "Traveler", "Nhung", "GaBo", "Lan" };
+            string[] names = { "Traveler", "Nhung", "GaBo", "Lan", "BKim" };
             foreach (string name in names)
             {
                 Sprite sprite = Resources.Load<Sprite>("Art/Characters/" + name);
@@ -218,7 +472,7 @@ namespace TastePassport.EditorTools
                         Mathf.Abs(importer.spritePixelsPerUnit - 200f) < 0.01f,
                     name + " sprite import mode or pixels-per-unit setting is incorrect");
             }
-            Debug.Log("Dấu Xứ character sprite smoke PASS: all four 2:3 sprites load with single-sprite imports at 200 pixels per unit");
+            Debug.Log("Dấu Xứ character sprite smoke PASS: all five 2:3 sprites load with single-sprite imports at 200 pixels per unit");
         }
 
         [MenuItem("Tools/Taste Passport/Validate Lantern Sprite")]

@@ -67,6 +67,23 @@ namespace TastePassport.World
             else if (colorId == "gold") renderer.color = new Color(1f, 0.96f, 0.82f);
         }
 
+        public void ApplyHanjiVariant(string shapeId, string colorId)
+        {
+            if (definition == null || definition.Id != "hanji-display") return;
+            var renderer = GetComponent<SpriteRenderer>();
+            if (renderer == null) return;
+
+            string spritePath = shapeId == "bookmark" ? "Art/Props/HanjiBookmark" :
+                shapeId == "flower" ? "Art/Props/HanjiFlower" : "Art/Props/HanjiFan";
+            Sprite product = Resources.Load<Sprite>(spritePath);
+            if (product != null) renderer.sprite = product;
+
+            if (colorId == "indigo") renderer.color = new Color(0.88f, 0.92f, 1f);
+            else if (colorId == "vermilion") renderer.color = new Color(1f, 0.90f, 0.88f);
+            else if (colorId == "gold") renderer.color = new Color(1f, 0.96f, 0.82f);
+            else if (colorId == "jade") renderer.color = new Color(0.88f, 0.96f, 0.90f);
+        }
+
         public bool IsWithinRange(Vector2 position)
         {
             return definition != null && Vector2.Distance(position, definition.Position) <= definition.InteractionRadius;
@@ -87,6 +104,9 @@ namespace TastePassport.World
             string dialogueKey = firstVisit ? definition.FirstDialogueKey : definition.RepeatDialogueKey;
             bool changed = StoryProgressService.RecordInteraction(profile, definition.StoryFlag, definition.ImprintId);
             if (definition.Id == "chuacau") changed |= InventoryService.RecordChuaCauDiscovery(profile);
+            else if (definition.Id == "hanok") changed |= InventoryService.AddCultureCard(profile, InventoryService.HanokCardId);
+            else if (definition.Id == "gyeonggijeon") changed |= InventoryService.AddCultureCard(profile, InventoryService.GyeonggijeonCardId);
+            else if (definition.Id == "pansori") changed |= InventoryService.AddCultureCard(profile, InventoryService.PansoriCardId);
             return new WorldInteractionResult(definition, dialogueKey, firstVisit, changed);
         }
 

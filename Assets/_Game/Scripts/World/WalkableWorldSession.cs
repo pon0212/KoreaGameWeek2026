@@ -312,6 +312,11 @@ namespace TastePassport.World
                 target.Configure(definition);
                 if (definition.Id == "lantern-display")
                     target.ApplyLanternColor(InventoryService.GetLanternColorId(InventoryService.GetCraftedLantern(profile)));
+                else if (definition.Id == "hanji-display")
+                {
+                    string hanji = InventoryService.GetLatestCraftedHanji(profile);
+                    target.ApplyHanjiVariant(InventoryService.GetHanjiShapeId(hanji), InventoryService.GetHanjiColorId(hanji));
+                }
                 targets.Add(target);
                 if (definition.IsNpc && targetObject.GetComponent<SpriteRenderer>()?.sprite == null)
                     Debug.LogError("DẤU XỨ: Missing character sprite for " + definition.Id);
@@ -418,7 +423,8 @@ namespace TastePassport.World
                 string activityId = lastInteraction == null || lastInteraction.Target == null ? null : lastInteraction.Target.ActivityId;
                 actionLabel.text = string.IsNullOrEmpty(activityId)
                     ? Localized("world_continue")
-                    : Localized("world_start_activity") + " · " + Localized(activityId == "lantern-craft" ? "activity_lantern" : "world_continue");
+                    : Localized("world_start_activity") + " · " + Localized(activityId == "lantern-craft"
+                        ? "activity_lantern" : activityId == "hanji-craft" ? "activity_hanji" : "world_continue");
                 actionButton.interactable = true;
                 return;
             }

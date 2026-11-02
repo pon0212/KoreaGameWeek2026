@@ -129,6 +129,10 @@ namespace TastePassport.Core
                             throw new InvalidDataException("Missing saved stamp: " + Ids[mission]);
                         if (mission == 1 && !saved.culturalCards.Contains("culture-hoian-caolau"))
                             throw new InvalidDataException("Completing Cao Lầu did not unlock its cultural card");
+                        if (mission == 3 && !saved.culturalCards.Contains(InventoryService.HanokCardId))
+                            throw new InvalidDataException("Completing the Jeonju Hanok mission did not unlock its cultural card");
+                        if (mission == 4 && !saved.culturalCards.Contains(InventoryService.BibimbapCardId))
+                            throw new InvalidDataException("Completing the Jeonju Bibimbap game did not unlock its cultural card");
                         if (replaying)
                         {
                             var best = ProgressService.Get(saved, LevelCatalog.HoiAn.Id);
@@ -227,7 +231,90 @@ namespace TastePassport.Core
                             !app.GetComponentsInChildren<Text>().Any(t => t.text.Contains(GameText.Get("vi", "culture_chuacau_title"))) ||
                             !app.GetComponentsInChildren<Text>().Any(t => t.text.Contains(GameText.Get("vi", "culture_caolau_title"))))
                             throw new InvalidDataException("A discovered Chùa Cầu, Cao Lầu, or lantern cultural card is missing");
-                        Finish(0, "DẤU XỨ smoke PASS: Vietnamese/Korean switching, Hội An/Jeonju journeys, six missions, postcards, Cao Lầu and lantern craft, persistent inventory and cultural cards");
+                        Click(GameText.Get("vi", "passport")); stage = 29;
+                        break;
+                    case 29:
+                        Click(GameText.Get("vi", "open_map")); stage = 30;
+                        break;
+                    case 30:
+                        Click(GameText.Get("vi", "hanji_craft_map")); stage = 31;
+                        break;
+                    case 31:
+                        Click(GameText.Get("vi", "hanji_color_jade")); stage = 32;
+                        break;
+                    case 32:
+                        Click(GameText.Get("vi", "hanji_shape_bookmark")); stage = 33;
+                        break;
+                    case 33:
+                        Click(GameText.Get("vi", "hanji_motif_cloud")); stage = 34;
+                        break;
+                    case 34:
+                        Click(GameText.Get("vi", "hanji_cut")); stage = 35;
+                        break;
+                    case 35:
+                        Click(GameText.Get("vi", "hanji_fold")); stage = 36;
+                        break;
+                    case 36:
+                        Click(GameText.Get("vi", "hanji_decorate")); stage = 37;
+                        break;
+                    case 37:
+                        var hanjiProfile = new ProfileStore(testPath).Load();
+                        string hanjiId = InventoryService.HanjiProductPrefix + "bookmark-jade-cloud";
+                        if (!hanjiProfile.inventoryItems.Contains(hanjiId) ||
+                            !hanjiProfile.culturalCards.Contains(InventoryService.HanjiCardId) ||
+                            !hanjiProfile.worldImprints.Contains("hanji-display-ready") ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "hanji_result_title")))
+                            throw new InvalidDataException("Hanji craft result, product, cultural card, or display imprint was not saved");
+                        if (!hanjiProfile.culturalCards.Contains(InventoryService.HanokCardId) ||
+                            !hanjiProfile.culturalCards.Contains(InventoryService.BibimbapCardId) ||
+                            !hanjiProfile.culturalCards.Contains(InventoryService.GyeonggijeonCardId) ||
+                            !hanjiProfile.culturalCards.Contains(InventoryService.PansoriCardId))
+                            throw new InvalidDataException("One or more Jeonju cultural discoveries were not saved");
+                        Click(GameText.Get("vi", "inventory")); stage = 38;
+                        break;
+                    case 38:
+                        string hanjiVariant = GameText.Get("vi", "hanji_shape_bookmark") + " · " +
+                            GameText.Get("vi", "hanji_color_jade") + " · " + GameText.Get("vi", "hanji_motif_cloud");
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == hanjiVariant))
+                            throw new InvalidDataException("The selected Hanji product variant is missing from the inventory");
+                        Click(GameText.Get("vi", "culture_cards")); stage = 39;
+                        break;
+                    case 39:
+                        VerifyJeonjuCultureCards();
+                        Click(GameText.Get("vi", "passport")); stage = 40;
+                        break;
+                    case 40:
+                        Click(GameText.Get("vi", "open_map")); stage = 41;
+                        break;
+                    case 41:
+                        Click(GameText.Get("vi", "explore_jeonju")); stage = 42;
+                        break;
+                    case 42:
+                        var jeonjuSession = app.GetComponent<WalkableWorldSession>();
+                        GameObject hanjiDisplay = GameObject.Find("World Target - hanji-display");
+                        if (jeonjuSession == null || !jeonjuSession.IsOpen || hanjiDisplay == null ||
+                            hanjiDisplay.GetComponent<SpriteRenderer>()?.sprite != Resources.Load<Sprite>("Art/Props/HanjiBookmark") ||
+                            hanjiDisplay.GetComponent<SpriteRenderer>().color == Color.white)
+                            throw new InvalidDataException("The saved Hanji product was not restored in Jeonju's world display");
+
+                        var bkim = WorldCatalog.Get("jeonju").Interactables.First(i => i.Id == "bkim");
+                        jeonjuSession.SetPlayerPosition(bkim.Position);
+                        var bkimInteraction = jeonjuSession.InteractNearest();
+                        if (bkimInteraction == null || bkimInteraction.DialogueKey != "bkim_first" ||
+                            jeonjuSession.InteractionButtonLabel != GameText.Get("vi", "world_start_activity") + " · " + GameText.Get("vi", "activity_hanji"))
+                            throw new InvalidOperationException("Bác Kim's Vietnamese Hanji activity entry is missing");
+                        jeonjuSession.ContinueDialogue();
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "hanji_craft_title")))
+                            throw new InvalidOperationException("Bác Kim did not open the Vietnamese Hanji workshop");
+                        Click(GameText.Get("vi", "back_map")); stage = 43;
+                        break;
+                    case 43:
+                        var finalProfile = new ProfileStore(testPath).Load();
+                        if (!finalProfile.inventoryItems.Contains(InventoryService.HanjiProductPrefix + "bookmark-jade-cloud") ||
+                            !finalProfile.culturalCards.Contains(InventoryService.HanjiCardId) ||
+                            !finalProfile.worldImprints.Contains("hanji-display-ready"))
+                            throw new InvalidDataException("Hanji rewards changed after returning from the Jeonju display");
+                        Finish(0, "DẤU XỨ smoke PASS: Vietnamese-first display, Korean switching, six missions, five Jeonju culture cards, Hanji workshop, inventory and world display persistence");
                         break;
                 }
             }
@@ -251,6 +338,8 @@ namespace TastePassport.Core
                     throw new InvalidDataException("The story chapter did not advance after the Hội An milestone");
                 if (Find(buttonLabel) == null)
                     throw new InvalidOperationException("The Jeonju exploration entry is missing after unlock");
+                if (Find(GameText.Get("vi", "hanji_craft_map")) == null)
+                    throw new InvalidOperationException("The unlocked Hanji workshop map entry is missing");
             }
 
             Click(buttonLabel);
@@ -270,13 +359,47 @@ namespace TastePassport.Core
                 throw new InvalidDataException("The first companion dialogue is incorrect in " + worldId);
             if (worldId == "hoian" && !session.CurrentDialogueText.Contains("DẤU XỨ"))
                 throw new InvalidDataException("The Vietnamese prologue did not mention the DẤU XỨ book");
+            if (worldId == "jeonju" && GameObject.Find("World Target - hanji-display") != null)
+                throw new InvalidDataException("The Hanji display appeared before the saved craft imprint");
             var profileAfterInteraction = new ProfileStore(testPath).Load();
             if (!profileAfterInteraction.storyFlags.Contains(expectedFlag))
                 throw new InvalidDataException("Companion interaction was not saved: " + expectedFlag);
+            if (worldId == "jeonju")
+            {
+                session.DismissDialogue();
+                string[] discoveries = { "hanok", "gyeonggijeon", "pansori" };
+                string[] cardIds = { InventoryService.HanokCardId, InventoryService.GyeonggijeonCardId, InventoryService.PansoriCardId };
+                for (int i = 0; i < discoveries.Length; i++)
+                {
+                    var discovery = definition.Interactables.First(target => target.Id == discoveries[i]);
+                    session.SetPlayerPosition(discovery.Position);
+                    var result = session.InteractNearest();
+                    if (result == null || result.Target.Id != discoveries[i])
+                        throw new InvalidOperationException("Jeonju discovery did not interact: " + discoveries[i]);
+                    if (!new ProfileStore(testPath).Load().culturalCards.Contains(cardIds[i]))
+                        throw new InvalidDataException("Jeonju discovery did not save its cultural card: " + cardIds[i]);
+                    session.DismissDialogue();
+                }
+            }
             session.Close();
             if (Find(MapLabels[mission]) == null)
                 throw new InvalidOperationException("Closing " + worldId + " did not return to the map");
             passed();
+        }
+
+        private void VerifyJeonjuCultureCards()
+        {
+            string[] keys =
+            {
+                "culture_hanok_title", "culture_hanji_title", "culture_bibimbap_title",
+                "culture_gyeonggijeon_title", "culture_pansori_title"
+            };
+            foreach (string key in keys)
+                if (!app.GetComponentsInChildren<Text>().Any(t => t.text.Contains(GameText.Get("vi", key))))
+                    throw new InvalidDataException("A Jeonju cultural card is missing from the collection: " + key);
+            if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "culture_hanji_source")) ||
+                !GameText.Get("vi", "culture_hanji_source").Contains("chưa được ghi danh"))
+                throw new InvalidDataException("Hanji source does not explain that the pending UNESCO nomination is not yet inscribed");
         }
         private void VerifyBackupRecovery()
         {

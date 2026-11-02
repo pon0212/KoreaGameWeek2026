@@ -24,6 +24,6 @@ namespace TastePassport.Gameplay
 
         public static readonly LevelDefinition Jeonju = new LevelDefinition(
             "jeonju-architecture", "jeonju", "joon_mission",
-            new[] { "hanok_roof", "hanok_gate", "courtyard", "tea_house", "wall", "tree" });
+            new[] { "hanok_roof_tiles", "hanok_wooden_door", "hanji_windows", "hanok_courtyard", "hanok_eaves", "hanok_stone_wall" });
     }
 }
