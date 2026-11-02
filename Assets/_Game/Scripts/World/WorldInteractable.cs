@@ -40,11 +40,12 @@ namespace TastePassport.World
 
             var renderer = GetComponent<SpriteRenderer>();
             if (renderer == null) renderer = gameObject.AddComponent<SpriteRenderer>();
-            if (target.IsNpc)
+            if (!string.IsNullOrEmpty(target.SpriteResourcePath))
             {
                 renderer.sprite = Resources.Load<Sprite>(target.SpriteResourcePath);
-                renderer.sortingOrder = 10;
-                transform.localScale = Vector3.one * 0.22f;
+                renderer.sortingOrder = target.IsNpc ? 10 : 9;
+                transform.localScale = Vector3.one * (target.IsNpc ? 0.22f : 0.14f);
+                renderer.color = Color.white;
             }
             else
             {
@@ -53,6 +54,17 @@ namespace TastePassport.World
                 renderer.sortingOrder = 8;
                 transform.localScale = Vector3.one * 0.48f;
             }
+        }
+
+        public void ApplyLanternColor(string colorId)
+        {
+            if (definition == null || definition.Id != "lantern-display") return;
+            var renderer = GetComponent<SpriteRenderer>();
+            if (renderer == null) return;
+            if (colorId == "red") renderer.color = new Color(1f, 0.91f, 0.89f);
+            else if (colorId == "blue") renderer.color = new Color(0.88f, 0.94f, 1f);
+            else if (colorId == "green") renderer.color = new Color(0.90f, 0.96f, 0.87f);
+            else if (colorId == "gold") renderer.color = new Color(1f, 0.96f, 0.82f);
         }
 
         public bool IsWithinRange(Vector2 position)
@@ -74,6 +86,7 @@ namespace TastePassport.World
             bool firstVisit = !StoryProgressService.HasFlag(profile, definition.StoryFlag);
             string dialogueKey = firstVisit ? definition.FirstDialogueKey : definition.RepeatDialogueKey;
             bool changed = StoryProgressService.RecordInteraction(profile, definition.StoryFlag, definition.ImprintId);
+            if (definition.Id == "chuacau") changed |= InventoryService.RecordChuaCauDiscovery(profile);
             return new WorldInteractionResult(definition, dialogueKey, firstVisit, changed);
         }
 

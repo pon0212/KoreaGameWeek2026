@@ -14,7 +14,7 @@ namespace TastePassport.Core
 {
     public sealed class PassportApp : MonoBehaviour
     {
-        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult }
+        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, Inventory, CultureCards }
         private static readonly Color Cream = Hex("#F6E9D4");
         private static readonly Color Lantern = Hex("#E6A14D");
         private static readonly Color Jade = Hex("#357E84");
@@ -62,6 +62,10 @@ namespace TastePassport.Core
         private int finaleTarget;
         private int[] finaleOrder;
         private WalkableWorldSession worldSession;
+        private LanternCraftRun lanternCraftRun;
+        private string selectedLanternMaterialId;
+        private string lanternResultItemId;
+        private Text lanternMaterialStatus;
 
         private string T(string key, string place = null) => GameText.Get(profile.language, key, profile.playerName, place);
 
@@ -262,6 +266,10 @@ namespace TastePassport.Core
                 case Page.MatchGame: DrawMatchGame(content); break;
                 case Page.Finale: DrawFinale(content); break;
                 case Page.FinaleResult: DrawFinaleResult(content); break;
+                case Page.LanternCraft: DrawLanternCraft(content); break;
+                case Page.LanternResult: DrawLanternResult(content); break;
+                case Page.Inventory: DrawInventory(content); break;
+                case Page.CultureCards: DrawCultureCards(content); break;
             }
             if (!string.IsNullOrEmpty(notice))
             {
@@ -462,6 +470,8 @@ namespace TastePassport.Core
             StampRow(parent, RecipeCatalog.CaoLau.Id, "cao_lau", RecipeCatalog.Bibimbap.Id, "bibimbap");
             StampRow(parent, MatchCatalog.HoiAn.Id, "hoian_exchange", MatchCatalog.Jeonju.Id, "jeonju_exchange");
             DrawWorldImprints(parent);
+            CompactButton(parent, T("inventory") + " · " + (profile.inventoryItems == null ? 0 : profile.inventoryItems.Count), Lantern, () => Navigate(Page.Inventory));
+            CompactButton(parent, T("culture_cards") + " · " + (profile.culturalCards == null ? 0 : profile.culturalCards.Count), Jade, () => Navigate(Page.CultureCards));
             if (FirstJourneyComplete()) Label(parent, T("achievement_explorer"), 27, 72, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int i = 0; i < PostcardCatalog.All.Length; i++)
             {
@@ -477,6 +487,273 @@ namespace TastePassport.Core
             Button(parent, T("wardrobe"), Lantern, () => Navigate(Page.Wardrobe));
             Button(parent, T("edit_profile"), Paper, () => { draftName = profile.playerName; draftAvatar = profile.avatarIndex; Navigate(Page.Create); }, Ink);
             Button(parent, T("back"), Paper, () => Navigate(Page.Menu), Ink);
+        }
+
+        private void StartLanternCraft()
+        {
+            StoryNarration.Stop();
+            lanternCraftRun = new LanternCraftRun();
+            selectedLanternMaterialId = null;
+            lanternResultItemId = null;
+            lanternMaterialStatus = null;
+            koreanBackdrop = false;
+            StageAudioDirector.For(gameObject).PlayStage(2, false);
+            Navigate(Page.LanternCraft);
+        }
+
+        private void DrawLanternCraft(Transform parent)
+        {
+            Header(parent, T("lantern_craft_title"));
+            if (lanternCraftRun != null && lanternCraftRun.Complete)
+            {
+                Label(parent, T("craft_completed_pending_save"), 27, 112, Ink, TextAnchor.MiddleCenter);
+                Button(parent, T("save_result"), Jade, CompleteLanternCraft);
+                Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+                return;
+            }
+            Label(parent, T("lantern_craft_intro"), 27, 108, Ink, TextAnchor.MiddleCenter);
+            DrawLanternPreview(parent, 230);
+            if (!string.IsNullOrEmpty(lanternCraftRun.FrameId))
+                Label(parent, T("frame_" + lanternCraftRun.FrameId) +
+                    (string.IsNullOrEmpty(lanternCraftRun.ColorId) ? "" : " · " + T("color_" + lanternCraftRun.ColorId)),
+                    25, 48, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+
+            var frameCard = Card(parent, 245);
+            Label(frameCard, T("craft_choose_frame"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var frameRow = NewRect("Lantern frame choices", frameCard);
+            SetHeight(frameRow, 104);
+            AddHorizontal(frameRow);
+            foreach (string frameId in new[] { "round", "diamond", "hexagon" })
+            {
+                string chosenFrame = frameId;
+                Button(frameRow, T("frame_" + frameId) + (lanternCraftRun.FrameId == frameId ? " ✓" : ""),
+                    lanternCraftRun.FrameId == frameId ? Jade : Paper,
+                    () => SelectLanternFrame(chosenFrame), lanternCraftRun.FrameId == frameId ? Color.white : Ink);
+            }
+
+            var colorCard = Card(parent, 350);
+            Label(colorCard, T("craft_choose_color"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            for (int rowIndex = 0; rowIndex < 2; rowIndex++)
+            {
+                var colorRow = NewRect("Lantern color choices", colorCard);
+                SetHeight(colorRow, 98);
+                AddHorizontal(colorRow);
+                for (int column = 0; column < 2; column++)
+                {
+                    string colorId = new[] { "red", "gold", "blue", "green" }[rowIndex * 2 + column];
+                    string chosenColor = colorId;
+                    bool isSelected = lanternCraftRun.ColorId == colorId;
+                    Button(colorRow, T("color_" + colorId) + (isSelected ? " ✓" : ""),
+                        isSelected ? ColorForLantern(colorId) : Paper,
+                        () => SelectLanternColor(chosenColor), isSelected ? Color.white : Ink);
+                }
+            }
+
+            var materialsCard = Card(parent, 380);
+            Label(materialsCard, T("craft_materials"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(materialsCard, T("craft_drag_hint"), 23, 55, Muted, TextAnchor.MiddleCenter);
+            var materialRow = NewRect("Lantern craft materials", materialsCard);
+            SetHeight(materialRow, 112);
+            AddHorizontal(materialRow);
+            AddLanternMaterial(materialRow, LanternCraftRun.FabricMaterialId, "material_fabric");
+            AddLanternMaterial(materialRow, LanternCraftRun.TasselMaterialId, "material_tassel");
+            lanternMaterialStatus = Label(materialsCard,
+                string.IsNullOrEmpty(selectedLanternMaterialId) ? T("craft_material_unselected") : T("craft_selected_material") + ": " + T("material_" + selectedLanternMaterialId),
+                23, 42, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+
+            var slotsRow = NewRect("Lantern craft drop zones", parent);
+            SetHeight(slotsRow, 230);
+            AddHorizontal(slotsRow);
+            AddLanternDropZone(slotsRow, LanternCraftRun.FabricSlotId, "craft_slot_fabric", lanternCraftRun.FabricPlaced);
+            AddLanternDropZone(slotsRow, LanternCraftRun.TasselSlotId, "craft_slot_tassel", lanternCraftRun.TasselPlaced);
+
+            var processCard = Card(parent, 190);
+            Label(processCard, T("lantern_craft_process_title"), 26, 43, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(processCard, T("lantern_craft_process"), 24, 125, Ink, TextAnchor.MiddleCenter);
+            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+        }
+
+        private void AddLanternMaterial(Transform parent, string materialId, string labelKey)
+        {
+            GameObject material = Button(parent, T(labelKey), selectedLanternMaterialId == materialId ? Lantern : Paper,
+                () => SelectLanternMaterial(materialId), Ink);
+            var group = material.GetComponent<CanvasGroup>();
+            if (group == null) group = material.AddComponent<CanvasGroup>();
+            var drag = material.AddComponent<LanternCraftDrag>();
+            drag.Initialize(materialId);
+        }
+
+        private void AddLanternDropZone(Transform parent, string slotId, string labelKey, bool filled)
+        {
+            string slotLabel = T(labelKey) + (filled ? " ✓" : "\n" + T("craft_drop_here"));
+            GameObject slot = Button(parent, slotLabel, filled ? new Color(0.84f, 0.91f, 0.81f) : Paper,
+                () => PlaceLanternMaterial(slotId, selectedLanternMaterialId, null, null), Ink);
+            SetHeight(slot.GetComponent<RectTransform>(), 190);
+            slot.GetComponent<LanternCraftDropZone>()?.Initialize(slotId, PlaceLanternMaterial);
+            if (slot.GetComponent<LanternCraftDropZone>() == null)
+                slot.AddComponent<LanternCraftDropZone>().Initialize(slotId, PlaceLanternMaterial);
+        }
+
+        private void SelectLanternFrame(string frameId)
+        {
+            if (lanternCraftRun != null && lanternCraftRun.SelectFrame(frameId)) Show();
+        }
+
+        private void SelectLanternColor(string colorId)
+        {
+            if (lanternCraftRun != null && lanternCraftRun.SelectColor(colorId)) Show();
+        }
+
+        private void SelectLanternMaterial(string materialId)
+        {
+            selectedLanternMaterialId = materialId;
+            if (lanternMaterialStatus != null)
+                lanternMaterialStatus.text = T("craft_selected_material") + ": " + T("material_" + materialId);
+            feedbackSound?.PlayTap();
+        }
+
+        private void PlaceLanternMaterial(string slotId, string materialId, LanternCraftDrag drag, Transform slot)
+        {
+            if (lanternCraftRun == null) return;
+            if (string.IsNullOrEmpty(materialId))
+            {
+                notice = T("craft_material_unselected");
+                StartCoroutine(RefreshAfterLanternInput(false));
+                return;
+            }
+            LanternCraftInputResult result = lanternCraftRun.TryPlaceMaterial(slotId, materialId);
+            if (result == LanternCraftInputResult.MissingDesign) notice = T("craft_choose_design_first");
+            else if (result == LanternCraftInputResult.WrongMaterial) notice = T("craft_wrong_material");
+            else if (result == LanternCraftInputResult.AlreadyFilled) notice = T("craft_slot_filled");
+            else
+            {
+                selectedLanternMaterialId = null;
+                if (drag != null && slot != null) drag.Accept(slot);
+            }
+            StartCoroutine(RefreshAfterLanternInput(result == LanternCraftInputResult.Completed));
+        }
+
+        private IEnumerator RefreshAfterLanternInput(bool completed)
+        {
+            yield return null;
+            if (completed) CompleteLanternCraft();
+            else Show();
+        }
+
+        private void CompleteLanternCraft()
+        {
+            var candidate = new PlayerProfile();
+            candidate.CopyFrom(profile);
+            if (lanternCraftRun == null || !lanternCraftRun.Complete)
+            {
+                notice = T("craft_save_error");
+                Show();
+                return;
+            }
+            if (!InventoryService.RecordLanternCraft(candidate, lanternCraftRun.FrameId, lanternCraftRun.ColorId))
+            {
+                notice = T("inventory_full");
+                Show();
+                return;
+            }
+            if (!store.TrySave(candidate))
+            {
+                notice = T("save_error");
+                Show();
+                return;
+            }
+            profile = candidate;
+            lanternResultItemId = InventoryService.LanternProductPrefix + lanternCraftRun.FrameId + "-" + lanternCraftRun.ColorId;
+            Navigate(Page.LanternResult);
+        }
+
+        private void DrawLanternPreview(Transform parent, float height)
+        {
+            DrawLanternPreview(parent, height, lanternCraftRun == null ? null : lanternCraftRun.ColorId);
+        }
+
+        private void DrawLanternPreview(Transform parent, float height, string colorId)
+        {
+            RectTransform preview = NewRect("Hoi An Lantern Preview", parent);
+            SetHeight(preview, height);
+            var image = preview.gameObject.AddComponent<Image>();
+            image.sprite = Resources.Load<Sprite>("Art/Props/HoiAnLantern");
+            image.color = string.IsNullOrEmpty(colorId) ? Color.white : Color.Lerp(Color.white, ColorForLantern(colorId), 0.32f);
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+            if (image.sprite == null) Debug.LogError("DẤU XỨ: Missing lantern sprite Resources/Art/Props/HoiAnLantern");
+        }
+
+        private void DrawLanternResult(Transform parent)
+        {
+            Header(parent, T("lantern_result_title"));
+            DrawLanternPreview(parent, 300, InventoryService.GetLanternColorId(lanternResultItemId));
+            Label(parent, T("lantern_result_copy"), 28, 90, Ink, TextAnchor.MiddleCenter);
+            Label(parent, T("lantern_item") + ": " + LanternVariantLabel(lanternResultItemId), 27, 74, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Button(parent, T("inventory"), Jade, () => Navigate(Page.Inventory));
+            Button(parent, T("culture_cards"), Lantern, () => Navigate(Page.CultureCards));
+            Button(parent, T("craft_again"), Paper, StartLanternCraft, Ink);
+            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+        }
+
+        private void DrawInventory(Transform parent)
+        {
+            Header(parent, T("inventory"));
+            int count = profile.inventoryItems == null ? 0 : profile.inventoryItems.Count;
+            if (count == 0) Label(parent, T("inventory_empty"), 27, 110, Muted, TextAnchor.MiddleCenter);
+            else
+            {
+                foreach (string itemId in profile.inventoryItems)
+                {
+                    var card = Card(parent, 250);
+                    Label(card, T("lantern_item"), 29, 52, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+                    Label(card, LanternVariantLabel(itemId), 26, 50, Ink, TextAnchor.MiddleCenter);
+                    DrawLanternPreview(card, 120, InventoryService.GetLanternColorId(itemId));
+                }
+            }
+            Button(parent, T("culture_cards"), Lantern, () => Navigate(Page.CultureCards));
+            Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
+        }
+
+        private void DrawCultureCards(Transform parent)
+        {
+            Header(parent, T("culture_cards"));
+            DrawCultureCard(parent, InventoryService.ChuaCauCardId, "culture_chuacau_title", "culture_chuacau_body", "culture_chuacau_source");
+            DrawCultureCard(parent, InventoryService.CaoLauCardId, "culture_caolau_title", "culture_caolau_body", "culture_caolau_source");
+            DrawCultureCard(parent, InventoryService.LanternCardId, "culture_lantern_title", "culture_lantern_body", "culture_lantern_source");
+            Button(parent, T("inventory"), Lantern, () => Navigate(Page.Inventory));
+            Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
+        }
+
+        private void DrawCultureCard(Transform parent, string cardId, string titleKey, string bodyKey, string sourceKey)
+        {
+            bool unlocked = InventoryService.HasCultureCard(profile, cardId);
+            bool detailedHistory = cardId == InventoryService.ChuaCauCardId;
+            var card = Card(parent, unlocked ? (detailedHistory ? 520 : 360) : 190);
+            Label(card, (unlocked ? "◆  " : "○  ") + T(titleKey), 29, 62, unlocked ? Jade : Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (unlocked)
+            {
+                Label(card, T(bodyKey), 25, detailedHistory ? 330 : 190, Ink, TextAnchor.MiddleCenter);
+                Label(card, T(sourceKey), 20, 58, Muted, TextAnchor.MiddleCenter);
+            }
+            else Label(card, T("culture_card_locked"), 23, 75, Muted, TextAnchor.MiddleCenter);
+        }
+
+        private Color ColorForLantern(string colorId)
+        {
+            if (colorId == "red") return Hex("#B7473D");
+            if (colorId == "gold") return Hex("#C89136");
+            if (colorId == "blue") return Hex("#3D6F91");
+            return Hex("#56785E");
+        }
+
+        private string LanternVariantLabel(string itemId)
+        {
+            string frameId = InventoryService.GetLanternFrameId(itemId);
+            string colorId = InventoryService.GetLanternColorId(itemId);
+            return !string.IsNullOrEmpty(frameId) && !string.IsNullOrEmpty(colorId)
+                ? T("frame_" + frameId) + " · " + T("color_" + colorId)
+                : T("inventory_unknown_item");
         }
 
         private void DrawPostcard(Transform parent)
@@ -524,7 +801,7 @@ namespace TastePassport.Core
             if (FirstJourneyComplete()) Label(parent, T("first_journey_complete"), 29, 110, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Label(parent, T("map_intro"), 27, 54, Ink, TextAnchor.MiddleCenter);
             Label(parent, T("map_illustration"), 22, 42, Muted, TextAnchor.MiddleCenter);
-            var hoian = Card(parent, 900);
+            var hoian = Card(parent, 980);
             Artwork(hoian, TravelArtworkKind.VietnamJourney, 220);
             Label(hoian, T("hoian"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             DestinationFlag(hoian, "Art/FlagVietnam", "hoian_desc");
@@ -535,6 +812,7 @@ namespace TastePassport.Core
             MissionButton(hoian, "cao_lau", RecipeCatalog.CaoLau.Id, LevelCatalog.HoiAn.Id, Jade, () => StartRecipe(RecipeCatalog.CaoLau));
             MissionButton(hoian, "hoian_exchange", MatchCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, Paper, () => StartMatch(MatchCatalog.HoiAn), Ink);
             CompactButton(hoian, T("explore_hoian"), Jade, () => OpenWorld("hoian"));
+            CompactButton(hoian, T("lantern_craft_map"), Lantern, StartLanternCraft);
             HoiAnVisuals.DecorateLocationCard(hoian);
             AddJourneyThread(parent);
             var jeonju = Card(parent, 900);
@@ -570,7 +848,7 @@ namespace TastePassport.Core
                 if (worldSession == null) worldSession = GetComponent<WalkableWorldSession>();
                 if (worldSession == null) worldSession = gameObject.AddComponent<WalkableWorldSession>();
                 safeRoot.gameObject.SetActive(false);
-                worldSession.Open(worldId, profile, store, ReturnFromWorld);
+                worldSession.Open(worldId, profile, store, ReturnFromWorld, HandleWorldActivity);
             }
             catch (Exception error)
             {
@@ -587,6 +865,11 @@ namespace TastePassport.Core
             page = Page.Map;
             notice = worldSession != null && !worldSession.LastSaveSucceeded ? T("save_error") : null;
             Show();
+        }
+
+        private void HandleWorldActivity(string activityId)
+        {
+            if (activityId == "lantern-craft") StartLanternCraft();
         }
 
         private bool IsJeonjuUnlocked(PlayerProfile target) =>
@@ -608,9 +891,15 @@ namespace TastePassport.Core
         private void RecordMissionWorldMark(PlayerProfile target, string missionId)
         {
             if (missionId == LevelCatalog.HoiAn.Id)
+            {
                 StoryProgressService.RecordInteraction(target, "hoian-architecture-seen", "stamp-hoian-architecture");
+                InventoryService.RecordChuaCauDiscovery(target);
+            }
             else if (missionId == RecipeCatalog.CaoLau.Id)
+            {
                 StoryProgressService.RecordInteraction(target, "cao-lau-discovered", "stamp-cao-lau");
+                InventoryService.RecordCaoLauDiscovery(target);
+            }
             else if (missionId == MatchCatalog.HoiAn.Id)
                 StoryProgressService.RecordInteraction(target, "hoian-cultural-exchange-complete", "stamp-hoian-exchange");
             else if (missionId == LevelCatalog.Jeonju.Id)

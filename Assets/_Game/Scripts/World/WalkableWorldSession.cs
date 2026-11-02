@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using TastePassport.Localization;
 using TastePassport.Save;
+using TastePassport.Story;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -33,6 +34,7 @@ namespace TastePassport.World
         private Button actionButton;
         private WorldTouchStick touchStick;
         private Action onClose;
+        private Action<string> onActivityRequested;
         private WorldInteractionResult lastInteraction;
         private bool hasCameraSnapshot;
         private bool originalOrthographic;
@@ -51,6 +53,12 @@ namespace TastePassport.World
 
         public void Open(string worldId, PlayerProfile playerProfile, ProfileStore profileStore, Action closed)
         {
+            Open(worldId, playerProfile, profileStore, closed, null);
+        }
+
+        public void Open(string worldId, PlayerProfile playerProfile, ProfileStore profileStore, Action closed,
+            Action<string> activityRequested)
+        {
             if (isOpen) throw new InvalidOperationException("A walkable world session is already open");
 
             profile = playerProfile ?? new PlayerProfile();
@@ -58,6 +66,7 @@ namespace TastePassport.World
             profile.language = profile.language == "ko" ? "ko" : "vi";
             world = WorldCatalog.Get(worldId);
             onClose = closed;
+            onActivityRequested = activityRequested;
             lastInteraction = null;
             dialogueOpen = false;
             LastSaveSucceeded = true;
@@ -84,6 +93,7 @@ namespace TastePassport.World
                 isOpen = false;
                 ReleaseRuntimeObjects();
                 onClose = null;
+                onActivityRequested = null;
                 throw;
             }
         }
@@ -98,6 +108,7 @@ namespace TastePassport.World
 
             Action callback = onClose;
             onClose = null;
+            onActivityRequested = null;
             callback?.Invoke();
         }
 
@@ -162,17 +173,17 @@ namespace TastePassport.World
                     return;
                 }
                 if (Keyboard.current.eKey.wasPressedThisFrame || Keyboard.current.spaceKey.wasPressedThisFrame)
-                    InteractNearest();
+                    OnActionButton();
             }
             RefreshActionButton();
         }
 
-        private void OnApplicationPause(bool paused)
+        public void OnApplicationPause(bool paused)
         {
             if (paused && isOpen) SaveCheckpoint();
         }
 
-        private void OnApplicationQuit()
+        public void OnApplicationQuit()
         {
             if (isOpen) SaveCheckpoint();
         }
@@ -293,10 +304,14 @@ namespace TastePassport.World
         {
             foreach (WorldInteractableDefinition definition in world.Interactables)
             {
+                if (!string.IsNullOrEmpty(definition.RequiredImprintId) &&
+                    !StoryProgressService.HasImprint(profile, definition.RequiredImprintId)) continue;
                 var targetObject = new GameObject("World Target - " + definition.Id);
                 targetObject.transform.SetParent(runtimeRoot.transform, false);
                 var target = targetObject.AddComponent<WorldInteractable>();
                 target.Configure(definition);
+                if (definition.Id == "lantern-display")
+                    target.ApplyLanternColor(InventoryService.GetLanternColorId(InventoryService.GetCraftedLantern(profile)));
                 targets.Add(target);
                 if (definition.IsNpc && targetObject.GetComponent<SpriteRenderer>()?.sprite == null)
                     Debug.LogError("DẤU XỨ: Missing character sprite for " + definition.Id);
@@ -400,7 +415,10 @@ namespace TastePassport.World
             if (actionButton == null || actionLabel == null) return;
             if (dialogueOpen)
             {
-                actionLabel.text = Localized("world_continue");
+                string activityId = lastInteraction == null || lastInteraction.Target == null ? null : lastInteraction.Target.ActivityId;
+                actionLabel.text = string.IsNullOrEmpty(activityId)
+                    ? Localized("world_continue")
+                    : Localized("world_start_activity") + " · " + Localized(activityId == "lantern-craft" ? "activity_lantern" : "world_continue");
                 actionButton.interactable = true;
                 return;
             }
@@ -412,10 +430,26 @@ namespace TastePassport.World
             actionButton.interactable = canInteract;
         }
 
-        private void OnActionButton()
+        private void OnActionButton() => ContinueDialogue();
+
+        public void ContinueDialogue()
         {
-            if (dialogueOpen) DismissDialogue();
-            else InteractNearest();
+            if (!dialogueOpen)
+            {
+                InteractNearest();
+                return;
+            }
+            if (dialogueOpen)
+            {
+                string activityId = lastInteraction == null || lastInteraction.Target == null ? null : lastInteraction.Target.ActivityId;
+                if (!string.IsNullOrEmpty(activityId))
+                {
+                    Action<string> callback = onActivityRequested;
+                    Close();
+                    callback?.Invoke(activityId);
+                }
+                else DismissDialogue();
+            }
         }
 
         private Button CreateButton(Transform parent, string name, string label, Vector2 anchorMin, Vector2 anchorMax,

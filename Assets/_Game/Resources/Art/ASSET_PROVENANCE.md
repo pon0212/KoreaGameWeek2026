@@ -15,10 +15,18 @@ These are atmospheric illustrations, not documentary reconstructions. A local cu
 
 ## Walkable character sprites (02 November 2026)
 
-`Characters/Traveler.png`, `Characters/Nhung.png`, and `Characters/GaBo.png` were generated as original transparent full-body Unity sprites with Codex's built-in image generation tool. The three prompts requested a consistent cozy, hand-painted storybook style, readable refined chibi proportions, no text, no flags, no watermark, and a transparent background.
+`Characters/Traveler.png`, `Characters/Nhung.png`, `Characters/GaBo.png`, and `Characters/Lan.png` were generated as original transparent full-body Unity sprites with Codex's built-in image generation tool. The prompts requested a consistent cozy, hand-painted storybook style, readable refined chibi proportions, no text, no flags, no watermark, and a transparent background.
 
 - `Traveler.png`: gender-neutral young traveler in a cream jacket with teal/lantern-orange accents and a journal satchel; intended as the controllable player, separate from companion NPCs.
 - `Nhung.png`: friendly, energetic young Vietnamese companion in a contemporary yellow-and-jade outfit with a small woven bag and lantern charm.
 - `GaBo.png`: curious, playful young Korean companion in contemporary ivory/navy/coral travel clothes with a camera.
+- `Lan.png`: middle-aged Vietnamese lantern artisan in indigo work clothes and apron, holding a bamboo frame and finished lantern; designed as Cô Lan, the Hội An craft guide.
 
-The portraits are single idle poses, not animated spritesheets. The backgrounds are illustrative and the character clothing is a stylized game design; review cultural details locally before submission. Unity import and in-game scale have not yet been verified because the Unity Editor is unavailable in this environment.
+The portraits are single idle poses, not animated spritesheets. The backgrounds are illustrative and the character clothing is a stylized game design; review cultural details locally before submission. Unity import was checked in Unity 6000.6.7f1; the sprites load as 2:3 single-sprite assets at 200 pixels per unit. No device-scale review has been performed.
+
+## Hội An lantern activity (02 November 2026)
+
+- `Props/HoiAnLantern.png`: original transparent storybook illustration generated with Codex's built-in image generation tool. The prompt requested a single unlit Hội An lantern, bamboo/wood frame, golden fabric with plum blossoms and hanging tassel, centered as a clean 2:3 cutout. It is a display and preview illustration, not a documentary record of a specific artisan's design.
+- `Characters/Lan.png`: Cô Lan's companion sprite was generated in the same visual style as the other walkable characters. She is a fictional guide and is not modeled on a named living artisan.
+
+The craft activity stores the selected frame and fabric color in the inventory variant ID and applies a light color tint to the shared preview/display sprite. It does not isolate the silk for color changes or redraw the frame geometry for each selected shape.

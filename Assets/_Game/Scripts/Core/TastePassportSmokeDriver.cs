@@ -127,6 +127,8 @@ namespace TastePassport.Core
                         var saved = new ProfileStore(testPath).Load();
                         if (!ProgressService.HasStamp(saved, Ids[mission]))
                             throw new InvalidDataException("Missing saved stamp: " + Ids[mission]);
+                        if (mission == 1 && !saved.culturalCards.Contains("culture-hoian-caolau"))
+                            throw new InvalidDataException("Completing Cao Lầu did not unlock its cultural card");
                         if (replaying)
                         {
                             var best = ProgressService.Get(saved, LevelCatalog.HoiAn.Id);
@@ -173,7 +175,59 @@ namespace TastePassport.Core
                         var translated = new ProfileStore(testPath).Load();
                         if (translated.language != "ko" || Find("뒤로") == null)
                             throw new InvalidDataException("Korean switch was not saved or rendered");
-                        Finish(0, "DẤU XỨ smoke PASS: Vietnamese brand, Hội An/Jeonju exploration, six missions, saved marks, postcards and Korean switch");
+                        Click("Tiếng Việt"); stage = 20;
+                        break;
+                    case 20:
+                        if (new ProfileStore(testPath).Load().language != "vi" || Find("Quay lại") == null)
+                            throw new InvalidDataException("Vietnamese switch was not saved or rendered in settings");
+                        Click("Quay lại"); stage = 21;
+                        break;
+                    case 21:
+                        if (Find("Tiếp tục hành trình") == null)
+                            throw new InvalidOperationException("The menu did not reopen after settings");
+                        Click("Tiếp tục hành trình"); stage = 22;
+                        break;
+                    case 22:
+                        string craftButton = GameText.Get("vi", "lantern_craft_map");
+                        if (Find(craftButton) == null) throw new InvalidOperationException("Map lantern craft entry is missing");
+                        Click(craftButton); stage = 23;
+                        break;
+                    case 23:
+                        Click(GameText.Get("vi", "frame_hexagon")); stage = 24;
+                        break;
+                    case 24:
+                        Click(GameText.Get("vi", "color_blue")); stage = 25; pieceIndex = 0;
+                        break;
+                    case 25:
+                        if (pieceIndex == 0) { Click(GameText.Get("vi", "material_fabric")); pieceIndex++; break; }
+                        if (pieceIndex == 1) { ClickPrefix(GameText.Get("vi", "craft_slot_fabric")); pieceIndex++; break; }
+                        if (pieceIndex == 2) { Click(GameText.Get("vi", "material_tassel")); pieceIndex++; break; }
+                        ClickPrefix(GameText.Get("vi", "craft_slot_tassel")); stage = 26;
+                        break;
+                    case 26:
+                        var crafted = new ProfileStore(testPath).Load();
+                        string craftedItemId = InventoryService.LanternProductPrefix + "hexagon-blue";
+                        if (!crafted.inventoryItems.Contains(craftedItemId) ||
+                            !crafted.culturalCards.Contains(InventoryService.LanternCardId) ||
+                            !crafted.culturalCards.Contains(InventoryService.ChuaCauCardId) ||
+                            !crafted.culturalCards.Contains(InventoryService.CaoLauCardId) ||
+                            !crafted.worldImprints.Contains("lantern-display-ready") ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "lantern_result_title")))
+                            throw new InvalidDataException("Lantern craft result, inventory, or cultural cards were not saved");
+                        Click(GameText.Get("vi", "inventory")); stage = 27;
+                        break;
+                    case 27:
+                        string variantLabel = GameText.Get("vi", "frame_hexagon") + " · " + GameText.Get("vi", "color_blue");
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == variantLabel))
+                            throw new InvalidDataException("The saved lantern variant is not displayed in the inventory");
+                        Click(GameText.Get("vi", "culture_cards")); stage = 28;
+                        break;
+                    case 28:
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text.Contains(GameText.Get("vi", "culture_lantern_title"))) ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text.Contains(GameText.Get("vi", "culture_chuacau_title"))) ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text.Contains(GameText.Get("vi", "culture_caolau_title"))))
+                            throw new InvalidDataException("A discovered Chùa Cầu, Cao Lầu, or lantern cultural card is missing");
+                        Finish(0, "DẤU XỨ smoke PASS: Vietnamese/Korean switching, Hội An/Jeonju journeys, six missions, postcards, Cao Lầu and lantern craft, persistent inventory and cultural cards");
                         break;
                 }
             }
@@ -255,12 +309,20 @@ namespace TastePassport.Core
             button.onClick.Invoke();
         }
 
+        private void ClickPrefix(string labelPrefix)
+        {
+            var button = app.GetComponentsInChildren<Button>().FirstOrDefault(b =>
+                b.name.StartsWith("Button " + labelPrefix, StringComparison.Ordinal));
+            if (button == null) throw new InvalidOperationException("Button missing for prefix: " + labelPrefix + " at stage " + stage);
+            button.onClick.Invoke();
+        }
+
         private void Finish(int code, string message)
         {
             enabled = false;
             if (code == 0) Debug.Log(message); else Debug.LogError(message);
             Environment.SetEnvironmentVariable("TP_SMOKE_PROFILE", null);
-            foreach (var path in new[] { testPath, testPath + ".bak", testPath + ".tmp" })
+            foreach (var path in new[] { testPath, testPath + ".bak", testPath + ".tmp", testPath + ".old" })
                 if (File.Exists(path)) File.Delete(path);
             EditorApplication.Exit(code);
         }

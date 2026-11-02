@@ -19,8 +19,8 @@ namespace TastePassport.Gameplay
     public static class LevelCatalog
     {
         public static readonly LevelDefinition HoiAn = new LevelDefinition(
-            "hoian-architecture", "hoian", "mai_mission",
-            new[] { "lantern", "old_house", "boat", "bridge", "window", "market" });
+            "hoian-architecture", "hoian", "chuacau_mission",
+            new[] { "chuacau_roof", "chuacau_covered_walkway", "chuacau_yinyang_tiles", "chuacau_shrine", "chuacau_wooden_arch", "chuacau_lai_vien" });
 
         public static readonly LevelDefinition Jeonju = new LevelDefinition(
             "jeonju-architecture", "jeonju", "joon_mission",

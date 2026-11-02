@@ -15,10 +15,12 @@ namespace TastePassport.World
         public readonly Vector2 Position;
         public readonly float InteractionRadius;
         public readonly bool IsNpc;
+        public readonly string ActivityId;
+        public readonly string RequiredImprintId;
 
         public WorldInteractableDefinition(string id, string nameKey, string speakerKey, string firstDialogueKey,
             string repeatDialogueKey, string storyFlag, string imprintId, string spriteResourcePath,
-            Vector2 position, float interactionRadius, bool isNpc)
+            Vector2 position, float interactionRadius, bool isNpc, string activityId = null, string requiredImprintId = null)
         {
             Id = id;
             NameKey = nameKey;
@@ -31,6 +33,8 @@ namespace TastePassport.World
             Position = position;
             InteractionRadius = interactionRadius;
             IsNpc = isNpc;
+            ActivityId = activityId;
+            RequiredImprintId = requiredImprintId;
         }
     }
 
@@ -67,8 +71,13 @@ namespace TastePassport.World
             {
                 new WorldInteractableDefinition("nhung", "character_nhung", "character_nhung", "prologue_nhung_first", "nhung_repeat",
                     "nhung-intro-seen", "dau-xu-book-discovered", "Art/Characters/Nhung", new Vector2(-3.7f, -1.72f), 1.35f, true),
+                new WorldInteractableDefinition("lan", "character_lan", "character_lan", "lan_first", "lan_repeat",
+                    "lan-met", "lantern-maker-met", "Art/Characters/Lan", new Vector2(-0.75f, -1.72f), 1.35f, true, "lantern-craft"),
                 new WorldInteractableDefinition("chuacau", "landmark_chuacau", "dauxu_speaker", "chuacau_discovery_first", "chuacau_discovery_repeat",
-                    "chuacau-observed", "stamp-chuacau", null, new Vector2(1.45f, -1.7f), 1.25f, false)
+                    "chuacau-observed", "stamp-chuacau", null, new Vector2(1.45f, -1.7f), 1.25f, false),
+                new WorldInteractableDefinition("lantern-display", "lantern_display", "dauxu_speaker", "lantern_display_first", "lantern_display_repeat",
+                    "lantern-display-seen", "lantern-display-visited", "Art/Props/HoiAnLantern", new Vector2(4.65f, -1.82f), 1.2f, false,
+                    null, "lantern-display-ready")
             });
 
         private static readonly WorldDefinition Jeonju = new WorldDefinition(

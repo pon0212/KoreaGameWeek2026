@@ -6,7 +6,7 @@ namespace TastePassport.Save
     [Serializable]
     public sealed class PlayerProfile
     {
-        public const int CurrentSchemaVersion = 2;
+        public const int CurrentSchemaVersion = 3;
 
         public int schemaVersion = CurrentSchemaVersion;
         public string playerName = "";
@@ -21,6 +21,8 @@ namespace TastePassport.Save
         public bool mainStoryCompleted;
         public List<string> storyFlags = new List<string>();
         public List<string> worldImprints = new List<string>();
+        public List<string> inventoryItems = new List<string>();
+        public List<string> culturalCards = new List<string>();
         public string lastWorldId = "hoian";
         public float lastWorldX = -6f;
         public float lastWorldY = -2f;
@@ -47,6 +49,8 @@ namespace TastePassport.Save
             mainStoryCompleted = source.mainStoryCompleted;
             storyFlags = source.storyFlags == null ? new List<string>() : new List<string>(source.storyFlags);
             worldImprints = source.worldImprints == null ? new List<string>() : new List<string>(source.worldImprints);
+            inventoryItems = source.inventoryItems == null ? new List<string>() : new List<string>(source.inventoryItems);
+            culturalCards = source.culturalCards == null ? new List<string>() : new List<string>(source.culturalCards);
             lastWorldId = source.lastWorldId;
             lastWorldX = source.lastWorldX;
             lastWorldY = source.lastWorldY;
@@ -75,8 +79,12 @@ namespace TastePassport.Save
 
             if (profile.storyFlags == null) profile.storyFlags = new List<string>();
             if (profile.worldImprints == null) profile.worldImprints = new List<string>();
+            if (profile.inventoryItems == null) profile.inventoryItems = new List<string>();
+            if (profile.culturalCards == null) profile.culturalCards = new List<string>();
             profile.storyFlags = NormalizeIds(profile.storyFlags);
             profile.worldImprints = NormalizeIds(profile.worldImprints);
+            profile.inventoryItems = NormalizeIds(profile.inventoryItems);
+            profile.culturalCards = NormalizeIds(profile.culturalCards);
             profile.chapterIndex = profile.mainStoryCompleted ? 4 : Math.Max(1, Math.Min(4, profile.chapterIndex));
             profile.lastWorldId = profile.lastWorldId == "jeonju" ? "jeonju" : "hoian";
             if (!IsFinite(profile.lastWorldX)) profile.lastWorldX = -6f;

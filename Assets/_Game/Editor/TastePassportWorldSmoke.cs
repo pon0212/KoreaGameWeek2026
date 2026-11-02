@@ -1,19 +1,37 @@
 using System;
 using System.IO;
+using TastePassport.Gameplay;
+using TastePassport.Localization;
 using TastePassport.Save;
 using TastePassport.Story;
+using TastePassport.UI;
 using TastePassport.World;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace TastePassport.EditorTools
 {
     public static class TastePassportWorldSmoke
     {
+        [MenuItem("Tools/Taste Passport/Validate Phase Three")]
+        public static void RunPhaseThreeChecks()
+        {
+            RunProfileAndStoryChecks();
+            RunWorldBoundsChecks();
+            RunCharacterSpriteChecks();
+            RunLanternSpriteChecks();
+            RunLanternDragDropChecks();
+            RunWorldSessionChecks();
+            Debug.Log("Dấu Xứ phase three smoke PASS: save, cultural collections, lantern craft model, localized world activity, and art imports");
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Story Save")]
         public static void RunProfileAndStoryChecks()
         {
             string path = Path.Combine(Path.GetTempPath(), "taste_passport_world_smoke_" + Guid.NewGuid().ToString("N") + ".json");
+            string schemaTwoPath = path + ".schema2";
             try
             {
                 File.WriteAllText(path,
@@ -22,10 +40,15 @@ namespace TastePassport.EditorTools
 
                 var store = new ProfileStore(path);
                 var migrated = store.Load();
-                Require(migrated.schemaVersion == 2, "schema-1 profile did not migrate to schema 2");
+                Require(migrated.schemaVersion == 3, "schema-1 profile did not migrate to schema 3");
                 Require(migrated.playerName == "Legacy Explorer" && migrated.language == "ko", "migration lost profile identity or language");
                 var oldProgress = ProgressService.Get(migrated, "hoian-architecture");
                 Require(oldProgress != null && oldProgress.bestScore == 240 && oldProgress.playCount == 3, "migration lost existing mission progress");
+                Require(migrated.inventoryItems.Count == 0 && migrated.culturalCards.Count == 0,
+                    "schema-1 migration did not initialize empty collections");
+                Require(GameText.Get("vi", "tomorrow_note").Contains("Hãy gặp Nhung") &&
+                        GameText.Get("ko", "lantern_craft_title").Contains("등불"),
+                    "Vietnamese default text or Korean lantern localization is missing");
 
                 bool first = StoryProgressService.RecordInteraction(migrated, "nhung-intro-seen", "daushu-book-discovered");
                 bool repeat = StoryProgressService.RecordInteraction(migrated, "nhung-intro-seen", "daushu-book-discovered");
@@ -33,15 +56,79 @@ namespace TastePassport.EditorTools
                 Require(StoryProgressService.HasFlag(migrated, "nhung-intro-seen"), "story flag was not recorded");
                 Require(StoryProgressService.HasImprint(migrated, "daushu-book-discovered"), "world imprint was not recorded");
                 Require(migrated.storyFlags.Count == 1 && migrated.worldImprints.Count == 1, "repeated interaction duplicated saved marks");
+                Require(InventoryService.AddItem(migrated, "lantern-test") && !InventoryService.AddItem(migrated, "lantern-test"),
+                    "inventory item grant was not idempotent");
+                Require(InventoryService.AddCultureCard(migrated, InventoryService.ChuaCauCardId) &&
+                        !InventoryService.AddCultureCard(migrated, InventoryService.ChuaCauCardId),
+                    "cultural card grant was not idempotent");
+                var caoLauDiscovery = new PlayerProfile();
+                Require(InventoryService.RecordCaoLauDiscovery(caoLauDiscovery) &&
+                        !InventoryService.RecordCaoLauDiscovery(caoLauDiscovery) &&
+                        InventoryService.HasCultureCard(caoLauDiscovery, InventoryService.CaoLauCardId),
+                    "Cao Lầu cultural card was not granted exactly once");
+                Require(GameText.Get("vi", "culture_caolau_body").Contains("thịt xá xíu") &&
+                        GameText.Get("ko", "culture_caolau_title").Contains("까오러우"),
+                    "Cao Lầu cultural card content is missing in Vietnamese or Korean");
+                Require(InventoryService.RecordLanternCraft(migrated, "diamond", "blue"),
+                    "valid lantern craft was not saved to inventory and story progress");
+                Require(InventoryService.RecordLanternCraft(migrated, "diamond", "blue") &&
+                        migrated.inventoryItems.FindAll(id => id == InventoryService.LanternProductPrefix + "diamond-blue").Count == 1,
+                    "repeated lantern craft duplicated its inventory entry or failed");
+                Require(!InventoryService.RecordLanternCraft(migrated, "pyramid", "violet"),
+                    "invalid lantern design was accepted");
+                var fullInventory = new PlayerProfile();
+                for (int i = 0; i < 128; i++) fullInventory.inventoryItems.Add("item-" + i);
+                Require(!InventoryService.RecordLanternCraft(fullInventory, "round", "red") &&
+                        !InventoryService.HasCultureCard(fullInventory, InventoryService.LanternCardId) &&
+                        !StoryProgressService.HasImprint(fullInventory, "lantern-display-ready"),
+                    "a full inventory partially saved a lantern craft");
+
+                var craft = new LanternCraftRun();
+                Require(craft.TryPlaceMaterial(LanternCraftRun.FabricSlotId, LanternCraftRun.FabricMaterialId) == LanternCraftInputResult.MissingDesign,
+                    "materials were accepted before a frame and fabric color were selected");
+                Require(craft.SelectFrame("hexagon") && craft.SelectColor("green"), "valid lantern design choices were rejected");
+                Require(craft.TryPlaceMaterial(LanternCraftRun.FabricSlotId, LanternCraftRun.TasselMaterialId) == LanternCraftInputResult.WrongMaterial,
+                    "a tassel was accepted in the fabric slot");
+                Require(craft.TryPlaceMaterial(LanternCraftRun.FabricSlotId, LanternCraftRun.FabricMaterialId) == LanternCraftInputResult.Placed,
+                    "fabric was not accepted in the fabric slot");
+                Require(craft.TryPlaceMaterial(LanternCraftRun.FabricSlotId, LanternCraftRun.FabricMaterialId) == LanternCraftInputResult.AlreadyFilled,
+                    "a filled fabric slot accepted a duplicate material");
+                Require(craft.TryPlaceMaterial(LanternCraftRun.TasselSlotId, LanternCraftRun.TasselMaterialId) == LanternCraftInputResult.Completed && craft.Complete,
+                    "the lantern did not complete after both correct materials were placed");
+                Require(!craft.SelectColor("red"), "a completed lantern design was mutable");
                 Require(StoryProgressService.AdvanceToChapter(migrated, 2), "chapter did not advance after the prologue interaction");
                 Require(!StoryProgressService.AdvanceToChapter(migrated, 1) && migrated.chapterIndex == 2, "chapter progress moved backward");
                 Require(store.TrySave(migrated), "could not save the migrated story profile");
 
                 var reloaded = store.Load();
-                Require(reloaded.schemaVersion == 2 && StoryProgressService.HasFlag(reloaded, "nhung-intro-seen"), "story flag did not survive reload");
+                Require(reloaded.schemaVersion == 3 && StoryProgressService.HasFlag(reloaded, "nhung-intro-seen"), "story flag did not survive reload");
                 Require(StoryProgressService.HasImprint(reloaded, "daushu-book-discovered"), "world imprint did not survive reload");
                 Require(ProgressService.HasStamp(reloaded, "hoian-architecture"), "existing stamp did not survive reload");
-                Debug.Log("Dấu Xứ story save smoke PASS: schema migration, legacy progress, interaction idempotency, save and reload");
+                Require(InventoryService.HasItem(reloaded, "lantern-test") &&
+                        InventoryService.HasCultureCard(reloaded, InventoryService.ChuaCauCardId) &&
+                        InventoryService.HasItem(reloaded, InventoryService.LanternProductPrefix + "diamond-blue") &&
+                        InventoryService.HasCultureCard(reloaded, InventoryService.LanternCardId) &&
+                        StoryProgressService.HasImprint(reloaded, "lantern-display-ready") &&
+                        InventoryService.GetLanternFrameId(InventoryService.GetCraftedLantern(reloaded)) == "diamond" &&
+                        InventoryService.GetLanternColorId(InventoryService.GetCraftedLantern(reloaded)) == "blue",
+                    "inventory item or cultural card did not survive reload");
+
+                var chuaCauDiscovery = new PlayerProfile();
+                Require(InventoryService.RecordChuaCauDiscovery(chuaCauDiscovery) &&
+                        !InventoryService.RecordChuaCauDiscovery(chuaCauDiscovery) &&
+                        InventoryService.HasCultureCard(chuaCauDiscovery, InventoryService.ChuaCauCardId),
+                    "Chùa Cầu discovery card was not granted exactly once");
+
+                File.WriteAllText(schemaTwoPath,
+                    "{\"schemaVersion\":2,\"playerName\":\"Schema Two Explorer\",\"language\":\"vi\",\"chapterIndex\":3," +
+                    "\"storyFlags\":[\"jeonju-unlocked\"],\"worldImprints\":[\"old-imprint\"],\"lastWorldId\":\"jeonju\",\"lastWorldX\":4.25,\"lastWorldY\":-1.5}");
+                var migratedSchemaTwo = new ProfileStore(schemaTwoPath).Load();
+                Require(migratedSchemaTwo.schemaVersion == 3 && migratedSchemaTwo.chapterIndex == 3 &&
+                        StoryProgressService.HasFlag(migratedSchemaTwo, "jeonju-unlocked") &&
+                        StoryProgressService.HasImprint(migratedSchemaTwo, "old-imprint") &&
+                        migratedSchemaTwo.inventoryItems.Count == 0 && migratedSchemaTwo.culturalCards.Count == 0,
+                    "schema-2 migration lost story progress or did not initialize collections");
+                Debug.Log("Dấu Xứ story save smoke PASS: schema 1/2 migration, legacy progress, inventory/cards, idempotency, save and reload");
             }
             catch (Exception error)
             {
@@ -50,7 +137,7 @@ namespace TastePassport.EditorTools
             }
             finally
             {
-                foreach (string file in new[] { path, path + ".bak", path + ".tmp", path + ".old" })
+                foreach (string file in new[] { path, path + ".bak", path + ".tmp", path + ".old", schemaTwoPath, schemaTwoPath + ".bak", schemaTwoPath + ".tmp", schemaTwoPath + ".old" })
                     if (File.Exists(file)) File.Delete(file);
             }
         }
@@ -78,12 +165,16 @@ namespace TastePassport.EditorTools
         [MenuItem("Tools/Taste Passport/Repair Character Sprite Imports")]
         public static void RepairCharacterSpriteImports()
         {
-            string[] names = { "Traveler", "Nhung", "GaBo" };
-            foreach (string name in names)
+            string[] assetPaths =
             {
-                string assetPath = "Assets/_Game/Resources/Art/Characters/" + name + ".png";
+                "Assets/_Game/Resources/Art/Characters/Lan.png",
+                "Assets/_Game/Resources/Art/Props/HoiAnLantern.png"
+            };
+            foreach (string assetPath in assetPaths)
+            {
+                string name = Path.GetFileNameWithoutExtension(assetPath);
                 var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
-                if (importer == null) throw new InvalidOperationException("Missing character texture importer: " + assetPath);
+                if (importer == null) throw new InvalidOperationException("Missing sprite texture importer: " + assetPath);
 
                 importer.textureType = TextureImporterType.Sprite;
                 importer.spriteImportMode = SpriteImportMode.Single;
@@ -94,8 +185,9 @@ namespace TastePassport.EditorTools
 
                 var importerData = new SerializedObject(importer);
                 SerializedProperty spriteRects = importerData.FindProperty("m_SpriteSheet.m_Sprites");
-                if (spriteRects == null || spriteRects.arraySize != 1)
-                    throw new InvalidOperationException("Expected one persisted sprite rectangle for " + assetPath);
+                if (spriteRects == null)
+                    throw new InvalidOperationException("Sprite rectangle data is unavailable for " + assetPath);
+                if (spriteRects.arraySize != 1) spriteRects.arraySize = 1;
                 SerializedProperty spriteRect = spriteRects.GetArrayElementAtIndex(0);
                 spriteRect.FindPropertyRelative("m_Name").stringValue = name;
                 spriteRect.FindPropertyRelative("m_Rect").rectValue = new Rect(0f, 0f, width, height);
@@ -106,13 +198,14 @@ namespace TastePassport.EditorTools
             }
 
             RunCharacterSpriteChecks();
-            Debug.Log("Dấu Xứ character sprite metadata repaired and verified");
+            RunLanternSpriteChecks();
+            Debug.Log("Dấu Xứ character and lantern sprite metadata repaired and verified");
         }
 
         [MenuItem("Tools/Taste Passport/Validate Character Sprites")]
         public static void RunCharacterSpriteChecks()
         {
-            string[] names = { "Traveler", "Nhung", "GaBo" };
+            string[] names = { "Traveler", "Nhung", "GaBo", "Lan" };
             foreach (string name in names)
             {
                 Sprite sprite = Resources.Load<Sprite>("Art/Characters/" + name);
@@ -125,7 +218,100 @@ namespace TastePassport.EditorTools
                         Mathf.Abs(importer.spritePixelsPerUnit - 200f) < 0.01f,
                     name + " sprite import mode or pixels-per-unit setting is incorrect");
             }
-            Debug.Log("Dấu Xứ character sprite smoke PASS: all three 2:3 sprites load with single-sprite imports at 200 pixels per unit");
+            Debug.Log("Dấu Xứ character sprite smoke PASS: all four 2:3 sprites load with single-sprite imports at 200 pixels per unit");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Lantern Sprite")]
+        public static void RunLanternSpriteChecks()
+        {
+            Sprite sprite = Resources.Load<Sprite>("Art/Props/HoiAnLantern");
+            Require(sprite != null, "the Hoi An lantern sprite did not load from Resources");
+            Require(Mathf.Abs(sprite.rect.width / sprite.rect.height - (2f / 3f)) < 0.01f,
+                "the Hoi An lantern sprite rectangle does not match the 2:3 source aspect");
+            var importer = AssetImporter.GetAtPath("Assets/_Game/Resources/Art/Props/HoiAnLantern.png") as TextureImporter;
+            Require(importer != null && importer.spriteImportMode == SpriteImportMode.Single &&
+                    Mathf.Abs(importer.spritePixelsPerUnit - 200f) < 0.01f,
+                "the lantern sprite import mode or pixels-per-unit setting is incorrect");
+            byte[] png = File.ReadAllBytes("Assets/_Game/Resources/Art/Props/HoiAnLantern.png");
+            var decoded = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            try
+            {
+                Require(decoded.LoadImage(png, false), "the lantern art could not be decoded as PNG");
+                bool hasTransparentPixel = false;
+                bool hasVisiblePixel = false;
+                foreach (Color32 pixel in decoded.GetPixels32())
+                {
+                    if (pixel.a == 0) hasTransparentPixel = true;
+                    if (pixel.a > 0) hasVisiblePixel = true;
+                    if (hasTransparentPixel && hasVisiblePixel) break;
+                }
+                Require(hasTransparentPixel && hasVisiblePixel, "the lantern PNG does not preserve transparent cutout pixels");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(decoded); }
+            Debug.Log("Dấu Xứ lantern sprite smoke PASS: transparent 2:3 lantern art loads as a single 200 PPU sprite");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Lantern Drag And Drop")]
+        public static void RunLanternDragDropChecks()
+        {
+            GameObject canvasObject = null;
+            GameObject eventSystemObject = null;
+            GameObject materialObject = null;
+            GameObject slotObject = null;
+            GameObject rejectedMaterialObject = null;
+            try
+            {
+                canvasObject = new GameObject("Lantern Drag Smoke Canvas", typeof(RectTransform), typeof(Canvas));
+                eventSystemObject = new GameObject("Lantern Drag Smoke Event System", typeof(EventSystem));
+                EventSystem eventSystem = eventSystemObject.GetComponent<EventSystem>();
+                materialObject = CreateDragTestMaterial(canvasObject.transform, LanternCraftRun.FabricMaterialId);
+                slotObject = new GameObject("Lantern Drag Smoke Slot", typeof(RectTransform), typeof(Image));
+                slotObject.transform.SetParent(canvasObject.transform, false);
+                bool acceptedByDropZone = false;
+                var zone = slotObject.AddComponent<LanternCraftDropZone>();
+                zone.Initialize(LanternCraftRun.FabricSlotId, (slotId, materialId, drag, target) =>
+                {
+                    if (slotId != LanternCraftRun.FabricSlotId || materialId != LanternCraftRun.FabricMaterialId) return;
+                    drag.Accept(target);
+                    acceptedByDropZone = true;
+                });
+
+                var pointer = new PointerEventData(eventSystem) { position = new Vector2(100f, 100f) };
+                LanternCraftDrag drag = materialObject.GetComponent<LanternCraftDrag>();
+                Transform originalParent = materialObject.transform.parent;
+                drag.OnBeginDrag(pointer);
+                pointer.pointerDrag = materialObject;
+                zone.OnDrop(pointer);
+                drag.OnEndDrag(pointer);
+                Require(acceptedByDropZone && drag.Accepted && materialObject.transform.parent == slotObject.transform &&
+                        !materialObject.GetComponent<CanvasGroup>().blocksRaycasts,
+                    "a correctly dragged fabric did not land in its slot");
+
+                rejectedMaterialObject = CreateDragTestMaterial(canvasObject.transform, "beads");
+                LanternCraftDrag rejectedDrag = rejectedMaterialObject.GetComponent<LanternCraftDrag>();
+                pointer.pointerDrag = rejectedMaterialObject;
+                Transform rejectedOriginalParent = rejectedMaterialObject.transform.parent;
+                rejectedDrag.OnBeginDrag(pointer);
+                zone.OnDrop(pointer);
+                rejectedDrag.OnEndDrag(pointer);
+                Require(!rejectedDrag.Accepted && rejectedMaterialObject.transform.parent == rejectedOriginalParent &&
+                        rejectedMaterialObject.GetComponent<CanvasGroup>().blocksRaycasts,
+                    "an invalid material did not return to its source after a rejected drop");
+                Debug.Log("Dấu Xứ lantern drag/drop smoke PASS: accepted drops occupy the target and rejected drops return to source");
+            }
+            finally
+            {
+                foreach (GameObject target in new[] { canvasObject, eventSystemObject, materialObject, slotObject, rejectedMaterialObject })
+                    if (target != null) UnityEngine.Object.DestroyImmediate(target);
+            }
+        }
+
+        private static GameObject CreateDragTestMaterial(Transform parent, string materialId)
+        {
+            var material = new GameObject("Lantern Drag Smoke Material", typeof(RectTransform), typeof(Image), typeof(CanvasGroup));
+            material.transform.SetParent(parent, false);
+            material.AddComponent<LanternCraftDrag>().Initialize(materialId);
+            return material;
         }
 
         [MenuItem("Tools/Taste Passport/Validate Walkable World Session")]
@@ -186,19 +372,20 @@ namespace TastePassport.EditorTools
                     "repeated interaction duplicated a persistent mark");
 
                 session.DismissDialogue();
-                session.SetPlayerPosition(WorldCatalog.Get("hoian").Interactables[1].Position);
+                session.SetPlayerPosition(WorldCatalog.Get("hoian").Interactables[2].Position);
                 Require(session.InteractionButtonLabel == "Tương tác · Chùa Cầu", "world interaction button did not name Chùa Cầu");
                 WorldInteractionResult landmark = session.InteractNearest();
                 Require(landmark != null && landmark.Target.Id == "chuacau" &&
-                        StoryProgressService.HasImprint(profile, "stamp-chuacau"),
-                    "Chùa Cầu interaction did not save its exploration imprint");
+                        StoryProgressService.HasImprint(profile, "stamp-chuacau") &&
+                        InventoryService.HasCultureCard(profile, InventoryService.ChuaCauCardId),
+                    "Chùa Cầu interaction did not save its exploration imprint and culture card");
 
                 session.SetPlayerPosition(new Vector2(0f, -1.5f));
-                sessionObject.SendMessage("OnApplicationPause", true, SendMessageOptions.RequireReceiver);
+                session.OnApplicationPause(true);
                 Require(Mathf.Abs(store.Load().lastWorldY + 1.5f) < 0.001f,
                     "pausing the app did not save the current world position");
                 session.SetPlayerPosition(new Vector2(0f, -1.25f));
-                sessionObject.SendMessage("OnApplicationQuit", SendMessageOptions.RequireReceiver);
+                session.OnApplicationQuit();
                 Require(Mathf.Abs(store.Load().lastWorldY + 1.25f) < 0.001f,
                     "quitting the app did not save the current world position");
                 session.SetPlayerPosition(new Vector2(0f, -1.5f));
@@ -277,7 +464,43 @@ namespace TastePassport.EditorTools
                 Require(!session.LastSaveSucceeded, "world close reported success after a failed checkpoint save");
                 Directory.Delete(failedSavePath, true);
                 Require(closeCount == 5, "failed-save world session did not close exactly once");
-                Debug.Log("Dấu Xứ world session smoke PASS: Vietnamese target labels, first/repeat dialogue, transactional save failure, exploration marks, camera restore and checkpoint resume");
+
+                profile = store.Load();
+                profile.language = "vi";
+                profile.lastWorldId = "hoian";
+                profile.lastWorldX = WorldCatalog.Get("hoian").Interactables[1].Position.x;
+                profile.lastWorldY = WorldCatalog.Get("hoian").Interactables[1].Position.y;
+                Require(InventoryService.RecordLanternCraft(profile, "diamond", "red") && store.TrySave(profile),
+                    "could not seed a crafted lantern for the world activity check");
+                string requestedActivity = null;
+                session.Open("hoian", profile, store, () => closeCount++, activityId => requestedActivity = activityId);
+                Require(GameObject.Find("World Target - lantern-display") != null,
+                    "the crafted lantern was not placed in the walkable world");
+                Require(session.InteractionButtonLabel == "Tương tác · Cô Lan", "lantern artisan is missing from the walkable world");
+                WorldInteractionResult lan = session.InteractNearest();
+                Require(lan != null && lan.DialogueKey == "lan_first" &&
+                        session.CurrentDialogueText.Contains("Khung tre") &&
+                        session.InteractionButtonLabel == "Bắt đầu hoạt động · Làm đèn lồng cùng cô Lan",
+                    "Cô Lan did not open the localized lantern craft activity");
+                session.ContinueDialogue();
+                Require(!session.IsOpen && requestedActivity == "lantern-craft" && closeCount == 6,
+                    "starting the lantern activity did not close the world and invoke its activity callback");
+
+                profile = store.Load();
+                profile.language = "ko";
+                profile.lastWorldId = "hoian";
+                profile.lastWorldX = WorldCatalog.Get("hoian").Interactables[1].Position.x;
+                profile.lastWorldY = WorldCatalog.Get("hoian").Interactables[1].Position.y;
+                Require(store.TrySave(profile), "could not seed the Korean lantern activity check");
+                requestedActivity = null;
+                session.Open("hoian", profile, store, () => closeCount++, activityId => requestedActivity = activityId);
+                session.InteractNearest();
+                Require(session.InteractionButtonLabel == "활동 시작 · Lan 아주머니와 등불 만들기",
+                    "the lantern activity prompt was not localized in Korean");
+                session.ContinueDialogue();
+                Require(!session.IsOpen && requestedActivity == "lantern-craft" && closeCount == 7,
+                    "the Korean lantern activity prompt did not continue");
+                Debug.Log("Dấu Xứ world session smoke PASS: Vietnamese target labels, first/repeat dialogue, Chùa Cầu culture card, transactional save failure, lantern display/activity, camera restore and checkpoint resume");
             }
             catch (Exception error)
             {
