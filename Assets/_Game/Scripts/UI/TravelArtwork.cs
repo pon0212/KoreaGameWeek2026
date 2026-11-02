@@ -18,9 +18,9 @@ namespace TastePassport.UI
 
         public static void Draw(Transform parent, TravelArtworkKind kind)
         {
-            if (kind == TravelArtworkKind.HoiAn || kind == TravelArtworkKind.Jeonju || kind == TravelArtworkKind.VietnamJourney || kind == TravelArtworkKind.KoreaJourney)
+            if (kind == TravelArtworkKind.HoiAn || kind == TravelArtworkKind.Jeonju || kind == TravelArtworkKind.VietnamJourney || kind == TravelArtworkKind.KoreaJourney || kind == TravelArtworkKind.CaoLau || kind == TravelArtworkKind.Bibimbap)
             {
-                string path = kind == TravelArtworkKind.HoiAn ? "Art/HoiAn" : kind == TravelArtworkKind.Jeonju ? "Art/Jeonju" : kind == TravelArtworkKind.VietnamJourney ? "Art/VietnamJourney" : "Art/KoreaJourney";
+                string path = kind == TravelArtworkKind.HoiAn ? "Art/HoiAn" : kind == TravelArtworkKind.Jeonju ? "Art/Jeonju" : kind == TravelArtworkKind.VietnamJourney ? "Art/VietnamJourney" : kind == TravelArtworkKind.KoreaJourney ? "Art/KoreaJourney" : kind == TravelArtworkKind.CaoLau ? "Art/CaoLau" : "Art/Bibimbap";
                 Sprite painting = Resources.Load<Sprite>(path);
                 if (painting != null)
                 {
@@ -34,7 +34,8 @@ namespace TastePassport.UI
                     picture.type = Image.Type.Simple;
                     picture.raycastTarget = false;
                     var fit = picture.gameObject.AddComponent<AspectRatioFitter>();
-                    fit.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+                    fit.aspectMode = kind == TravelArtworkKind.CaoLau || kind == TravelArtworkKind.Bibimbap
+                        ? AspectRatioFitter.AspectMode.FitInParent : AspectRatioFitter.AspectMode.EnvelopeParent;
                     fit.aspectRatio = painting.rect.width / painting.rect.height;
                     return;
                 }
