@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using TastePassport.Core;
 using TastePassport.Gameplay;
 using TastePassport.Localization;
 using TastePassport.Save;
@@ -22,6 +23,44 @@ namespace TastePassport.EditorTools
             RunJeonjuWorldChecks();
             RunHanjiCraftChecks();
             Debug.Log("Dấu Xứ phase four smoke PASS: Jeonju collection, localized culture, Hanji workshop, and persistent world display");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Phase Five")]
+        public static void RunPhaseFiveChecks()
+        {
+            RunPhaseFiveStoryChecks();
+            RunFestivalPreparationChecks();
+            RunFestivalLocalizationChecks();
+            Debug.Log("Dấu Xứ phase five smoke PASS: four chapters, resumable festival, ending state, and free exploration");
+        }
+
+        public static void RunFestivalLocalizationChecks()
+        {
+            string[] keys =
+            {
+                "finale_title", "finale_reveal_title", "finale_reveal",
+                "main_story_completed", "main_story_complete_map", "view_ending", "festival_ready_intro", "finale_locked_hint",
+                "festival_progress", "festival_marks_title", "festival_decor_title", "festival_decor_hint",
+                "festival_decoration_lantern", "festival_decoration_paper-flower", "festival_decoration_postcard",
+                "festival_station_hoian", "festival_station_jeonju", "festival_station_food", "festival_station_craft",
+                "festival_station_arts", "festival_station_exchange", "festival_station_memory", "festival_station_empty",
+                "festival_place_action", "festival_station_decorated", "festival_decorate_action", "festival_finish_stations_hint",
+                "festival_mark_placed", "festival_select_mark_first", "festival_station_already_ready", "festival_decor_placed",
+                "festival_place_mark_first", "festival_select_decor_first", "festival_save_error", "festival_link_title",
+                "festival_link_hint", "festival_links_progress", "festival_activity_vi_chuacau", "festival_activity_vi_caolau",
+                "festival_activity_vi_lantern", "festival_activity_ko_hanok", "festival_activity_ko_bibimbap",
+                "festival_activity_ko_hanji", "festival_pair_architecture", "festival_pair_food", "festival_pair_craft",
+                "festival_connect", "festival_select_both_activities", "festival_wrong_pair", "festival_pair_already_connected",
+                "festival_pair_connected", "festival_scene_title", "festival_corners_complete", "festival_friends_title",
+                "festival_finish_action", "continue_free_exploration"
+            };
+            foreach (string key in keys)
+            {
+                string vietnamese = GameText.Get("vi", key, "Bảo");
+                string korean = GameText.Get("ko", key, "바오");
+                Require(vietnamese != key, "Vietnamese festival text is missing: " + key);
+                Require(korean != key && korean != vietnamese, "Korean festival text is missing or falls back to Vietnamese: " + key);
+            }
         }
 
         [MenuItem("Tools/Taste Passport/Validate Phase Three")]
@@ -251,6 +290,156 @@ namespace TastePassport.EditorTools
                     GameText.Get("ko", "hanji_craft_title").Contains("한지"),
                 "Vietnamese or Korean Hanji craft copy is missing");
             Debug.Log("Dấu Xứ Hanji sprite smoke PASS: three product shapes load as 2:3 single sprites with VI/KO labels");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Main Story Progression")]
+        public static void RunPhaseFiveStoryChecks()
+        {
+            var profile = new PlayerProfile { playerName = "Nhà thám hiểm", created = true, language = "vi" };
+            WorldInteractableDefinition nhungDefinition = FindTarget(WorldCatalog.Get("hoian"), "nhung");
+            Require(nhungDefinition != null, "Nhung's opening story interaction is missing");
+            var nhungObject = new GameObject("Main story chapter one smoke");
+            try
+            {
+                WorldInteractable nhung = nhungObject.AddComponent<WorldInteractable>();
+                nhung.Configure(nhungDefinition);
+                Require(nhung.Interact(profile).DialogueKey == "prologue_nhung_first" && profile.chapterIndex == 2 &&
+                        StoryProgressService.HasFlag(profile, "nhung-intro-seen"),
+                    "meeting Nhung did not record the book and advance from chapter one to chapter two");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(nhungObject); }
+
+            var completedMainStory = typeof(StoryProgressService).GetMethod("CompleteMainStory");
+            Require(completedMainStory != null, "persistent main story completion is not implemented");
+            var endingProfile = new PlayerProfile { chapterIndex = 3 };
+            Require((bool)completedMainStory.Invoke(null, new object[] { endingProfile }) &&
+                    endingProfile.mainStoryCompleted && endingProfile.chapterIndex == 4 &&
+                    StoryProgressService.HasFlag(endingProfile, "main-story-completed") &&
+                    StoryProgressService.HasImprint(endingProfile, "festival-completed"),
+                "main story completion did not save chapter four, completion state, and festival imprint");
+            Require(!(bool)completedMainStory.Invoke(null, new object[] { endingProfile }) &&
+                    !StoryProgressService.AdvanceToChapter(endingProfile, 2) && endingProfile.chapterIndex == 4,
+                "completed main story was not idempotent or moved backwards");
+
+            var eligibility = typeof(PassportApp).GetMethod("IsFirstJourneyComplete",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            Require(eligibility != null, "the six missions and two craft requirements are not checked as one story gate");
+            var journey = new PlayerProfile();
+            Require(!(bool)eligibility.Invoke(null, new object[] { journey }), "an empty profile unlocked the festival");
+            foreach (string id in new[] { LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
+                         LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id })
+                ProgressService.Record(journey, id, 100, 3);
+            Require(!(bool)eligibility.Invoke(null, new object[] { journey }), "mission stamps alone skipped the two main craft activities");
+            Require(InventoryService.RecordLanternCraft(journey, "round", "blue") &&
+                    !(bool)eligibility.Invoke(null, new object[] { journey }), "festival unlocked before Hanji was completed");
+            Require(InventoryService.RecordHanjiCraft(journey, "fan", "indigo", "flower") &&
+                    (bool)eligibility.Invoke(null, new object[] { journey }),
+                "six mission stamps plus saved lantern and Hanji crafts did not unlock the festival");
+
+            string path = Path.Combine(Path.GetTempPath(), "taste_passport_main_story_" + Guid.NewGuid().ToString("N") + ".json");
+            try
+            {
+                var store = new ProfileStore(path);
+                Require(store.TrySave(endingProfile), "completed main story did not save");
+                var reloaded = new ProfileStore(path).Load();
+                Require(reloaded.mainStoryCompleted && reloaded.chapterIndex == 4 &&
+                        StoryProgressService.HasFlag(reloaded, "main-story-completed") &&
+                        StoryProgressService.HasImprint(reloaded, "festival-completed"),
+                    "completed main story flag, chapter, or festival imprint did not survive reload");
+            }
+            finally
+            {
+                foreach (string file in new[] { path, path + ".bak", path + ".tmp", path + ".old" })
+                    if (File.Exists(file)) File.Delete(file);
+            }
+            Debug.Log("Dấu Xứ main story smoke PASS: chapter one to four, craft gating, idempotent completion, and reload");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Festival Preparation")]
+        public static void RunFestivalPreparationChecks()
+        {
+            var assembly = typeof(InventoryService).Assembly;
+            var runType = assembly.GetType("TastePassport.Gameplay.FestivalPreparationRun");
+            Require(runType != null, "festival preparation model is missing");
+            object run = Activator.CreateInstance(runType, new object[] { new PlayerProfile() });
+            var selectMark = runType.GetMethod("SelectMark");
+            var placeAt = runType.GetMethod("TryPlaceAt");
+            var isStationPlaced = runType.GetMethod("IsStationPlaced");
+            var selectDecoration = runType.GetMethod("SelectDecoration");
+            var decorate = runType.GetMethod("TryDecorateAt");
+            var isStationDecorated = runType.GetMethod("IsStationDecorated");
+            var selectVietnamActivity = runType.GetMethod("SelectVietnamActivity");
+            var selectKoreaActivity = runType.GetMethod("SelectKoreaActivity");
+            var connect = runType.GetMethod("TryConnectActivities");
+            var complete = runType.GetProperty("Complete");
+            var placedCount = runType.GetProperty("PlacedCount");
+            var decoratedCount = runType.GetProperty("DecoratedCount");
+            var connectedCount = runType.GetProperty("ConnectedCount");
+            Require(selectMark != null && placeAt != null && isStationPlaced != null && selectDecoration != null &&
+                    decorate != null && isStationDecorated != null && selectVietnamActivity != null &&
+                    selectKoreaActivity != null && connect != null && complete != null &&
+                    placedCount != null && decoratedCount != null && connectedCount != null,
+                "festival model is missing a placement, decoration, connection, or completion contract");
+            Require(!(bool)selectMark.Invoke(run, new object[] { -1 }) && !(bool)selectMark.Invoke(run, new object[] { 7 }) &&
+                    placeAt.Invoke(run, new object[] { 0 }).ToString() == "MissingSelection",
+                "festival accepted an invalid mark or placement before selecting an item");
+            Require((bool)selectMark.Invoke(run, new object[] { 4 }) &&
+                    placeAt.Invoke(run, new object[] { 0 }).ToString() == "WrongStation" &&
+                    !(bool)isStationPlaced.Invoke(run, new object[] { 0 }),
+                "wrong festival station placement changed saved activity state");
+            Require((bool)selectMark.Invoke(run, new object[] { 0 }) &&
+                    placeAt.Invoke(run, new object[] { 0 }).ToString() == "Placed" &&
+                    placeAt.Invoke(run, new object[] { 0 }).ToString() == "AlreadyPlaced" &&
+                    !(bool)selectMark.Invoke(run, new object[] { 0 }),
+                "festival accepted a repeated station or duplicate mark");
+            Require(!(bool)selectDecoration.Invoke(run, new object[] { "unlisted" }) &&
+                    decorate.Invoke(run, new object[] { 0 }).ToString() == "MissingSelection" &&
+                    (bool)selectDecoration.Invoke(run, new object[] { "paper-flower" }) &&
+                    decorate.Invoke(run, new object[] { 0 }).ToString() == "Decorated" &&
+                    decorate.Invoke(run, new object[] { 0 }).ToString() == "AlreadyDecorated" &&
+                    (bool)isStationDecorated.Invoke(run, new object[] { 0 }),
+                "festival station decoration validation or duplicate guard failed");
+
+            var partialProfile = new PlayerProfile();
+            StoryProgressService.AddImprint(partialProfile, "festival-corner-hoian-ready");
+            StoryProgressService.AddImprint(partialProfile, "festival-decor-hoian-paper-flower");
+            object restored = Activator.CreateInstance(runType, new object[] { partialProfile });
+            Require((bool)isStationPlaced.Invoke(restored, new object[] { 0 }) &&
+                    (bool)isStationDecorated.Invoke(restored, new object[] { 0 }) &&
+                    (int)placedCount.GetValue(restored) == 1 && (int)decoratedCount.GetValue(restored) == 1,
+                "festival placement or decoration did not restore from saved imprints");
+
+            var fullRun = Activator.CreateInstance(runType, new object[] { new PlayerProfile() });
+            int[] markByStation = { 0, 4, 1, 3, 2, 5, 6 };
+            string[] stationIds = { "hoian", "jeonju", "food", "craft", "arts", "exchange", "memory" };
+            for (int station = 0; station < markByStation.Length; station++)
+            {
+                Require((bool)selectMark.Invoke(fullRun, new object[] { markByStation[station] }) &&
+                        placeAt.Invoke(fullRun, new object[] { station }).ToString() == "Placed",
+                    "festival could not place its matching mark at station " + station);
+                string decorationId = station % 3 == 0 ? "lantern" : station % 3 == 1 ? "paper-flower" : "postcard";
+                Require((bool)selectDecoration.Invoke(fullRun, new object[] { decorationId }) &&
+                        decorate.Invoke(fullRun, new object[] { station }).ToString() == "Decorated",
+                    "festival could not decorate station " + station);
+            }
+            Require(selectVietnamActivity.Invoke(fullRun, new object[] { "chuacau" }).ToString() == "Selected" &&
+                    selectKoreaActivity.Invoke(fullRun, new object[] { "bibimbap" }).ToString() == "Selected" &&
+                    connect.Invoke(fullRun, null).ToString() == "WrongPair" &&
+                    (int)connectedCount.GetValue(fullRun) == 0,
+                "an incorrect Vietnam–Korea activity pair was accepted");
+            string[] vietnam = { "chuacau", "caolau", "lantern" };
+            string[] korea = { "hanok", "bibimbap", "hanji" };
+            for (int i = 0; i < vietnam.Length; i++)
+            {
+                Require(selectVietnamActivity.Invoke(fullRun, new object[] { vietnam[i] }).ToString() == "Selected" &&
+                        selectKoreaActivity.Invoke(fullRun, new object[] { korea[i] }).ToString() == "Selected" &&
+                        connect.Invoke(fullRun, null).ToString() == "Connected",
+                    "festival could not connect the matching cultural activities: " + vietnam[i] + "/" + korea[i]);
+            }
+            Require((int)placedCount.GetValue(fullRun) == 7 && (int)decoratedCount.GetValue(fullRun) == 7 &&
+                    (int)connectedCount.GetValue(fullRun) == 3 && (bool)complete.GetValue(fullRun),
+                "festival did not complete after seven placements, seven decorations, and three cultural links");
+            Debug.Log("Dấu Xứ festival model smoke PASS: seven stations, decoration, unique marks, cross-cultural links, and restoration");
         }
 
         private static WorldInteractableDefinition FindTarget(WorldDefinition world, string id)

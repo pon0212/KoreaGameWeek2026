@@ -57,10 +57,8 @@ namespace TastePassport.Core
         private bool resetScroll = true;
         private bool koreanBackdrop;
         private bool resultCommitted;
-        private float finaleDeadline;
-        private Text finaleTimer;
-        private int finaleTarget;
-        private int[] finaleOrder;
+        private FestivalPreparationRun festivalRun;
+        private Coroutine finaleReveal;
         private WalkableWorldSession worldSession;
         private LanternCraftRun lanternCraftRun;
         private string selectedLanternMaterialId;
@@ -71,10 +69,13 @@ namespace TastePassport.Core
 
         private string T(string key, string place = null) => GameText.Get(profile.language, key, profile.playerName, place);
 
-        private bool FirstJourneyComplete() =>
-            ProgressService.HasStamp(profile, LevelCatalog.HoiAn.Id) && ProgressService.HasStamp(profile, LevelCatalog.Jeonju.Id) &&
-            ProgressService.HasStamp(profile, RecipeCatalog.CaoLau.Id) && ProgressService.HasStamp(profile, RecipeCatalog.Bibimbap.Id) &&
-            ProgressService.HasStamp(profile, MatchCatalog.HoiAn.Id) && ProgressService.HasStamp(profile, MatchCatalog.Jeonju.Id);
+        private bool FirstJourneyComplete() => IsFirstJourneyComplete(profile);
+
+        public static bool IsFirstJourneyComplete(PlayerProfile target) =>
+            ProgressService.HasStamp(target, LevelCatalog.HoiAn.Id) && ProgressService.HasStamp(target, LevelCatalog.Jeonju.Id) &&
+            ProgressService.HasStamp(target, RecipeCatalog.CaoLau.Id) && ProgressService.HasStamp(target, RecipeCatalog.Bibimbap.Id) &&
+            ProgressService.HasStamp(target, MatchCatalog.HoiAn.Id) && ProgressService.HasStamp(target, MatchCatalog.Jeonju.Id) &&
+            StoryProgressService.HasImprint(target, "lantern-display-ready") && StoryProgressService.HasImprint(target, "hanji-display-ready");
 
         private void Awake()
         {
@@ -126,12 +127,6 @@ namespace TastePassport.Core
                 int remaining = Mathf.Max(0, Mathf.CeilToInt(recipeDeadline - Time.time));
                 if (recipeTimer != null) recipeTimer.text = T("time_left") + ": " + remaining + "s";
                 if (remaining == 0) Navigate(Page.RecipeFail);
-            }
-            if (page == Page.Finale && finaleOrder != null)
-            {
-                int remaining = Mathf.Max(0, Mathf.CeilToInt(finaleDeadline - Time.time));
-                if (finaleTimer != null) finaleTimer.text = T("time_left") + ": " + remaining + "s";
-                if (remaining == 0) { finaleOrder = null; Navigate(Page.Map); Toast(T("finale_timeout")); }
             }
         }
 
@@ -191,6 +186,11 @@ namespace TastePassport.Core
 
         private void Show()
         {
+            if (finaleReveal != null)
+            {
+                StopCoroutine(finaleReveal);
+                finaleReveal = null;
+            }
             EnsureFont();
             var previousScroll = safeRoot.Find("Page Scroll")?.GetComponent<ScrollRect>();
             float savedScroll = resetScroll || previousScroll == null ? 1f : previousScroll.verticalNormalizedPosition;
@@ -474,6 +474,8 @@ namespace TastePassport.Core
             StampRow(parent, RecipeCatalog.CaoLau.Id, "cao_lau", RecipeCatalog.Bibimbap.Id, "bibimbap");
             StampRow(parent, MatchCatalog.HoiAn.Id, "hoian_exchange", MatchCatalog.Jeonju.Id, "jeonju_exchange");
             DrawWorldImprints(parent);
+            if (profile.mainStoryCompleted)
+                Label(parent, T("main_story_completed"), 28, 62, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             CompactButton(parent, T("inventory") + " · " + (profile.inventoryItems == null ? 0 : profile.inventoryItems.Count), Lantern, () => Navigate(Page.Inventory));
             CompactButton(parent, T("culture_cards") + " · " + (profile.culturalCards == null ? 0 : profile.culturalCards.Count), Jade, () => Navigate(Page.CultureCards));
             if (FirstJourneyComplete()) Label(parent, T("achievement_explorer"), 27, 72, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
@@ -1046,6 +1048,20 @@ namespace TastePassport.Core
                 jeonjuUnlocked ? StartHanjiCraft : () => Toast(T("jeonju_not_unlocked")),
                 jeonjuUnlocked ? Color.white : Ink);
             KoreaVisuals.DecorateLocationCard(jeonju);
+            var storyCard = Card(parent, 204);
+            Label(storyCard, profile.mainStoryCompleted ? T("main_story_completed") : T("chapter_title_4"),
+                29, 56, profile.mainStoryCompleted ? Jade : Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (profile.mainStoryCompleted)
+            {
+                Label(storyCard, T("main_story_complete_map"), 24, 66, Ink, TextAnchor.MiddleCenter);
+                Button(storyCard, T("view_ending"), Jade, () => Navigate(Page.FinaleResult));
+            }
+            else if (FirstJourneyComplete())
+            {
+                Label(storyCard, T("festival_ready_intro"), 24, 66, Ink, TextAnchor.MiddleCenter);
+                Button(storyCard, T("finale_start"), Vermilion, StartFinale);
+            }
+            else Label(storyCard, T("finale_locked_hint"), 24, 92, Muted, TextAnchor.MiddleCenter);
             Button(parent, T("passport"), Jade, () => Navigate(Page.Passport));
             Button(parent, T("settings"), Paper, () => { settingsReturnPage = Page.Map; Navigate(Page.Settings); }, Ink);
         }
@@ -1223,61 +1239,376 @@ namespace TastePassport.Core
 
         private void StartFinale()
         {
-            if (!FirstJourneyComplete()) { Navigate(Page.Map); return; }
-            finaleTarget = 6;
-            finaleOrder = new int[] { 0, 1, 2, 3, 4, 5, 6 };
-            for (int i = finaleOrder.Length - 1; i > 0; i--)
+            if (profile.mainStoryCompleted)
             {
-                int j = UnityEngine.Random.Range(0, i + 1);
-                int value = finaleOrder[i]; finaleOrder[i] = finaleOrder[j]; finaleOrder[j] = value;
+                Navigate(Page.FinaleResult);
+                return;
             }
-            finaleDeadline = Time.time + 60f;
+            if (!FirstJourneyComplete())
+            {
+                notice = T("finale_locked_hint");
+                Navigate(Page.Map);
+                return;
+            }
+
+            var candidate = new PlayerProfile();
+            candidate.CopyFrom(profile);
+            StoryProgressService.AdvanceToChapter(candidate, 4);
+            StoryProgressService.RecordInteraction(candidate, "festival-invitation-received", "festival-invitation");
+            if (!store.TrySave(candidate))
+            {
+                notice = T("save_error");
+                Show();
+                return;
+            }
+            profile = candidate;
+            festivalRun = new FestivalPreparationRun(profile);
+            koreanBackdrop = false;
+            StoryNarration.Stop();
             Navigate(Page.Finale);
         }
 
         private void DrawFinale(Transform parent)
         {
+            if (festivalRun == null) festivalRun = new FestivalPreparationRun(profile);
             Header(parent, T("finale_title"));
-            Artwork(parent, TravelArtworkKind.Passport, 180);
-            Label(parent, T("finale_clue"), 29, 120, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            finaleTimer = Label(parent, T("time_left") + ": 60s", 34, 64, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            for (int row = 0; row < 4; row++)
+            Artwork(parent, TravelArtworkKind.Friendship, 150);
+            Label(parent, T("finale_clue"), 27, 112, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(parent, T("festival_progress") + ": " + festivalRun.PlacedCount + "/" + FestivalPreparationRun.StationCount +
+                "  ·  " + festivalRun.DecoratedCount + "/" + FestivalPreparationRun.StationCount +
+                "  ·  " + festivalRun.ConnectedCount + "/" + FestivalPreparationRun.LinkCount,
+                25, 62, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+
+            var markCard = Card(parent, 300);
+            Label(markCard, T("festival_marks_title"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            int markRows = (FestivalPreparationRun.MarkCount + 2) / 3;
+            for (int rowIndex = 0; rowIndex < markRows; rowIndex++)
             {
-                var choices = NewRect("Finale stamp choices", parent);
-                SetHeight(choices, 86);
+                var choices = NewRect("Festival cultural memory choices", markCard);
+                SetHeight(choices, 82);
                 AddHorizontal(choices);
-                for (int col = 0; col < 2; col++)
+                for (int column = 0; column < 3; column++)
                 {
-                    int index = row * 2 + col;
-                    if (index >= finaleOrder.Length) break;
-                    int mark = finaleOrder[index];
-                    Button(choices, T("finale_mark_" + mark), Paper, () => ChooseFinaleMark(mark), Ink);
+                    int mark = rowIndex * 3 + column;
+                    if (mark >= FestivalPreparationRun.MarkCount) break;
+                    int selectedMark = mark;
+                    bool selected = festivalRun.SelectedMarkIndex == mark;
+                    var choice = Button(choices, T("finale_mark_" + mark) + (selected ? " ✓" : ""),
+                        selected ? Jade : Paper, () => SelectFestivalMark(selectedMark), selected ? Color.white : Ink);
+                    choice.GetComponent<UnityEngine.UI.Button>().interactable = !festivalRun.IsMarkPlaced(mark);
                 }
             }
-            Button(parent, T("back_map"), Paper, () => { finaleOrder = null; Navigate(Page.Map); }, Ink);
+
+            var decorationCard = Card(parent, 220);
+            Label(decorationCard, T("festival_decor_title"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(decorationCard, T("festival_decor_hint"), 23, 56, Muted, TextAnchor.MiddleCenter);
+            var decorations = NewRect("Festival decoration choices", decorationCard);
+            SetHeight(decorations, 92);
+            AddHorizontal(decorations);
+            for (int i = 0; i < FestivalPreparationRun.DecorationCount; i++)
+            {
+                string decorationId = FestivalPreparationRun.GetDecorationId(i);
+                bool selected = festivalRun.SelectedDecorationId == decorationId;
+                Button(decorations, T("festival_decoration_" + decorationId) + (selected ? " ✓" : ""),
+                    selected ? Lantern : Paper, () => SelectFestivalDecoration(decorationId), selected ? Color.white : Ink);
+            }
+
+            for (int station = 0; station < FestivalPreparationRun.StationCount; station++)
+                DrawFestivalStation(parent, station);
+
+            if (festivalRun.PlacedCount == FestivalPreparationRun.StationCount &&
+                festivalRun.DecoratedCount == FestivalPreparationRun.StationCount)
+                DrawFestivalConnections(parent);
+            else
+                Label(parent, T("festival_finish_stations_hint"), 24, 72, Muted, TextAnchor.MiddleCenter);
+            if (festivalRun.Complete)
+                Button(parent, T("festival_finish_action"), Jade, CompleteFestival);
+            Button(parent, T("back_map"), Paper, () => { festivalRun = null; Navigate(Page.Map); }, Ink);
         }
 
-        private void ChooseFinaleMark(int mark)
+        private void DrawFestivalStation(Transform parent, int stationIndex)
         {
-            if (mark == finaleTarget)
+            string stationId = FestivalPreparationRun.GetStationId(stationIndex);
+            var card = Card(parent, 210);
+            Label(card, T("festival_station_" + stationId), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (festivalRun.IsStationPlaced(stationIndex))
             {
-                finaleOrder = null;
-                Navigate(Page.FinaleResult);
+                int mark = festivalRun.GetPlacedMarkForStation(stationIndex);
+                Label(card, "◆  " + T("finale_mark_" + mark), 24, 44, Ink, TextAnchor.MiddleCenter);
+            }
+            else Label(card, T("festival_station_empty"), 23, 40, Muted, TextAnchor.MiddleCenter);
+
+            if (!festivalRun.IsStationPlaced(stationIndex))
+            {
+                var place = Button(card, T("festival_place_action"), Paper,
+                    () => PlaceFestivalMark(stationIndex), Ink);
+                place.GetComponent<UnityEngine.UI.Button>().interactable = festivalRun.SelectedMarkIndex >= 0;
+            }
+            else if (festivalRun.IsStationDecorated(stationIndex))
+            {
+                Label(card, T("festival_station_decorated") + ": " +
+                    T("festival_decoration_" + festivalRun.GetDecorationForStation(stationIndex)),
+                    23, 48, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             }
             else
             {
-                Toast(T("finale_wrong"));
+                var decorate = Button(card, T("festival_decorate_action"), Lantern,
+                    () => DecorateFestivalStation(stationIndex), Ink);
+                decorate.GetComponent<UnityEngine.UI.Button>().interactable = !string.IsNullOrEmpty(festivalRun.SelectedDecorationId);
             }
         }
 
         private void DrawFinaleResult(Transform parent)
         {
             Header(parent, T("finale_reveal_title"));
-            Artwork(parent, TravelArtworkKind.Friendship, 240);
-            var card = Card(parent, 320);
-            Label(card, T("finale_reveal"), 29, 245, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Button(parent, T("replay"), Jade, StartFinale);
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            Artwork(parent, TravelArtworkKind.Friendship, 190);
+            var festivalCard = Card(parent, 150);
+            var festivalGroup = festivalCard.gameObject.AddComponent<CanvasGroup>();
+            festivalGroup.alpha = 0f;
+            Label(festivalCard, T("festival_scene_title"), 31, 58, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(festivalCard, T("festival_corners_complete"), 25, 68, Ink, TextAnchor.MiddleCenter);
+
+            var friendsCard = Card(parent, 220);
+            var friendsGroup = friendsCard.gameObject.AddComponent<CanvasGroup>();
+            friendsGroup.alpha = 0f;
+            Label(friendsCard, T("festival_friends_title"), 28, 46, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var guests = NewRect("Festival returning friends", friendsCard);
+            SetHeight(guests, 148);
+            AddHorizontal(guests);
+            AddFestivalFriend(guests, "character_nhung", "Art/Characters/Nhung");
+            AddFestivalFriend(guests, "character_gabo", "Art/Characters/GaBo");
+            AddFestivalFriend(guests, "character_lan", "Art/Characters/Lan");
+            AddFestivalFriend(guests, "character_kim", "Art/Characters/BKim");
+
+            var endingCard = Card(parent, 360);
+            var endingGroup = endingCard.gameObject.AddComponent<CanvasGroup>();
+            endingGroup.alpha = 0f;
+            Label(endingCard, T("finale_reveal"), 29, 230, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            NarrationButtons(endingCard, T("finale_reveal"));
+            Label(parent, T("main_story_completed"), 27, 58, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Button(parent, T("continue_free_exploration"), Jade, () => Navigate(Page.Map));
+            Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
+            finaleReveal = StartCoroutine(RevealFestivalEnding(festivalGroup, friendsGroup, endingGroup));
+        }
+
+        private void AddFestivalFriend(Transform parent, string nameKey, string spritePath)
+        {
+            var friend = NewRect("Festival friend - " + nameKey, parent);
+            var size = friend.gameObject.AddComponent<LayoutElement>();
+            size.preferredWidth = 130;
+            size.minWidth = 100;
+            size.preferredHeight = 144;
+            var layout = friend.gameObject.AddComponent<VerticalLayoutGroup>();
+            layout.spacing = 4;
+            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+            var portrait = NewRect("Portrait", friend);
+            SetHeight(portrait, 102);
+            var image = portrait.gameObject.AddComponent<Image>();
+            image.sprite = Resources.Load<Sprite>(spritePath);
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+            Label(friend, T(nameKey), 22, 34, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+        }
+
+        private IEnumerator RevealFestivalEnding(CanvasGroup festival, CanvasGroup friends, CanvasGroup ending)
+        {
+            yield return RevealFestivalGroup(festival, 0.18f);
+            yield return RevealFestivalGroup(friends, 0.22f);
+            yield return RevealFestivalGroup(ending, 0.28f);
+            finaleReveal = null;
+        }
+
+        private IEnumerator RevealFestivalGroup(CanvasGroup group, float delay)
+        {
+            yield return new WaitForSecondsRealtime(delay);
+            if (group == null) yield break;
+            RectTransform rect = group.transform as RectTransform;
+            Vector3 startScale = Vector3.one * 0.96f;
+            rect.localScale = startScale;
+            float elapsed = 0f;
+            while (group != null && elapsed < 0.45f)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float progress = Mathf.SmoothStep(0f, 1f, elapsed / 0.45f);
+                group.alpha = progress;
+                if (rect != null) rect.localScale = Vector3.Lerp(startScale, Vector3.one, progress);
+                yield return null;
+            }
+            if (group != null) group.alpha = 1f;
+            if (rect != null) rect.localScale = Vector3.one;
+        }
+
+        private void DrawFestivalConnections(Transform parent)
+        {
+            var card = Card(parent, 680);
+            Label(card, T("festival_link_title"), 29, 52, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(card, T("festival_link_hint"), 24, 68, Ink, TextAnchor.MiddleCenter);
+            Label(card, T("festival_links_progress") + ": " + festivalRun.ConnectedCount + "/" + FestivalPreparationRun.LinkCount,
+                25, 46, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var vietnam = NewRect("Vietnam activity link choices", card);
+            SetHeight(vietnam, 98);
+            AddHorizontal(vietnam);
+            for (int i = 0; i < FestivalPreparationRun.LinkCount; i++)
+            {
+                string activityId = FestivalPreparationRun.GetVietnamActivityId(i);
+                bool connected = festivalRun.IsLinkConnected(FestivalPreparationRun.GetLinkId(i));
+                bool selected = festivalRun.SelectedVietnamActivityId == activityId;
+                var choice = Button(vietnam, T("festival_activity_vi_" + activityId) + (selected ? " ✓" : ""),
+                    selected ? Jade : Paper, () => SelectFestivalActivity(true, activityId), selected ? Color.white : Ink);
+                choice.GetComponent<UnityEngine.UI.Button>().interactable = !connected;
+            }
+            var korea = NewRect("Korea activity link choices", card);
+            SetHeight(korea, 98);
+            AddHorizontal(korea);
+            for (int i = 0; i < FestivalPreparationRun.LinkCount; i++)
+            {
+                string activityId = FestivalPreparationRun.GetKoreaActivityId(i);
+                bool connected = festivalRun.IsLinkConnected(FestivalPreparationRun.GetLinkId(i));
+                bool selected = festivalRun.SelectedKoreaActivityId == activityId;
+                var choice = Button(korea, T("festival_activity_ko_" + activityId) + (selected ? " ✓" : ""),
+                    selected ? Lantern : Paper, () => SelectFestivalActivity(false, activityId), selected ? Color.white : Ink);
+                choice.GetComponent<UnityEngine.UI.Button>().interactable = !connected;
+            }
+            for (int i = 0; i < FestivalPreparationRun.LinkCount; i++)
+            {
+                string pairId = FestivalPreparationRun.GetLinkId(i);
+                Label(card, (festivalRun.IsLinkConnected(pairId) ? "◆  " : "○  ") + T("festival_pair_" + pairId),
+                    23, 40, festivalRun.IsLinkConnected(pairId) ? Jade : Muted, TextAnchor.MiddleCenter);
+            }
+            Button(card, T("festival_connect"), Vermilion, ConnectFestivalActivities);
+        }
+
+        private void SelectFestivalMark(int markIndex)
+        {
+            if (festivalRun != null && festivalRun.SelectMark(markIndex)) Show();
+        }
+
+        private void PlaceFestivalMark(int stationIndex)
+        {
+            if (festivalRun == null) return;
+            FestivalPlacementResult result = festivalRun.TryPlaceAt(stationIndex);
+            if (result == FestivalPlacementResult.MissingSelection) { notice = T("festival_select_mark_first"); Show(); return; }
+            if (result == FestivalPlacementResult.WrongStation) { notice = T("finale_wrong"); Show(); return; }
+            if (result != FestivalPlacementResult.Placed) { notice = T("festival_station_already_ready"); Show(); return; }
+            if (!SaveFestivalProgress(FestivalPreparationRun.GetPlacementStoryFlagId(stationIndex),
+                    FestivalPreparationRun.GetPlacementImprintId(stationIndex))) return;
+            notice = T("festival_mark_placed");
+            Show();
+        }
+
+        private void SelectFestivalDecoration(string decorationId)
+        {
+            if (festivalRun != null && festivalRun.SelectDecoration(decorationId)) Show();
+        }
+
+        private void DecorateFestivalStation(int stationIndex)
+        {
+            if (festivalRun == null) return;
+            FestivalDecorationResult result = festivalRun.TryDecorateAt(stationIndex);
+            if (result == FestivalDecorationResult.StationNotReady) { notice = T("festival_place_mark_first"); Show(); return; }
+            if (result == FestivalDecorationResult.MissingSelection) { notice = T("festival_select_decor_first"); Show(); return; }
+            if (result != FestivalDecorationResult.Decorated) { notice = T("festival_station_already_ready"); Show(); return; }
+            string decorationId = festivalRun.GetDecorationForStation(stationIndex);
+            if (!SaveFestivalProgress(FestivalPreparationRun.GetDecorationStoryFlagId(stationIndex, decorationId),
+                    FestivalPreparationRun.GetDecorationImprintId(stationIndex, decorationId))) return;
+            notice = T("festival_decor_placed");
+            Show();
+        }
+
+        private void SelectFestivalActivity(bool vietnam, string activityId)
+        {
+            if (festivalRun == null) return;
+            FestivalSelectionResult result = vietnam
+                ? festivalRun.SelectVietnamActivity(activityId)
+                : festivalRun.SelectKoreaActivity(activityId);
+            if (result == FestivalSelectionResult.Selected) Show();
+        }
+
+        private void ConnectFestivalActivities()
+        {
+            if (festivalRun == null) return;
+            string pairId = null;
+            for (int i = 0; i < FestivalPreparationRun.LinkCount; i++)
+            {
+                if (festivalRun.SelectedVietnamActivityId == FestivalPreparationRun.GetVietnamActivityId(i) &&
+                    festivalRun.SelectedKoreaActivityId == FestivalPreparationRun.GetKoreaActivityId(i))
+                {
+                    pairId = FestivalPreparationRun.GetLinkId(i);
+                    break;
+                }
+            }
+            FestivalConnectionResult result = festivalRun.TryConnectActivities();
+            if (result == FestivalConnectionResult.MissingVietnamActivity || result == FestivalConnectionResult.MissingKoreaActivity)
+            {
+                notice = T("festival_select_both_activities");
+                Show();
+                return;
+            }
+            if (result == FestivalConnectionResult.WrongPair)
+            {
+                notice = T("festival_wrong_pair");
+                Show();
+                return;
+            }
+            if (result != FestivalConnectionResult.Connected)
+            {
+                notice = T("festival_pair_already_connected");
+                Show();
+                return;
+            }
+
+            if (string.IsNullOrEmpty(pairId))
+            {
+                notice = T("festival_save_error");
+                festivalRun = new FestivalPreparationRun(profile);
+                Show();
+                return;
+            }
+            if (!SaveFestivalProgress(FestivalPreparationRun.GetConnectionStoryFlagId(pairId),
+                    FestivalPreparationRun.GetConnectionImprintId(pairId))) return;
+            if (festivalRun.Complete) CompleteFestival();
+            else
+            {
+                notice = T("festival_pair_connected");
+                Show();
+            }
+        }
+
+        private bool SaveFestivalProgress(string storyFlag, string imprint)
+        {
+            var candidate = new PlayerProfile();
+            candidate.CopyFrom(profile);
+            StoryProgressService.RecordInteraction(candidate, storyFlag, imprint);
+            if (!store.TrySave(candidate))
+            {
+                festivalRun = new FestivalPreparationRun(profile);
+                notice = T("festival_save_error");
+                Show();
+                return false;
+            }
+            profile = candidate;
+            festivalRun = new FestivalPreparationRun(profile);
+            return true;
+        }
+
+        private void CompleteFestival()
+        {
+            if (festivalRun == null || !festivalRun.Complete) return;
+            var candidate = new PlayerProfile();
+            candidate.CopyFrom(profile);
+            StoryProgressService.CompleteMainStory(candidate);
+            if (!store.TrySave(candidate))
+            {
+                notice = T("save_error");
+                Show();
+                return;
+            }
+            profile = candidate;
+            Navigate(Page.FinaleResult);
         }
 
         private void StartLevel(LevelDefinition level)

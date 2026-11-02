@@ -5,6 +5,7 @@ using System.Linq;
 using TastePassport.Gameplay;
 using TastePassport.Localization;
 using TastePassport.Save;
+using TastePassport.Story;
 using TastePassport.World;
 using UnityEditor;
 using UnityEngine;
@@ -57,7 +58,7 @@ namespace TastePassport.Core
             nextTick = Time.realtimeSinceStartup + 0.16f;
             try
             {
-                if (Time.realtimeSinceStartup - started > 120) throw new TimeoutException("Smoke test timed out at stage " + stage);
+                if (Time.realtimeSinceStartup - started > 240) throw new TimeoutException("Smoke test timed out at stage " + stage);
                 switch (stage)
                 {
                     case 0:
@@ -237,6 +238,9 @@ namespace TastePassport.Core
                         Click(GameText.Get("vi", "open_map")); stage = 30;
                         break;
                     case 30:
+                        if (Find(GameText.Get("vi", "finale_start")) != null ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "finale_locked_hint")))
+                            throw new InvalidOperationException("The festival unlocked before the Hanji craft was completed");
                         Click(GameText.Get("vi", "hanji_craft_map")); stage = 31;
                         break;
                     case 31:
@@ -287,6 +291,8 @@ namespace TastePassport.Core
                         Click(GameText.Get("vi", "open_map")); stage = 41;
                         break;
                     case 41:
+                        if (Find(GameText.Get("vi", "finale_start")) == null)
+                            throw new InvalidOperationException("The festival did not unlock after the Hanji craft was completed");
                         Click(GameText.Get("vi", "explore_jeonju")); stage = 42;
                         break;
                     case 42:
@@ -312,9 +318,132 @@ namespace TastePassport.Core
                         var finalProfile = new ProfileStore(testPath).Load();
                         if (!finalProfile.inventoryItems.Contains(InventoryService.HanjiProductPrefix + "bookmark-jade-cloud") ||
                             !finalProfile.culturalCards.Contains(InventoryService.HanjiCardId) ||
-                            !finalProfile.worldImprints.Contains("hanji-display-ready"))
+                            !finalProfile.worldImprints.Contains("hanji-display-ready") ||
+                            !PassportApp.IsFirstJourneyComplete(finalProfile))
                             throw new InvalidDataException("Hanji rewards changed after returning from the Jeonju display");
-                        Finish(0, "DẤU XỨ smoke PASS: Vietnamese-first display, Korean switching, six missions, five Jeonju culture cards, Hanji workshop, inventory and world display persistence");
+                        if (Find(GameText.Get("vi", "finale_start")) == null)
+                            throw new InvalidOperationException("The festival did not unlock after six missions and both crafts");
+                        Click(GameText.Get("vi", "finale_start")); stage = 44;
+                        break;
+                    case 44:
+                        var invited = new ProfileStore(testPath).Load();
+                        if (invited.chapterIndex != 4 || !invited.storyFlags.Contains("festival-invitation-received") ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "finale_title")))
+                            throw new InvalidDataException("The fourth chapter festival invitation did not open and save");
+                        for (int mark = 0; mark < FestivalPreparationRun.MarkCount; mark++)
+                            if (Find(GameText.Get("vi", "finale_mark_" + mark)) == null)
+                                throw new InvalidOperationException("The festival is missing mark choice " + mark);
+                        pieceIndex = 0;
+                        stage = 45;
+                        break;
+                    case 45:
+                        if (pieceIndex >= FestivalPreparationRun.StationCount)
+                        {
+                            recipeStep = 0;
+                            stage = 47;
+                            break;
+                        }
+                        int stationMark = FestivalPreparationRun.GetRequiredMarkIndex(pieceIndex);
+                        Click(GameText.Get("vi", "finale_mark_" + stationMark));
+                        Click(GameText.Get("vi", "festival_place_action"));
+                        var afterPlacement = new ProfileStore(testPath).Load();
+                        if (!StoryProgressService.HasImprint(afterPlacement, FestivalPreparationRun.GetPlacementImprintId(pieceIndex)))
+                            throw new InvalidDataException("Festival station placement was not saved: " + pieceIndex);
+                        stage = 46;
+                        break;
+                    case 46:
+                        string festivalDecorationId = FestivalPreparationRun.GetDecorationId(pieceIndex % FestivalPreparationRun.DecorationCount);
+                        Click(GameText.Get("vi", "festival_decoration_" + festivalDecorationId));
+                        Click(GameText.Get("vi", "festival_decorate_action"));
+                        var afterDecoration = new ProfileStore(testPath).Load();
+                        if (!StoryProgressService.HasImprint(afterDecoration,
+                                FestivalPreparationRun.GetDecorationImprintId(pieceIndex, festivalDecorationId)))
+                            throw new InvalidDataException("Festival station decoration was not saved: " + pieceIndex);
+                        if (pieceIndex == 0)
+                        {
+                            Click(GameText.Get("vi", "back_map"));
+                            stage = 50;
+                        }
+                        else
+                        {
+                            pieceIndex++;
+                            stage = 45;
+                        }
+                        break;
+                    case 47:
+                        if (recipeStep >= FestivalPreparationRun.LinkCount)
+                        {
+                            stage = 48;
+                            break;
+                        }
+                        string linkId = FestivalPreparationRun.GetLinkId(recipeStep);
+                        Click(GameText.Get("vi", "festival_activity_vi_" + FestivalPreparationRun.GetVietnamActivityId(recipeStep)));
+                        Click(GameText.Get("vi", "festival_activity_ko_" + FestivalPreparationRun.GetKoreaActivityId(recipeStep)));
+                        Click(GameText.Get("vi", "festival_connect"));
+                        if (!StoryProgressService.HasImprint(new ProfileStore(testPath).Load(), FestivalPreparationRun.GetConnectionImprintId(linkId)))
+                            throw new InvalidDataException("Cross-cultural activity link was not saved: " + linkId);
+                        recipeStep++;
+                        if (recipeStep == FestivalPreparationRun.LinkCount) stage = 48;
+                        break;
+                    case 48:
+                        var completedStory = new ProfileStore(testPath).Load();
+                        if (!completedStory.mainStoryCompleted || completedStory.chapterIndex != 4 ||
+                            !StoryProgressService.HasFlag(completedStory, "main-story-completed") ||
+                            !StoryProgressService.HasImprint(completedStory, "festival-completed"))
+                            throw new InvalidDataException("Festival completion did not persist the main story ending");
+                        string[] endingKeys = { "festival_scene_title", "festival_corners_complete", "festival_friends_title", "finale_reveal", "main_story_completed" };
+                        foreach (string key in endingKeys)
+                            if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", key, "Smoke Player")))
+                                throw new InvalidOperationException("The animated ending is missing text: " + key);
+                        foreach (string spritePath in new[] { "Art/Characters/Nhung", "Art/Characters/GaBo", "Art/Characters/Lan", "Art/Characters/BKim" })
+                        {
+                            Sprite expected = Resources.Load<Sprite>(spritePath);
+                            if (expected == null || !app.GetComponentsInChildren<Image>().Any(image => image.sprite == expected))
+                                throw new InvalidOperationException("The ending is missing a returning friend portrait: " + spritePath);
+                        }
+                        if (Find(GameText.Get("vi", "read_story")) == null)
+                            throw new InvalidOperationException("The ending is missing its narration control");
+                        Click(GameText.Get("vi", "continue_free_exploration")); stage = 49;
+                        break;
+                    case 49:
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "main_story_completed")) ||
+                            Find(GameText.Get("vi", "view_ending")) == null ||
+                            Find(GameText.Get("vi", "explore_hoian")) == null ||
+                            Find(GameText.Get("vi", "explore_jeonju")) == null)
+                            throw new InvalidOperationException("The completed map did not show ending access and both free-exploration destinations");
+                        Click(GameText.Get("vi", "explore_hoian")); stage = 52;
+                        break;
+                    case 50:
+                        var partialFestival = new ProfileStore(testPath).Load();
+                        if (!StoryProgressService.HasImprint(partialFestival, FestivalPreparationRun.GetPlacementImprintId(0)) ||
+                            !StoryProgressService.HasImprint(partialFestival, FestivalPreparationRun.GetDecorationImprintId(0, "lantern")))
+                            throw new InvalidDataException("Leaving the festival lost a saved station or decoration");
+                        Click(GameText.Get("vi", "finale_start")); stage = 51;
+                        break;
+                    case 51:
+                        var resumedRun = new FestivalPreparationRun(new ProfileStore(testPath).Load());
+                        if (!resumedRun.IsStationPlaced(0) || !resumedRun.IsStationDecorated(0) ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == "◆  " + GameText.Get("vi", "finale_mark_0")) ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "festival_station_decorated") + ": " + GameText.Get("vi", "festival_decoration_lantern")))
+                            throw new InvalidOperationException("The festival did not restore its saved station and decoration");
+                        pieceIndex = 1;
+                        stage = 45;
+                        break;
+                    case 52:
+                        var hoianFree = app.GetComponent<WalkableWorldSession>();
+                        if (hoianFree == null || !hoianFree.IsOpen)
+                            throw new InvalidOperationException("Free exploration did not open Hội An after the main story");
+                        hoianFree.Close();
+                        if (Find(GameText.Get("vi", "explore_jeonju")) == null)
+                            throw new InvalidOperationException("Free Jeonju exploration was locked after the main story");
+                        Click(GameText.Get("vi", "explore_jeonju")); stage = 53;
+                        break;
+                    case 53:
+                        var jeonjuFree = app.GetComponent<WalkableWorldSession>();
+                        if (jeonjuFree == null || !jeonjuFree.IsOpen)
+                            throw new InvalidOperationException("Free exploration did not open Jeonju after the main story");
+                        jeonjuFree.Close();
+                        Finish(0, "DẤU XỨ smoke PASS: Vietnamese-first display, Korean switching, six missions, both crafts, seven saved festival stations, three shared activity links, animated ending, and free exploration");
                         break;
                 }
             }
@@ -364,6 +493,8 @@ namespace TastePassport.Core
             var profileAfterInteraction = new ProfileStore(testPath).Load();
             if (!profileAfterInteraction.storyFlags.Contains(expectedFlag))
                 throw new InvalidDataException("Companion interaction was not saved: " + expectedFlag);
+            if (worldId == "hoian" && profileAfterInteraction.chapterIndex != 2)
+                throw new InvalidDataException("Meeting Nhung did not advance the story to chapter two");
             if (worldId == "jeonju")
             {
                 session.DismissDialogue();

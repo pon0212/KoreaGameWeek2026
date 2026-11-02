@@ -31,6 +31,25 @@ namespace TastePassport.Story
             return true;
         }
 
+        public static bool CompleteMainStory(PlayerProfile profile)
+        {
+            if (profile == null) return false;
+            bool changed = false;
+            if (profile.chapterIndex < 4)
+            {
+                profile.chapterIndex = 4;
+                changed = true;
+            }
+            if (!profile.mainStoryCompleted)
+            {
+                profile.mainStoryCompleted = true;
+                changed = true;
+            }
+            changed |= AddFlag(profile, "main-story-completed");
+            changed |= AddImprint(profile, "festival-completed");
+            return changed;
+        }
+
         private static bool Contains(List<string> values, string id) =>
             values != null && !string.IsNullOrWhiteSpace(id) && values.Contains(id.Trim());
 
