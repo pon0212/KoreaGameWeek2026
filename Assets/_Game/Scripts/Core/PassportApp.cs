@@ -32,6 +32,7 @@ namespace TastePassport.Core
         private PlayerProfile profile;
         private Canvas canvas;
         private GameUiDioramaStage dioramaStage;
+        private GameUiActivityDiorama activityDiorama;
         private RectTransform safeRoot;
         private Font font;
         private Font displayFont;
@@ -241,7 +242,17 @@ namespace TastePassport.Core
             UpdateSafeArea();
             if (dioramaStage == null) dioramaStage = GameUiDioramaStage.Ensure(transform);
             dioramaStage?.SetDestination(koreanBackdrop);
-            dioramaStage?.SetStageVisible(safeRoot.gameObject.activeSelf);
+            string activityDioramaId = ResolveActivityDioramaId();
+            bool activityPage = !string.IsNullOrEmpty(activityDioramaId);
+            if (activityPage)
+            {
+                if (activityDiorama == null) activityDiorama = GameUiActivityDiorama.Ensure(transform);
+                activityDiorama?.SetActivity(activityDioramaId, koreanBackdrop);
+            }
+            bool pageVisible = safeRoot.gameObject.activeSelf;
+            bool useActivityDiorama = activityPage && activityDiorama != null && activityDiorama.StageTexture != null;
+            activityDiorama?.SetVisible(pageVisible && useActivityDiorama);
+            dioramaStage?.SetStageVisible(pageVisible && !useActivityDiorama);
             var previousScroll = safeRoot.Find("Page Scroll")?.GetComponent<ScrollRect>();
             float savedScroll = resetScroll || previousScroll == null ? 1f : previousScroll.verticalNormalizedPosition;
             for (int i = safeRoot.childCount - 1; i >= 0; i--)
@@ -252,16 +263,17 @@ namespace TastePassport.Core
                 Destroy(oldPage);
             }
             Panel("Destination Background", safeRoot, Cream, true);
-            if (dioramaStage != null && dioramaStage.StageTexture != null)
+            Texture backdropTexture = useActivityDiorama ? activityDiorama.StageTexture : dioramaStage?.StageTexture;
+            if (backdropTexture != null)
             {
                 var surface = NewRect("3D destination stage", safeRoot);
                 Stretch(surface);
                 var image = surface.gameObject.AddComponent<RawImage>();
-                image.texture = dioramaStage.StageTexture;
+                image.texture = backdropTexture;
                 image.raycastTarget = false;
                 // Fill the viewport without stretching the portrait stage on taller displays.
                 float viewportAspect = safeRoot.rect.width / Mathf.Max(1f, safeRoot.rect.height);
-                float textureAspect = (float)image.texture.width / image.texture.height;
+                float textureAspect = (float)backdropTexture.width / backdropTexture.height;
                 float uvWidth = Mathf.Min(1f, viewportAspect / textureAspect);
                 float uvHeight = Mathf.Min(1f, textureAspect / viewportAspect);
                 image.uvRect = new Rect((1f - uvWidth) * .5f, (1f - uvHeight) * .5f, uvWidth, uvHeight);
@@ -347,6 +359,52 @@ namespace TastePassport.Core
             resetScroll = false;
             if (pageFade != null) StopCoroutine(pageFade);
             pageFade = StartCoroutine(FadePage(fadeGroup));
+        }
+
+        private string ResolveActivityDioramaId()
+        {
+            switch (page)
+            {
+                case Page.Passport:
+                case Page.Inventory:
+                case Page.CultureCards:
+                    return "passport";
+                case Page.Postcard:
+                    return "postcard";
+                case Page.Dialogue:
+                case Page.Explore:
+                    return "architecture";
+                case Page.Assembly:
+                    return "architecture-assembly";
+                case Page.Result:
+                    if (matchResult && matchRun != null) return "matching-result";
+                    if (recipeResult && recipeRun != null) return "recipe-result";
+                    return "architecture-result";
+                case Page.RecipeDialogue:
+                case Page.RecipeGame:
+                    return "recipe";
+                case Page.RecipeMix:
+                    return "recipe-mix";
+                case Page.RecipeFail:
+                    return "recipe-fail";
+                case Page.MatchDialogue:
+                case Page.MatchGame:
+                    return "matching";
+                case Page.LanternCraft:
+                    return "lantern-craft";
+                case Page.LanternResult:
+                    return "lantern-result";
+                case Page.HanjiCraft:
+                    return "hanji-craft";
+                case Page.HanjiResult:
+                    return "hanji-result";
+                case Page.Finale:
+                    return "festival";
+                case Page.FinaleResult:
+                    return "festival-result";
+                default:
+                    return null;
+            }
         }
 
         private IEnumerator FadePage(CanvasGroup group)
@@ -1388,6 +1446,7 @@ namespace TastePassport.Core
                 if (worldSession == null) worldSession = gameObject.AddComponent<WalkableWorldSession>();
                 safeRoot.gameObject.SetActive(false);
                 dioramaStage?.SetStageVisible(false);
+                activityDiorama?.SetVisible(false);
                 worldSession.Open(worldId, profile, store, ReturnFromWorld, HandleWorldActivity, OpenPassportFromWorld);
                 bool koreanWorld = worldId == "jeonju";
                 audioManager?.SetEnvironment(koreanWorld);
@@ -1397,6 +1456,7 @@ namespace TastePassport.Core
             {
                 safeRoot.gameObject.SetActive(true);
                 dioramaStage?.SetStageVisible(true);
+                activityDiorama?.SetVisible(false);
                 Debug.LogException(error);
                 notice = T("world_open_error");
                 Show();
