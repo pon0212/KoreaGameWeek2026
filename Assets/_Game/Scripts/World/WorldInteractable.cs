@@ -24,8 +24,8 @@ namespace TastePassport.World
     [RequireComponent(typeof(CircleCollider2D))]
     public sealed class WorldInteractable : MonoBehaviour
     {
-        private static Sprite markerSprite;
         private WorldInteractableDefinition definition;
+        private WorldDioramaBuilder townVisual;
         private Transform questMarker;
         private Vector3 questMarkerBasePosition;
 
@@ -41,7 +41,18 @@ namespace TastePassport.World
 
         public void Configure(WorldInteractableDefinition target)
         {
+            Configure(target, null);
+        }
+
+        public void Configure(WorldInteractableDefinition target, WorldDioramaBuilder townBuilder)
+        {
+            if (target == null)
+            {
+                Debug.LogWarning("Cannot configure a world target without a definition.", this);
+                return;
+            }
             definition = target;
+            townVisual = townBuilder;
             gameObject.name = "World Target - " + target.Id;
             transform.position = target.Position;
 
@@ -49,21 +60,18 @@ namespace TastePassport.World
             circle.isTrigger = true;
             circle.radius = target.IsNpc ? 0.55f : target.InteractionRadius;
 
-            var renderer = GetComponent<SpriteRenderer>();
-            if (renderer == null) renderer = gameObject.AddComponent<SpriteRenderer>();
-            if (!string.IsNullOrEmpty(target.SpriteResourcePath))
+            // Legacy character and landmark artwork is kept for dialogue portraits and print surfaces.
+            // Nothing in the walkable world is rendered as a sprite after the 3D scene conversion.
+            foreach (SpriteRenderer sprite in GetComponentsInChildren<SpriteRenderer>(true))
+                sprite.enabled = false;
+
+            float interactionScale = target.IsNpc ? 0.22f :
+                string.IsNullOrEmpty(target.SpriteResourcePath) ? 0.48f : 0.14f;
+            transform.localScale = Vector3.one * interactionScale;
+            if (target.IsNpc)
             {
-                renderer.sprite = Resources.Load<Sprite>(target.SpriteResourcePath);
-                renderer.sortingOrder = target.IsNpc ? 10 : 9;
-                transform.localScale = Vector3.one * (target.IsNpc ? 0.22f : 0.14f);
-                renderer.color = Color.white;
-            }
-            else
-            {
-                renderer.sprite = GetMarkerSprite();
-                renderer.color = target.Id == "chuacau" ? GameUiTheme.Lantern : GameUiTheme.Jade;
-                renderer.sortingOrder = 8;
-                transform.localScale = Vector3.one * 0.48f;
+                if (WorldCharacterModelBuilder.Create(transform, target.Id, false) == null)
+                    Debug.LogError("DẤU XỨ: Could not build the 3D NPC model for " + target.Id + ".", this);
             }
         }
 
@@ -103,29 +111,13 @@ namespace TastePassport.World
         public void ApplyLanternColor(string colorId)
         {
             if (definition == null || definition.Id != "lantern-display") return;
-            var renderer = GetComponent<SpriteRenderer>();
-            if (renderer == null) return;
-            if (colorId == "red") renderer.color = new Color(1f, 0.91f, 0.89f);
-            else if (colorId == "blue") renderer.color = new Color(0.88f, 0.94f, 1f);
-            else if (colorId == "green") renderer.color = new Color(0.90f, 0.96f, 0.87f);
-            else if (colorId == "gold") renderer.color = new Color(1f, 0.96f, 0.82f);
+            townVisual?.ApplyLanternColor(colorId);
         }
 
         public void ApplyHanjiVariant(string shapeId, string colorId)
         {
             if (definition == null || definition.Id != "hanji-display") return;
-            var renderer = GetComponent<SpriteRenderer>();
-            if (renderer == null) return;
-
-            string spritePath = shapeId == "bookmark" ? "Art/Props/HanjiBookmark" :
-                shapeId == "flower" ? "Art/Props/HanjiFlower" : "Art/Props/HanjiFan";
-            Sprite product = Resources.Load<Sprite>(spritePath);
-            if (product != null) renderer.sprite = product;
-
-            if (colorId == "indigo") renderer.color = new Color(0.88f, 0.92f, 1f);
-            else if (colorId == "vermilion") renderer.color = new Color(1f, 0.90f, 0.88f);
-            else if (colorId == "gold") renderer.color = new Color(1f, 0.96f, 0.82f);
-            else if (colorId == "jade") renderer.color = new Color(0.88f, 0.96f, 0.90f);
+            townVisual?.ApplyHanjiVariant(shapeId, colorId);
         }
 
         public bool IsWithinRange(Vector2 position)
@@ -153,33 +145,6 @@ namespace TastePassport.World
             else if (definition.Id == "gyeonggijeon") changed |= InventoryService.AddCultureCard(profile, InventoryService.GyeonggijeonCardId);
             else if (definition.Id == "pansori") changed |= InventoryService.AddCultureCard(profile, InventoryService.PansoriCardId);
             return new WorldInteractionResult(definition, dialogueKey, firstVisit, changed);
-        }
-
-        private static Sprite GetMarkerSprite()
-        {
-            if (markerSprite != null) return markerSprite;
-            const int size = 64;
-            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            texture.name = "World Point of Interest Marker";
-            texture.filterMode = FilterMode.Bilinear;
-            var pixels = new Color32[size * size];
-            Vector2 center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
-            float outer = size * 0.47f;
-            float inner = size * 0.31f;
-            for (int y = 0; y < size; y++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    float distance = Vector2.Distance(new Vector2(x, y), center);
-                    byte alpha = distance <= outer && distance >= inner ? (byte)255 : (byte)0;
-                    pixels[y * size + x] = new Color32(255, 255, 255, alpha);
-                }
-            }
-            texture.SetPixels32(pixels);
-            texture.Apply(false, true);
-            markerSprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size);
-            markerSprite.name = "World Point of Interest Marker";
-            return markerSprite;
         }
     }
 }

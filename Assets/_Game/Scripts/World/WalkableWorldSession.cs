@@ -14,8 +14,7 @@ namespace TastePassport.World
 {
     public sealed class WalkableWorldSession : MonoBehaviour
     {
-        private const float PlayerSpriteScale = 0.22f;
-        private const float CameraSize = 3.3f;
+        private const float CharacterVisualScale = 0.22f;
         private static readonly Color Ink = GameUiTheme.Ink;
         private static readonly Color Jade = GameUiTheme.Jade;
         private static readonly Color Paper = GameUiTheme.Paper;
@@ -27,7 +26,9 @@ namespace TastePassport.World
         private GameObject runtimeRoot;
         private GameObject ownedEventSystem;
         private Camera worldCamera;
+        private Canvas worldHudCanvas;
         private WorldPlayerController player;
+        private WorldDioramaBuilder townDiorama;
         private Text actionLabel;
         private Text dialogueLabel;
         private Text speakerLabel;
@@ -132,7 +133,7 @@ namespace TastePassport.World
                     ? new Vector2(profile.lastWorldX, profile.lastWorldY)
                     : world.SpawnPoint;
 
-                CreateBackground();
+                townDiorama = WorldDioramaBuilder.Build(runtimeRoot.transform, world);
                 CreateStreetCollision();
                 CreatePlayer(startPosition);
                 CreateInteractables();
@@ -274,6 +275,14 @@ namespace TastePassport.World
             RefreshActionButton();
         }
 
+        private void LateUpdate()
+        {
+            // The gameplay camera follows the player; keep its fitted world-space HUD attached
+            // to the same viewport without changing the camera or parenting the HUD to it.
+            if (isOpen && worldHudCanvas != null && worldCamera != null)
+                WorldSpaceCanvasFitter.Configure(worldHudCanvas, worldCamera);
+        }
+
         private static void InvokeVisibleButton(Button button)
         {
             if (button != null && button.gameObject.activeInHierarchy && button.interactable)
@@ -319,6 +328,8 @@ namespace TastePassport.World
             }
             targets.Clear();
             player = null;
+            townDiorama = null;
+            worldHudCanvas = null;
             worldCamera = null;
             actionLabel = null;
             dialogueLabel = null;
@@ -385,27 +396,6 @@ namespace TastePassport.World
             hasCameraSnapshot = false;
         }
 
-        private void CreateBackground()
-        {
-            Sprite sprite = Resources.Load<Sprite>(world.BackgroundResourcePath);
-            var background = new GameObject("Destination Background");
-            background.transform.SetParent(runtimeRoot.transform, false);
-            background.transform.position = new Vector3(0f, (world.MinimumPosition.y + world.MaximumPosition.y) * 0.5f, 3f);
-            var renderer = background.AddComponent<SpriteRenderer>();
-            renderer.sprite = sprite;
-            renderer.sortingOrder = -100;
-            if (sprite != null)
-            {
-                float widthScale = (world.MaximumPosition.x - world.MinimumPosition.x) / sprite.bounds.size.x;
-                float heightScale = (CameraSize * 2.05f) / sprite.bounds.size.y;
-                background.transform.localScale = Vector3.one * Mathf.Max(widthScale, heightScale);
-            }
-            else
-            {
-                Debug.LogError("DẤU XỨ: Missing world background resource " + world.BackgroundResourcePath);
-            }
-        }
-
         private void CreateStreetCollision()
         {
             // The destination art is a painted backdrop. These hidden static edges turn its visible
@@ -436,17 +426,15 @@ namespace TastePassport.World
             playerObject.transform.SetParent(runtimeRoot.transform, false);
             var visualObject = new GameObject("Character Visual");
             visualObject.transform.SetParent(playerObject.transform, false);
-            visualObject.transform.localScale = Vector3.one * PlayerSpriteScale;
-            var spriteRenderer = visualObject.AddComponent<SpriteRenderer>();
-            spriteRenderer.sprite = Resources.Load<Sprite>("Art/Characters/Traveler");
-            spriteRenderer.sortingOrder = 20;
-            if (spriteRenderer.sprite == null)
-                Debug.LogError("DẤU XỨ: Missing player sprite Resources/Art/Characters/Traveler");
+            visualObject.transform.localScale = Vector3.one * CharacterVisualScale;
+            WorldCharacterModelBuilder character = WorldCharacterModelBuilder.Create(visualObject.transform, "traveler", true);
+            if (character == null)
+                Debug.LogError("DẤU XỨ: Could not build the 3D player character.", visualObject);
             playerObject.AddComponent<Rigidbody2D>();
             playerObject.AddComponent<CircleCollider2D>();
             player = playerObject.AddComponent<WorldPlayerController>();
             player.Initialize(worldCamera, world, startPosition);
-            player.SetVisual(spriteRenderer);
+            player.SetCharacterModel(character);
         }
 
         private void CreateInteractables()
@@ -458,7 +446,7 @@ namespace TastePassport.World
                 var targetObject = new GameObject("World Target - " + definition.Id);
                 targetObject.transform.SetParent(runtimeRoot.transform, false);
                 var target = targetObject.AddComponent<WorldInteractable>();
-                target.Configure(definition);
+                target.Configure(definition, townDiorama);
                 if (definition.Id == "lantern-display")
                     target.ApplyLanternColor(InventoryService.GetLanternColorId(InventoryService.GetCraftedLantern(profile)));
                 else if (definition.Id == "hanji-display")
@@ -467,8 +455,6 @@ namespace TastePassport.World
                     target.ApplyHanjiVariant(InventoryService.GetHanjiShapeId(hanji), InventoryService.GetHanjiColorId(hanji));
                 }
                 targets.Add(target);
-                if (definition.IsNpc && targetObject.GetComponent<SpriteRenderer>()?.sprite == null)
-                    Debug.LogError("DẤU XỨ: Missing character sprite for " + definition.Id);
             }
         }
 
@@ -478,7 +464,8 @@ namespace TastePassport.World
             var canvasObject = new GameObject("World HUD", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             canvasObject.transform.SetParent(runtimeRoot.transform, false);
             var canvas = canvasObject.GetComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.worldCamera = worldCamera;
             canvas.sortingOrder = 100;
             var scaler = canvasObject.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -560,6 +547,9 @@ namespace TastePassport.World
             CreateQuestJournal(safeAreaRect);
             CreateControlsGuide(safeAreaRect);
             LayoutOverlayCards();
+            worldHudCanvas = canvas;
+            if (!WorldSpaceCanvasFitter.Configure(canvas, worldCamera))
+                throw new InvalidOperationException("The walkable world HUD could not be fitted to its camera.");
             RefreshMovementAvailability();
         }
 
