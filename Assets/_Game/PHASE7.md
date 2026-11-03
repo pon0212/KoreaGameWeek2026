@@ -13,6 +13,7 @@
 
 - **Windows:** `TastePassportBuild.BuildWindows` hoàn tất thành công; log `Logs/TastePassportPhase7WindowsBuildFinal.log`; tệp `Builds/Windows/TastePassport.exe`.
 - Đã khởi chạy bản Windows độc lập; menu hiện tên game, tagline tiếng Việt, lời giới thiệu và nút tiếp tục mà không gặp lỗi khởi động. Chưa chơi thủ công hết một hành trình dài trên Windows.
+- Quan sát nhanh tiến trình tại menu trong 5 giây trên máy phát triển: Working Set khoảng 237 MiB, bộ nhớ riêng khoảng 331,9 MiB; CPU time không tăng ở độ phân giải mẫu. Đây là số đo tức thời của phiên Windows, không phải phép đo FPS hay đại diện cho điện thoại.
 - **Android:** `TastePassportBuild.BuildAndroid` hoàn tất thành công từ môi trường mặc định của máy; log `Logs/TastePassportPhase7AndroidBuildFinal.log`; tệp `Builds/Android/TastePassport.apk` (49.870.122 byte).
 - APK có package `com.DefaultCompany.TastePassport_KGW2026`, orientation dọc, `minSdkVersion 26`, `targetSdkVersion 37`; chữ ký APK v2 được `apksigner` xác nhận.
 - Lỗi loopback của Gradle trên Windows đã được khắc phục bằng cách đặt `TEMP`/`TMP` an toàn trong tiến trình Unity trước build Android và khi Editor thoát. Thay đổi chỉ áp dụng cho tiến trình Unity hiện tại, không sửa biến môi trường hệ thống.
