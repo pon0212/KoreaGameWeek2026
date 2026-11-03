@@ -20,6 +20,7 @@ namespace TastePassport.UI
         private Transform lanternLeft;
         private Transform lanternRight;
         private bool stageVisible = true;
+        private bool koreanDestination;
 
         public Texture StageTexture => texture;
 
@@ -35,13 +36,19 @@ namespace TastePassport.UI
             if (existing != null) return existing;
             var holder = new GameObject("UI Diorama Stage");
             holder.transform.SetParent(owner, false);
-            var stage = holder.AddComponent<GameUiDioramaStage>();
-            stage.Initialize();
-            return stage;
+            return holder.AddComponent<GameUiDioramaStage>();
         }
 
         private void Initialize()
         {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader == null)
+            {
+                Debug.LogError("Cannot create the UI diorama: no supported unlit shader was found.", this);
+                return;
+            }
+
             // A unique, remote location prevents other stage instances sharing the layer
             // from entering this camera's small orthographic frustum.
             stageRoot = new GameObject("UI Diorama World");
@@ -60,6 +67,7 @@ namespace TastePassport.UI
             cameraObject.transform.localPosition = new Vector3(0f, 4.2f, -12f);
             cameraObject.transform.localRotation = Quaternion.Euler(12f, 0f, 0f);
             stageCamera = cameraObject.AddComponent<Camera>();
+            stageCamera.enabled = stageVisible && isActiveAndEnabled;
             stageCamera.orthographic = true;
             stageCamera.orthographicSize = 6.4f;
             stageCamera.nearClipPlane = 0.1f;
@@ -74,13 +82,13 @@ namespace TastePassport.UI
 
             cubeMesh = CreateCube();
             roofMesh = CreateRoof();
-            var cream = CreateMaterial(new Color(0.91f, 0.79f, 0.59f));
-            var ochre = CreateMaterial(new Color(0.82f, 0.56f, 0.25f));
-            var dark = CreateMaterial(new Color(0.27f, 0.22f, 0.20f));
-            var red = CreateMaterial(new Color(0.70f, 0.25f, 0.19f));
-            var green = CreateMaterial(new Color(0.35f, 0.48f, 0.35f));
-            var stone = CreateMaterial(new Color(0.71f, 0.68f, 0.59f));
-            var blue = CreateMaterial(new Color(0.33f, 0.42f, 0.46f));
+            var cream = CreateMaterial(shader, new Color(0.91f, 0.79f, 0.59f));
+            var ochre = CreateMaterial(shader, new Color(0.82f, 0.56f, 0.25f));
+            var dark = CreateMaterial(shader, new Color(0.27f, 0.22f, 0.20f));
+            var red = CreateMaterial(shader, new Color(0.70f, 0.25f, 0.19f));
+            var green = CreateMaterial(shader, new Color(0.35f, 0.48f, 0.35f));
+            var stone = CreateMaterial(shader, new Color(0.71f, 0.68f, 0.59f));
+            var blue = CreateMaterial(shader, new Color(0.33f, 0.42f, 0.46f));
 
             vietnam = NewGroup("Hoi An", stageRoot.transform);
             korea = NewGroup("Jeonju", stageRoot.transform);
@@ -92,11 +100,12 @@ namespace TastePassport.UI
             BuildHouse(korea.transform, 2.0f, 1.7f, cream, blue, dark, true);
             lanternLeft = BuildLantern(vietnam.transform, -1.3f, red, dark);
             lanternRight = BuildLantern(vietnam.transform, 1.2f, ochre, dark);
-            SetDestination(false);
+            SetDestination(koreanDestination);
         }
 
         public void SetDestination(bool korean)
         {
+            koreanDestination = korean;
             if (vietnam == null || korea == null) return;
             vietnam.SetActive(!korean);
             korea.SetActive(korean);
@@ -110,7 +119,8 @@ namespace TastePassport.UI
 
         private void OnEnable()
         {
-            if (stageCamera != null) stageCamera.enabled = stageVisible;
+            if (stageRoot == null) Initialize();
+            if (stageCamera != null) stageCamera.enabled = stageVisible && isActiveAndEnabled;
         }
 
         private void OnDisable()
@@ -133,10 +143,8 @@ namespace TastePassport.UI
             return group;
         }
 
-        private Material CreateMaterial(Color color)
+        private Material CreateMaterial(Shader shader, Color color)
         {
-            var shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null) shader = Shader.Find("Unlit/Color");
             var material = new Material(shader) { color = color };
             materials.Add(material);
             return material;
