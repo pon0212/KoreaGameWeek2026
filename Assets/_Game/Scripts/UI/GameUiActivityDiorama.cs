@@ -253,7 +253,7 @@ namespace TastePassport.UI
                 CreateCylinder(scene, "Culture matching seal " + i, new Vector3(x[i], 0.27f, -0.28f), new Vector3(0.66f, 0.10f, 0.66f), i == 1 ? goldMaterial : jadeMaterial, false);
             }
             CreateLanternProp(scene, "Matching lantern", new Vector3(-1.55f, 0.72f, -0.08f), 0.80f, vermilionMaterial);
-            CreateBowlProp(scene, "Matching cuisine bowl", new Vector3(0f, 0.81f, -0.08f), blueMaterial);
+            BuildBowlProp(scene, "Matching cuisine bowl", new Vector3(0f, 0.81f, -0.08f), blueMaterial);
             CreateMeshPart(scene, "Matching bridge token", roofMesh, new Vector3(1.55f, 0.64f, -0.04f), new Vector3(0.90f, 0.65f, 0.72f), vermilionMaterial);
             AddResultVariant(scene, "matching", new Vector3(0f, 1.92f, -0.45f), goldMaterial);
         }
