@@ -6,6 +6,21 @@ namespace TastePassport.Localization
     {
         private static readonly Dictionary<string, string> Vi = new Dictionary<string, string>
         {
+            {"collection_heading", "Bộ sưu tập của bạn"},
+            {"collection_postcards", "Bưu thiếp hành trình"},
+            {"collection_owned", "Đã sưu tầm"},
+            {"collection_unlocked", "Đã mở khóa"},
+            {"collection_postcard_hint", "Hoàn thành các nhiệm vụ của hai vùng để mở bưu thiếp này."},
+            {"collection_inventory_hint", "Những món đồ bạn đã làm được lưu ở đây. Chạm vào thẻ văn hóa để đọc câu chuyện phía sau mỗi trải nghiệm."},
+            {"collection_culture_hint", "Đọc lại những điều đã khám phá. Tiếp tục hành trình để sưu tầm các thẻ còn khóa."},
+            {"collection_wardrobe_hint", "Chọn trang phục đã sở hữu hoặc dùng xu để mở khóa trang phục mới."},
+            {"nav_back_passport", "Trở về hộ chiếu"},
+            {"nav_back_menu", "Trở về màn hình chính"},
+            {"nav_back_previous", "Trở về trang trước"},
+            {"settings_intro", "Điều chỉnh ngôn ngữ và âm thanh cho hành trình của bạn."},
+            {"settings_language_hint", "Lựa chọn hiện tại có dấu ✓. Thay đổi sẽ được lưu ngay."},
+            {"settings_sound_state", "Trạng thái âm thanh"},
+
             {"title", "DẤU XỨ VIỆT HÀN"}, {"subtitle", "TALES OF TWO LANDS"},
             {"tagline", "Mỗi vùng đất một câu chuyện – Mỗi hành trình một dấu ấn."},
             {"living_passport", "Mỗi vùng đất một câu chuyện • mỗi hành trình một dấu ấn"},
@@ -331,6 +346,21 @@ namespace TastePassport.Localization
 
         private static readonly Dictionary<string, string> Ko = new Dictionary<string, string>
         {
+            {"collection_heading", "나의 수집품"},
+            {"collection_postcards", "여행 엽서"},
+            {"collection_owned", "수집 완료"},
+            {"collection_unlocked", "잠금 해제됨"},
+            {"collection_postcard_hint", "두 지역의 관련 임무를 완료하면 이 엽서가 열려요."},
+            {"collection_inventory_hint", "직접 만든 물건이 여기에 보관돼요. 문화 카드를 눌러 체험에 담긴 이야기를 읽어 보세요."},
+            {"collection_culture_hint", "탐험에서 배운 이야기를 다시 읽어 보세요. 여행을 이어 가면 잠긴 카드를 모을 수 있어요."},
+            {"collection_wardrobe_hint", "보유한 의상을 선택하거나 코인으로 새 의상을 열어 보세요."},
+            {"nav_back_passport", "여권으로 돌아가기"},
+            {"nav_back_menu", "시작 화면으로 돌아가기"},
+            {"nav_back_previous", "이전 화면으로 돌아가기"},
+            {"settings_intro", "여행에 사용할 언어와 소리를 조절하세요."},
+            {"settings_language_hint", "현재 선택에는 ✓가 표시돼요. 변경 사항은 바로 저장돼요."},
+            {"settings_sound_state", "소리 상태"},
+
             {"title", "DẤU XỨ VIỆT HÀN"}, {"subtitle", "TALES OF TWO LANDS"},
             {"tagline", "각 지역의 이야기 – 여정마다 남는 발자취."},
             {"living_passport", "각 지역의 이야기 • 여정마다 남는 발자취"},

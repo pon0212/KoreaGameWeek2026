@@ -539,40 +539,66 @@ namespace TastePassport.Core
             OpenWorld("hoian");
         }
 
+        private void CollectionHeader(Transform parent, string titleKey, string hintKey, string status = null)
+        {
+            Header(parent, T(titleKey));
+            var summary = JourneyCard(parent);
+            if (!string.IsNullOrEmpty(status))
+                CollectionCopy(summary, status, 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(summary, T(hintKey), 26, Muted, TextAnchor.MiddleCenter);
+        }
+
+        // Let translated copy grow with its content rather than clipping at a fixed height.
+        private Text CollectionCopy(Transform parent, string value, int size, Color color,
+            TextAnchor alignment = TextAnchor.MiddleLeft, FontStyle style = FontStyle.Normal)
+        {
+            var label = Label(parent, value, size, 0, color, alignment, style);
+            var layout = label.GetComponent<LayoutElement>();
+            layout.minHeight = -1;
+            layout.preferredHeight = -1;
+            return label;
+        }
+
         private void DrawPassport(Transform parent)
         {
             RecordTutorialPassportView();
             Header(parent, T("passport"));
-            Artwork(parent, TravelArtworkKind.Passport, 200);
-            var card = Card(parent, 210);
-            Label(card, profile.playerName, 42, 65, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            Label(card, T("passport_intro"), 26, 52, Muted, TextAnchor.MiddleCenter);
-            Label(card, T("avatar_" + profile.avatarIndex), 26, 36, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(parent, T("stamps"), 30, 62, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            Label(parent, T("coins") + ": " + profile.coins + " ◆", 27, 50, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            StampRow(parent, LevelCatalog.HoiAn.Id, "hoian", LevelCatalog.Jeonju.Id, "jeonju");
-            StampRow(parent, RecipeCatalog.CaoLau.Id, "cao_lau", RecipeCatalog.Bibimbap.Id, "bibimbap");
-            StampRow(parent, MatchCatalog.HoiAn.Id, "hoian_exchange", MatchCatalog.Jeonju.Id, "jeonju_exchange");
+            var identity = JourneyCard(parent);
+            Artwork(identity, TravelArtworkKind.Passport, 160);
+            CollectionCopy(identity, profile.playerName, 36, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(identity, T("passport_intro"), 26, Muted, TextAnchor.MiddleCenter);
+            CollectionCopy(identity, T("avatar_" + profile.avatarIndex), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(identity, T("coins") + ": " + profile.coins + " ◆", 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Button(parent, T("open_map"), Jade, () => Navigate(Page.Map));
+            var stamps = JourneyCard(parent);
+            CollectionCopy(stamps, T("stamps"), 30, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            StampRow(stamps, LevelCatalog.HoiAn.Id, "hoian", LevelCatalog.Jeonju.Id, "jeonju");
+            StampRow(stamps, RecipeCatalog.CaoLau.Id, "cao_lau", RecipeCatalog.Bibimbap.Id, "bibimbap");
+            StampRow(stamps, MatchCatalog.HoiAn.Id, "hoian_exchange", MatchCatalog.Jeonju.Id, "jeonju_exchange");
             DrawWorldImprints(parent);
             if (profile.mainStoryCompleted)
-                Label(parent, T("main_story_completed"), 28, 62, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CompactButton(parent, T("inventory") + " · " + (profile.inventoryItems == null ? 0 : profile.inventoryItems.Count), Lantern, () => Navigate(Page.Inventory));
-            CompactButton(parent, T("culture_cards") + " · " + (profile.culturalCards == null ? 0 : profile.culturalCards.Count), Jade, () => Navigate(Page.CultureCards));
-            if (FirstJourneyComplete()) Label(parent, T("achievement_explorer"), 27, 72, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(parent, T("main_story_completed"), 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (FirstJourneyComplete())
+                CollectionCopy(parent, T("achievement_explorer"), 27, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var collections = JourneyCard(parent);
+            CollectionCopy(collections, T("collection_heading"), 30, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CompactButton(collections, T("inventory") + " · " + (profile.inventoryItems == null ? 0 : profile.inventoryItems.Count), Paper, () => Navigate(Page.Inventory), Ink);
+            CompactButton(collections, T("culture_cards") + " · " + (profile.culturalCards == null ? 0 : profile.culturalCards.Count), Paper, () => Navigate(Page.CultureCards), Ink);
+            CompactButton(collections, T("wardrobe"), Paper, () => Navigate(Page.Wardrobe), Ink);
+            CollectionCopy(parent, T("collection_postcards"), 30, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int i = 0; i < PostcardCatalog.All.Length; i++)
             {
                 int index = i;
                 var definition = PostcardCatalog.All[i];
                 bool unlocked = definition.IsUnlocked(profile);
-                var postcard = Card(parent, unlocked ? 184 : 170);
-                Label(postcard, "◆  " + T(definition.TitleKey), 28, 55, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-                if (unlocked) CompactButton(postcard, T("view_postcard"), Lantern, () => { postcardIndex = index; postcardBack = false; Navigate(Page.Postcard); });
-                else Label(postcard, "○  " + T("locked"), 25, 60, Muted, TextAnchor.MiddleCenter);
+                var postcard = JourneyCard(parent);
+                CollectionCopy(postcard, T(unlocked ? "collection_unlocked" : "locked"), 26, unlocked ? Jade : Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(postcard, T(definition.TitleKey), 28, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                if (unlocked) CompactButton(postcard, T("view_postcard"), Lantern, () => { postcardIndex = index; postcardBack = false; Navigate(Page.Postcard); }, Ink);
+                else CollectionCopy(postcard, T("collection_postcard_hint"), 26, Muted, TextAnchor.MiddleCenter);
             }
-            Button(parent, T("open_map"), Jade, () => Navigate(Page.Map));
-            Button(parent, T("wardrobe"), Lantern, () => Navigate(Page.Wardrobe));
-            Button(parent, T("edit_profile"), Paper, () => OpenCharacterEditor(Page.Passport), Ink);
-            Button(parent, T("back"), Paper, () => Navigate(Page.Menu), Ink);
+            CompactButton(parent, T("edit_profile"), Paper, () => OpenCharacterEditor(Page.Passport), Ink);
+            CompactButton(parent, T("nav_back_menu"), Paper, () => Navigate(Page.Menu), Ink);
         }
 
         private void StartLanternCraft()
@@ -960,37 +986,40 @@ namespace TastePassport.Core
 
         private void DrawInventory(Transform parent)
         {
-            Header(parent, T("inventory"));
             int count = profile.inventoryItems == null ? 0 : profile.inventoryItems.Count;
-            if (count == 0) Label(parent, T("inventory_empty"), 27, 110, Muted, TextAnchor.MiddleCenter);
+            CollectionHeader(parent, "inventory", "collection_inventory_hint", T("collection_owned") + ": " + count);
+            if (count == 0)
+                CollectionCopy(JourneyCard(parent), T("inventory_empty"), 27, Muted, TextAnchor.MiddleCenter);
             else
             {
                 foreach (string itemId in profile.inventoryItems)
                 {
-                    var card = Card(parent, 250);
+                    var card = JourneyCard(parent);
+                    CollectionCopy(card, T("collection_owned"), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
                     string hanjiShape = InventoryService.GetHanjiShapeId(itemId);
                     if (!string.IsNullOrEmpty(hanjiShape))
                     {
-                        Label(card, T("hanji_item"), 29, 52, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-                        Label(card, HanjiVariantLabel(itemId), 26, 50, Ink, TextAnchor.MiddleCenter);
+                        CollectionCopy(card, T("hanji_item"), 29, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                        CollectionCopy(card, HanjiVariantLabel(itemId), 26, Ink, TextAnchor.MiddleCenter);
                         DrawHanjiPreview(card, 120, hanjiShape, InventoryService.GetHanjiColorId(itemId));
                     }
                     else if (!string.IsNullOrEmpty(InventoryService.GetLanternFrameId(itemId)))
                     {
-                        Label(card, T("lantern_item"), 29, 52, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-                        Label(card, LanternVariantLabel(itemId), 26, 50, Ink, TextAnchor.MiddleCenter);
+                        CollectionCopy(card, T("lantern_item"), 29, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                        CollectionCopy(card, LanternVariantLabel(itemId), 26, Ink, TextAnchor.MiddleCenter);
                         DrawLanternPreview(card, 120, InventoryService.GetLanternColorId(itemId));
                     }
-                    else Label(card, T("inventory_unknown_item"), 29, 60, Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
+                    else CollectionCopy(card, T("inventory_unknown_item"), 29, Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
                 }
             }
-            Button(parent, T("culture_cards"), Lantern, () => Navigate(Page.CultureCards));
-            Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
+            CompactButton(parent, T("culture_cards"), Paper, () => Navigate(Page.CultureCards), Ink);
+            CompactButton(parent, T("nav_back_passport"), Paper, () => Navigate(Page.Passport), Ink);
         }
 
         private void DrawCultureCards(Transform parent)
         {
-            Header(parent, T("culture_cards"));
+            CollectionHeader(parent, "culture_cards", "collection_culture_hint",
+                T("collection_owned") + ": " + (profile.culturalCards == null ? 0 : profile.culturalCards.Count));
             DrawCultureCard(parent, InventoryService.ChuaCauCardId, "culture_chuacau_title", "culture_chuacau_body", "culture_chuacau_source");
             DrawCultureCard(parent, InventoryService.CaoLauCardId, "culture_caolau_title", "culture_caolau_body", "culture_caolau_source");
             DrawCultureCard(parent, InventoryService.LanternCardId, "culture_lantern_title", "culture_lantern_body", "culture_lantern_source");
@@ -999,22 +1028,23 @@ namespace TastePassport.Core
             DrawCultureCard(parent, InventoryService.BibimbapCardId, "culture_bibimbap_title", "culture_bibimbap_body", "culture_bibimbap_source");
             DrawCultureCard(parent, InventoryService.GyeonggijeonCardId, "culture_gyeonggijeon_title", "culture_gyeonggijeon_body", "culture_gyeonggijeon_source");
             DrawCultureCard(parent, InventoryService.PansoriCardId, "culture_pansori_title", "culture_pansori_body", "culture_pansori_source");
-            Button(parent, T("inventory"), Lantern, () => Navigate(Page.Inventory));
-            Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
+            CompactButton(parent, T("inventory"), Paper, () => Navigate(Page.Inventory), Ink);
+            CompactButton(parent, T("nav_back_passport"), Paper, () => Navigate(Page.Passport), Ink);
         }
 
         private void DrawCultureCard(Transform parent, string cardId, string titleKey, string bodyKey, string sourceKey)
         {
             bool unlocked = InventoryService.HasCultureCard(profile, cardId);
-            bool detailedHistory = cardId == InventoryService.ChuaCauCardId;
-            var card = Card(parent, unlocked ? (detailedHistory ? 520 : 360) : 190);
-            Label(card, (unlocked ? "◆  " : "○  ") + T(titleKey), 29, 62, unlocked ? Jade : Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var card = JourneyCard(parent);
+            CollectionCopy(card, T(unlocked ? "collection_owned" : "locked"), 26, unlocked ? Jade : Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T(titleKey), 29, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             if (unlocked)
             {
-                Label(card, T(bodyKey), 25, detailedHistory ? 330 : 190, Ink, TextAnchor.MiddleCenter);
-                Label(card, T(sourceKey), 20, 58, Muted, TextAnchor.MiddleCenter);
+                CollectionCopy(card, T(bodyKey), 26, Ink);
+                Rule(card);
+                CollectionCopy(card, T(sourceKey), 26, Muted);
             }
-            else Label(card, T("culture_card_locked"), 23, 75, Muted, TextAnchor.MiddleCenter);
+            else CollectionCopy(card, T("culture_card_locked"), 26, Muted, TextAnchor.MiddleCenter);
         }
 
         private Color ColorForLantern(string colorId)
@@ -1060,12 +1090,12 @@ namespace TastePassport.Core
             var definition = PostcardCatalog.All[Mathf.Clamp(postcardIndex, 0, PostcardCatalog.All.Length - 1)];
             if (!definition.IsUnlocked(profile)) { Navigate(Page.Passport); return; }
             Header(parent, T(definition.TitleKey));
-            Label(parent, T(postcardBack ? "back_side" : "front"), 29, 65, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            var card = Card(parent, postcardBack ? 460 : 535);
+            CollectionCopy(parent, T("collection_unlocked") + " · " + T(postcardBack ? "back_side" : "front"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var card = JourneyCard(parent);
             postcardCard = card as RectTransform;
             if (!postcardBack)
             {
-                Label(card, T(definition.TitleKey), 31, 85, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+                CollectionCopy(card, T(definition.TitleKey), 31, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
                 var pair = NewRect("Two cultures", card);
                 SetHeight(pair, 235);
                 AddHorizontal(pair);
@@ -1078,21 +1108,21 @@ namespace TastePassport.Core
                 TravelArtwork.Draw(right, postcardIndex == 1 ? TravelArtworkKind.Bibimbap : TravelArtworkKind.Jeonju);
                 KoreaVisuals.Attach(right, postcardIndex == 1 ? TravelArtworkKind.Bibimbap : TravelArtworkKind.Jeonju);
                 AddJourneyThread(card);
-                Label(card, T(definition.FrontLeftKey) + "  •  " + T(definition.FrontRightKey), 26, 58, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(card, T(definition.FrontLeftKey) + "  •  " + T(definition.FrontRightKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
                 Label(card, "◆  ◆  ◆", 28, 44, Vermilion, TextAnchor.MiddleCenter);
             }
             else
             {
                 Label(card, "◆  " + T("passport"), 25, 45, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-                Label(card, T(definition.StoryKey), 29, 165, Ink, TextAnchor.MiddleCenter);
+                CollectionCopy(card, T(definition.StoryKey), 29, Ink);
                 Rule(card);
                 Label(card, T("culture_note"), 27, 54, Jade, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-                Label(card, T(definition.FactKey), 26, 115, Ink, TextAnchor.MiddleCenter);
-                Label(card, T("tomorrow_clue_" + (postcardIndex + 1)), 24, 82, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(card, T(definition.FactKey), 26, Ink);
+                CollectionCopy(card, T("tomorrow_clue_" + (postcardIndex + 1)), 26, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
                 NarrationButtons(parent, T(definition.StoryKey));
             }
             Button(parent, T("flip_postcard"), Jade, StartPostcardFlip);
-            Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
+            CompactButton(parent, T("nav_back_passport"), Paper, () => Navigate(Page.Passport), Ink);
         }
 
         private void StartPostcardFlip()
@@ -1373,17 +1403,17 @@ namespace TastePassport.Core
         private void DrawWorldImprints(Transform parent)
         {
             int count = profile.worldImprints == null ? 0 : profile.worldImprints.Count;
-            var card = Card(parent, 150 + Mathf.Max(1, count) * 44);
-            Label(card, T("current_chapter"), 27, 42, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(card, T("chapter_title_" + Mathf.Clamp(profile.chapterIndex, 1, 4)), 30, 54, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(card, T("world_imprints") + ": " + count, 25, 38, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var card = JourneyCard(parent);
+            CollectionCopy(card, T("current_chapter"), 27, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T("chapter_title_" + Mathf.Clamp(profile.chapterIndex, 1, 4)), 30, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T("world_imprints") + ": " + count, 26, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             if (count == 0)
             {
-                Label(card, T("no_world_imprints"), 24, 44, Muted, TextAnchor.MiddleCenter);
+                CollectionCopy(card, T("no_world_imprints"), 26, Muted, TextAnchor.MiddleCenter);
                 return;
             }
             foreach (string imprint in profile.worldImprints)
-                Label(card, "◆  " + T(ImprintNameKey(imprint)), 24, 38, Ink, TextAnchor.MiddleCenter);
+                CollectionCopy(card, "◆  " + T(ImprintNameKey(imprint)), 26, Ink, TextAnchor.MiddleCenter);
         }
 
         private static string ImprintNameKey(string id)
@@ -1402,21 +1432,20 @@ namespace TastePassport.Core
 
         private void DrawWardrobe(Transform parent)
         {
-            Header(parent, T("wardrobe"));
-            Label(parent, T("coins") + ": " + profile.coins + " ◆", 30, 55, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionHeader(parent, "wardrobe", "collection_wardrobe_hint", T("coins") + ": " + profile.coins + " ◆");
             for (int i = 0; i < OutfitCatalog.All.Length; i++)
             {
                 var outfit = OutfitCatalog.All[i];
-                var card = Card(parent, 190);
+                var card = JourneyCard(parent);
                 var preview = NewRect("Outfit preview", card);
-                SetHeight(preview, 76);
+                SetHeight(preview, 150);
                 DrawAvatar(preview, OutfitCatalog.Get(profile.outfitId).Avatar, outfit.Id);
-                Label(card, T(outfit.NameKey), 29, 55, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-                Label(card, outfit.IsOwned(profile) ? T("outfit_owned") : T("outfit_price") + ": " + outfit.Price + " ◆", 24, 42, Muted, TextAnchor.MiddleCenter);
+                CollectionCopy(card, T(outfit.NameKey), 29, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(card, outfit.IsOwned(profile) ? T("outfit_owned") : T("outfit_price") + ": " + outfit.Price + " ◆", 26, Muted, TextAnchor.MiddleCenter);
                 if (outfit.IsOwned(profile)) CompactButton(card, profile.outfitId == outfit.Id ? T("outfit_selected") : T("outfit_wear"), Jade, () => SetOutfit(outfit.Id));
-                else CompactButton(card, T("outfit_unlock"), outfit.Price <= profile.coins ? Lantern : Border, () => UnlockOutfit(outfit.Id));
+                else CompactButton(card, T("outfit_unlock"), outfit.Price <= profile.coins ? Lantern : Border, () => UnlockOutfit(outfit.Id), Ink);
             }
-            Button(parent, T("back"), Paper, () => Navigate(Page.Passport), Ink);
+            CompactButton(parent, T("nav_back_passport"), Paper, () => Navigate(Page.Passport), Ink);
         }
 
         private void SetOutfit(int id)
@@ -1434,25 +1463,27 @@ namespace TastePassport.Core
 
         private void DrawSettings(Transform parent)
         {
-            Header(parent, T("settings"));
-            Artwork(parent, TravelArtworkKind.Passport, 150);
-            Label(parent, T("settings_language"), 29, 58, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-            Button(parent, "Tiếng Việt" + (profile.language == "vi" ? "  ✓" : ""), profile.language == "vi" ? Jade : Paper, () => ChangeLanguage("vi"), profile.language == "vi" ? Color.white : Ink);
-            Button(parent, "한국어" + (profile.language == "ko" ? "  ✓" : ""), profile.language == "ko" ? Jade : Paper, () => ChangeLanguage("ko"), profile.language == "ko" ? Color.white : Ink);
-            Label(parent, T("settings_sound"), 29, 58, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            CollectionHeader(parent, "settings", "settings_intro");
+            var language = JourneyCard(parent);
+            CollectionCopy(language, T("settings_language"), 29, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            CollectionCopy(language, T("settings_language_hint"), 26, Muted);
+            Button(language, T("language_vi") + (profile.language == "vi" ? "  ✓" : ""), profile.language == "vi" ? Lantern : Paper, () => ChangeLanguage("vi"), Ink);
+            Button(language, T("language_ko") + (profile.language == "ko" ? "  ✓" : ""), profile.language == "ko" ? Lantern : Paper, () => ChangeLanguage("ko"), Ink);
+            var sound = JourneyCard(parent);
+            CollectionCopy(sound, T("settings_sound"), 29, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
             if (audioManager == null) audioManager = GameAudioManager.For(gameObject);
-            AudioVolumeSlider(parent, T("settings_music_volume"), audioManager.MusicVolume, audioManager.SetMusicVolume);
-            AudioVolumeSlider(parent, T("settings_sfx_volume"), audioManager.SfxVolume, audioManager.SetSfxVolume);
-            AudioVolumeSlider(parent, T("settings_ambience_volume"), audioManager.AmbienceVolume, audioManager.SetAmbienceVolume);
-            Button(parent, T(audioManager.Muted ? "sound_muted" : "sound_unmuted"), Lantern, () =>
+            CollectionCopy(sound, T("settings_sound_state") + ": " + T(audioManager.Muted ? "off" : "on"), 26, Jade);
+            AudioVolumeSlider(sound, T("settings_music_volume"), audioManager.MusicVolume, audioManager.SetMusicVolume);
+            AudioVolumeSlider(sound, T("settings_sfx_volume"), audioManager.SfxVolume, audioManager.SetSfxVolume);
+            AudioVolumeSlider(sound, T("settings_ambience_volume"), audioManager.AmbienceVolume, audioManager.SetAmbienceVolume);
+            CompactButton(sound, T(audioManager.Muted ? "sound_muted" : "sound_unmuted"), Lantern, () =>
             {
                 bool mute = !audioManager.Muted;
                 audioManager.SetMuted(mute);
                 if (mute) StoryNarration.Stop();
                 Show();
-            });
-            Spacer(parent, 28);
-            Button(parent, T("back"), Paper, () => Navigate(settingsReturnPage), Ink);
+            }, Ink);
+            CompactButton(parent, T("nav_back_previous"), Paper, () => Navigate(settingsReturnPage), Ink);
         }
 
         private void AudioVolumeSlider(Transform parent, string label, float value, UnityAction<float> changed)
@@ -2081,7 +2112,6 @@ namespace TastePassport.Core
         private void StampRow(Transform parent, string firstId, string firstKey, string secondId, string secondKey)
         {
             var row = NewRect("Passport stamp row", parent);
-            SetHeight(row, 150);
             AddHorizontal(row);
             StampTile(row, firstId, firstKey);
             StampTile(row, secondId, secondKey);
@@ -2090,10 +2120,10 @@ namespace TastePassport.Core
         private void StampTile(Transform parent, string levelId, string titleKey)
         {
             bool earned = ProgressService.HasStamp(profile, levelId);
-            var card = Card(parent, 148);
-            Label(card, earned ? "◆  " + T("stamp") : "○  " + T("locked"), 22, 38,
+            var card = JourneyCard(parent);
+            CollectionCopy(card, earned ? "◆  " + T("stamp") : "○  " + T("locked"), 26,
                 earned ? Vermilion : Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(card, T(titleKey), 25, 64, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T(titleKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
         }
 
         private bool HasAnyStamp(params string[] levelIds)
