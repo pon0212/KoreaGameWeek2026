@@ -1,5 +1,6 @@
 using TastePassport.Save;
 using TastePassport.Story;
+using TastePassport.UI;
 using UnityEngine;
 
 namespace TastePassport.World
@@ -60,7 +61,7 @@ namespace TastePassport.World
             else
             {
                 renderer.sprite = GetMarkerSprite();
-                renderer.color = target.Id == "chuacau" ? new Color(0.96f, 0.69f, 0.24f) : new Color(0.25f, 0.54f, 0.54f);
+                renderer.color = target.Id == "chuacau" ? GameUiTheme.Lantern : GameUiTheme.Jade;
                 renderer.sortingOrder = 8;
                 transform.localScale = Vector3.one * 0.48f;
             }
@@ -91,7 +92,7 @@ namespace TastePassport.World
                 markerText.characterSize = 0.55f;
                 markerText.anchor = TextAnchor.MiddleCenter;
                 markerText.alignment = TextAlignment.Center;
-                markerText.color = new Color(0.98f, 0.66f, 0.18f);
+                markerText.color = GameUiTheme.Lantern;
                 var meshRenderer = markerObject.GetComponent<MeshRenderer>();
                 meshRenderer.sortingOrder = 40;
             }

@@ -38,6 +38,20 @@ namespace TastePassport.World
         private GameObject controlsGuidePanel;
         private GameObject questJournalPanel;
         private Button actionButton;
+        private Button dialogueContinueButton;
+        private Button optionalDialogueButton;
+        private Button dialogueActivityButton;
+        private Text dialogueKindLabel;
+        private Text controlsGuideLabel;
+        private RectTransform dialogueCardRect;
+        private RectTransform journalCardRect;
+        private RectTransform controlsCardRect;
+        private CanvasGroup touchStickGroup;
+        private CanvasGroup headerGroup;
+        private RectTransform safeAreaRect;
+        private Rect lastSafeArea;
+        private Vector2Int lastScreenSize;
+        private bool showingOptionalDialogue;
         private WorldTouchStick touchStick;
         private Action onClose;
         private Action<string> onActivityRequested;
@@ -56,7 +70,25 @@ namespace TastePassport.World
         public bool IsOpen => isOpen;
         public bool LastSaveSucceeded { get; private set; } = true;
         public Vector2 PlayerPosition => player != null ? player.Position : Vector2.zero;
-        public string InteractionButtonLabel => actionLabel != null ? actionLabel.text : string.Empty;
+        // Retain the programmatic status contract used by existing world integrations.
+        // Visible controls use named talk/discovery prompts and separate dialogue actions.
+        public string InteractionButtonLabel
+        {
+            get
+            {
+                if (actionLabel == null) return string.Empty;
+                if (dialogueOpen)
+                {
+                    string activityId = lastInteraction?.Target?.ActivityId;
+                    return string.IsNullOrEmpty(activityId) ? Localized("world_continue") :
+                        Localized("world_start_activity") + " · " + Localized(activityId == "lantern-craft"
+                            ? "activity_lantern" : activityId == "hanji-craft" ? "activity_hanji" : "world_continue");
+                }
+                WorldInteractable nearest = FindNearestTarget();
+                return nearest != null ? Localized("world_action") + " · " + Localized(nearest.Definition.NameKey)
+                    : Localized("world_approach");
+            }
+        }
         public string CurrentDialogueText => dialogueLabel != null ? dialogueLabel.text : string.Empty;
         public string CurrentObjectiveKey => currentObjective != null ? currentObjective.TitleKey : string.Empty;
         public string QuestTargetId => currentObjective != null ? currentObjective.TargetId : null;
@@ -162,19 +194,17 @@ namespace TastePassport.World
                 speakerLabel.text = Localized("dauxu_speaker");
                 SetDialoguePortrait(null);
                 dialogueLabel.text = Localized("save_error");
-                dialoguePanel.SetActive(true);
-                dialogueOpen = true;
+                OpenDialogue(null);
                 RefreshActionButton();
                 return null;
             }
 
             lastInteraction = interaction;
-            speakerLabel.text = Localized(nearest.Definition.SpeakerKey);
-            SetDialoguePortrait(nearest.Definition.SpriteResourcePath);
+            speakerLabel.text = Localized(nearest.Definition.IsNpc
+                ? nearest.Definition.SpeakerKey : nearest.Definition.NameKey);
+            SetDialoguePortrait(nearest.Definition.IsNpc ? nearest.Definition.SpriteResourcePath : null);
             dialogueLabel.text = Localized(lastInteraction.DialogueKey);
-            dialoguePanel.SetActive(true);
-            dialogueOpen = true;
-            player.SetMovementEnabled(false);
+            OpenDialogue(nearest.Definition);
             RefreshCurrentObjective();
             RefreshActionButton();
             return lastInteraction;
@@ -183,42 +213,66 @@ namespace TastePassport.World
         public void DismissDialogue()
         {
             dialogueOpen = false;
+            showingOptionalDialogue = false;
+            lastInteraction = null;
             if (dialoguePanel != null) dialoguePanel.SetActive(false);
-            player?.SetMovementEnabled(true);
+            RefreshMovementAvailability();
             RefreshActionButton();
         }
 
         private void Update()
         {
             if (!isOpen) return;
-            if (Keyboard.current != null)
+            if (safeAreaRect != null && (lastSafeArea != Screen.safeArea ||
+                lastScreenSize != new Vector2Int(Screen.width, Screen.height)))
             {
-                if (Keyboard.current.escapeKey.wasPressedThisFrame || Keyboard.current.backspaceKey.wasPressedThisFrame)
+                ApplySafeArea(safeAreaRect);
+                LayoutOverlayCards();
+            }
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard != null)
+            {
+                if (keyboard.escapeKey.wasPressedThisFrame || keyboard.backspaceKey.wasPressedThisFrame)
                 {
-                    if (controlsGuidePanel != null && controlsGuidePanel.activeSelf)
-                    {
-                        CloseControlsGuide();
-                        return;
-                    }
-                    if (questJournalPanel != null && questJournalPanel.activeSelf)
-                    {
-                        questJournalPanel.SetActive(false);
-                        return;
-                    }
-                    if (dialogueOpen)
-                    {
-                        DismissDialogue();
-                        return;
-                    }
-                    Close();
+                    if (controlsGuidePanel != null && controlsGuidePanel.activeSelf) CloseControlsGuide();
+                    else if (questJournalPanel != null && questJournalPanel.activeSelf) ToggleQuestJournal();
+                    else if (dialogueOpen) DismissDialogue();
+                    else Close();
                     return;
                 }
-                if (Keyboard.current.eKey.wasPressedThisFrame || Keyboard.current.spaceKey.wasPressedThisFrame)
-                    OnActionButton();
+                if (IsUtilityPanelOpen())
+                {
+                    if (keyboard.eKey.wasPressedThisFrame || keyboard.spaceKey.wasPressedThisFrame)
+                    {
+                        if (controlsGuidePanel.activeSelf) CloseControlsGuide();
+                        else ToggleQuestJournal();
+                    }
+                    return;
+                }
+                if (keyboard.eKey.wasPressedThisFrame || keyboard.spaceKey.wasPressedThisFrame)
+                {
+                    InvokeVisibleButton(dialogueOpen ? dialogueContinueButton : actionButton);
+                    return;
+                }
+                if (dialogueOpen)
+                {
+                    if (keyboard.qKey.wasPressedThisFrame) InvokeVisibleButton(optionalDialogueButton);
+                    if (keyboard.fKey.wasPressedThisFrame) InvokeVisibleButton(dialogueActivityButton);
+                    return;
+                }
+                if (keyboard.hKey.wasPressedThisFrame) OpenControlsGuide();
+                else if (keyboard.jKey.wasPressedThisFrame) ToggleQuestJournal();
+                else if (keyboard.pKey.wasPressedThisFrame) onPassportRequested?.Invoke();
             }
             UpdateMovementObjective();
             RefreshCurrentObjective();
             RefreshActionButton();
+        }
+
+        private static void InvokeVisibleButton(Button button)
+        {
+            if (button != null && button.gameObject.activeInHierarchy && button.interactable)
+                button.onClick.Invoke();
         }
 
         public void OnApplicationPause(bool paused)
@@ -271,6 +325,18 @@ namespace TastePassport.World
             controlsGuidePanel = null;
             questJournalPanel = null;
             actionButton = null;
+            dialogueContinueButton = null;
+            optionalDialogueButton = null;
+            dialogueActivityButton = null;
+            dialogueKindLabel = null;
+            controlsGuideLabel = null;
+            dialogueCardRect = null;
+            journalCardRect = null;
+            controlsCardRect = null;
+            touchStickGroup = null;
+            headerGroup = null;
+            safeAreaRect = null;
+            showingOptionalDialogue = false;
             touchStick = null;
             currentObjective = null;
         }
@@ -416,60 +482,108 @@ namespace TastePassport.World
 
             RectTransform canvasRect = canvasObject.GetComponent<RectTransform>();
             var safeAreaObject = new GameObject("World Safe Area", typeof(RectTransform));
-            RectTransform safeRect = safeAreaObject.GetComponent<RectTransform>();
-            safeRect.SetParent(canvasRect, false);
-            ApplySafeArea(safeRect);
+            safeAreaRect = safeAreaObject.GetComponent<RectTransform>();
+            safeAreaRect.SetParent(canvasRect, false);
+            ApplySafeArea(safeAreaRect);
 
-            var topPanel = CreatePanel("World Header", safeRect, new Vector2(0f, 0.84f), Vector2.one,
-                new Color(Paper.r, Paper.g, Paper.b, 0.94f));
-            CreateText("World Title", topPanel.transform, new Vector2(0f, 0.60f), new Vector2(0.58f, 1f),
-                Localized(world.NameKey == "hoian" ? "world_hoian_title" : "world_jeonju_title"), 31, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-            CreateText("Movement Hint", topPanel.transform, new Vector2(0f, 0.36f), new Vector2(0.62f, 0.68f),
-                Localized("world_move_hint"), 18, Ink, TextAnchor.MiddleLeft, FontStyle.Normal);
-            objectiveLabel = CreateText("World Objective Label", topPanel.transform, new Vector2(0f, 0.02f), new Vector2(0.58f, 0.42f),
-                string.Empty, 22, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
-            CreateButton(topPanel.transform, "World Back", Localized("world_back"),
-                new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-8f, -8f), new Vector2(140f, 62f), Close, Paper, Ink, 18);
-            CreateButton(topPanel.transform, "World Controls Help", "?",
-                new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-156f, -8f), new Vector2(62f, 62f), OpenControlsGuide,
-                new Color(0.92f, 0.63f, 0.21f), Ink, 26);
-            CreateButton(topPanel.transform, "World Quest Journal", Localized("world_journal"),
-                new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-8f, 7f), new Vector2(136f, 56f), ToggleQuestJournal, Jade, Color.white, 17);
-            CreateButton(topPanel.transform, "World Passport", Localized("passport"),
-                new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-152f, 7f), new Vector2(136f, 56f),
-                () => onPassportRequested?.Invoke(), Paper, Ink, 17);
+            var header = CreatePanel("World Objective Card", safeAreaRect, new Vector2(0f, 1f), Vector2.one, Paper);
+            headerGroup = header.AddComponent<CanvasGroup>();
+            SetFixedRect(header, new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(-32f, 204f));
+            CreateText("World Title", header.transform, new Vector2(0.02f, 0.72f), new Vector2(0.98f, 0.98f),
+                Localized(world.NameKey == "hoian" ? "world_hoian_title" : "world_jeonju_title"),
+                24, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            objectiveLabel = CreateText("World Objective Label", header.transform, new Vector2(0.02f, 0.39f), new Vector2(0.98f, 0.74f),
+                string.Empty, 25, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var navigation = CreatePanel("World Navigation", header.transform, new Vector2(0.02f, 0f), new Vector2(0.98f, 0f), Paper);
+            SetFixedRect(navigation, new Vector2(0.5f, 0f), new Vector2(0f, 8f), new Vector2(0f, GameUiTheme.MinimumTapTarget));
+            CreateButton(navigation.transform, "World Back", "‹ " + Localized("world_back"),
+                Vector2.zero, new Vector2(0.24f, 1f), Vector2.zero, Vector2.zero, Close, GameUiTheme.Cream, Ink, 18);
+            CreateButton(navigation.transform, "World Quest Journal", Localized("world_journal") + " · J",
+                new Vector2(0.25f, 0f), new Vector2(0.49f, 1f), Vector2.zero, Vector2.zero, ToggleQuestJournal, Jade, Paper, 18);
+            CreateButton(navigation.transform, "World Passport", Localized("world_passport") + " · P",
+                new Vector2(0.50f, 0f), new Vector2(0.74f, 1f), Vector2.zero, Vector2.zero,
+                () => onPassportRequested?.Invoke(), GameUiTheme.Cream, Ink, 18);
+            CreateButton(navigation.transform, "World Controls Help", "? " + Localized("world_help") + " · H",
+                new Vector2(0.75f, 0f), Vector2.one, Vector2.zero, Vector2.zero, OpenControlsGuide, GameUiTheme.Lantern, Ink, 18);
 
-            CreateTouchStick(safeRect);
-            actionButton = CreateButton(safeRect, "World Interaction", Localized("world_approach"),
-                Vector2.zero, Vector2.zero, new Vector2(0f, 0f), new Vector2(236f, 92f), OnActionButton, Jade, Color.white, 20);
-            RectTransform actionRect = actionButton.GetComponent<RectTransform>();
-            actionRect.anchorMin = new Vector2(1f, 0f);
-            actionRect.anchorMax = new Vector2(1f, 0f);
-            actionRect.pivot = new Vector2(1f, 0f);
-            actionRect.anchoredPosition = new Vector2(-24f, 30f);
+            CreateTouchStick(safeAreaRect);
+            actionButton = CreateButton(safeAreaRect, "World Interaction", Localized("world_approach"),
+                new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 40f), new Vector2(310f, 112f),
+                OnActionButton, Jade, Paper, 22);
             actionLabel = actionButton.GetComponentInChildren<Text>();
 
-            dialoguePanel = CreatePanel("World Dialogue", safeRect, new Vector2(0.06f, 0.25f), new Vector2(0.94f, 0.43f),
-                new Color(Paper.r, Paper.g, Paper.b, 0.97f));
-            dialoguePanel.SetActive(false);
+            dialoguePanel = CreatePanel("World Dialogue", safeAreaRect, Vector2.zero, Vector2.one,
+                new Color(Ink.r, Ink.g, Ink.b, 0.30f));
+            var dialogueCard = CreatePanel("Conversation Card", dialoguePanel.transform,
+                Vector2.one * 0.5f, Vector2.one * 0.5f, Paper);
+            dialogueCardRect = dialogueCard.GetComponent<RectTransform>();
             var portraitObject = new GameObject("Dialogue Portrait", typeof(RectTransform), typeof(Image));
-            portraitObject.transform.SetParent(dialoguePanel.transform, false);
+            portraitObject.transform.SetParent(dialogueCard.transform, false);
             RectTransform portraitRect = portraitObject.GetComponent<RectTransform>();
-            portraitRect.anchorMin = new Vector2(0.025f, 0.22f);
-            portraitRect.anchorMax = new Vector2(0.20f, 0.82f);
+            portraitRect.anchorMin = new Vector2(0.04f, 0.72f);
+            portraitRect.anchorMax = new Vector2(0.24f, 0.97f);
             portraitRect.offsetMin = Vector2.zero;
             portraitRect.offsetMax = Vector2.zero;
             dialoguePortrait = portraitObject.GetComponent<Image>();
             dialoguePortrait.preserveAspect = true;
             dialoguePortrait.raycastTarget = false;
             dialoguePortrait.enabled = false;
-            speakerLabel = CreateText("Dialogue Speaker", dialoguePanel.transform, new Vector2(0.22f, 0.66f), new Vector2(0.97f, 0.97f),
-                string.Empty, 22, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
-            dialogueLabel = CreateText("Dialogue Copy", dialoguePanel.transform, new Vector2(0.22f, 0.06f), new Vector2(0.97f, 0.70f),
-                string.Empty, 20, Ink, TextAnchor.MiddleLeft, FontStyle.Normal);
+            dialogueKindLabel = CreateText("Dialogue Kind", dialogueCard.transform, new Vector2(0.26f, 0.87f), new Vector2(0.97f, 0.97f),
+                string.Empty, 18, GameUiTheme.Muted, TextAnchor.MiddleLeft, FontStyle.Normal);
+            speakerLabel = CreateText("Dialogue Speaker", dialogueCard.transform, new Vector2(0.26f, 0.72f), new Vector2(0.97f, 0.89f),
+                string.Empty, 28, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
+            dialogueLabel = CreateText("Dialogue Copy", dialogueCard.transform, new Vector2(0.03f, 0.32f), new Vector2(0.97f, 0.72f),
+                string.Empty, 23, Ink, TextAnchor.UpperLeft, FontStyle.Normal);
+            dialogueLabel.resizeTextForBestFit = true;
+            dialogueLabel.resizeTextMinSize = 18;
+            dialogueLabel.resizeTextMaxSize = 23;
+            dialogueLabel.verticalOverflow = VerticalWrapMode.Truncate;
+            dialogueContinueButton = CreateButton(dialogueCard.transform, "Dialogue Continue", string.Empty,
+                new Vector2(0.03f, 0f), new Vector2(0.49f, 0f), new Vector2(0f, 16f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
+                ContinueVisibleDialogue, GameUiTheme.Cream, Ink, 20);
+            optionalDialogueButton = CreateButton(dialogueCard.transform, "Dialogue Ask More", Localized("world_ask_more") + " · Q",
+                new Vector2(0.51f, 0f), new Vector2(0.97f, 0f), new Vector2(0f, 16f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
+                ShowOptionalDialogue, GameUiTheme.Cream, Ink, 20);
+            dialogueActivityButton = CreateButton(dialogueCard.transform, "Dialogue Activity", string.Empty,
+                new Vector2(0.03f, 0f), new Vector2(0.97f, 0f), new Vector2(0f, 88f), new Vector2(0f, 88f),
+                StartDialogueActivity, Jade, Paper, 22);
+            dialoguePanel.SetActive(false);
 
-            CreateQuestJournal(safeRect);
-            CreateControlsGuide(safeRect);
+            CreateQuestJournal(safeAreaRect);
+            CreateControlsGuide(safeAreaRect);
+            LayoutOverlayCards();
+            RefreshMovementAvailability();
+        }
+
+        private static void SetFixedRect(GameObject target, Vector2 pivot, Vector2 position, Vector2 size)
+        {
+            var rect = target.GetComponent<RectTransform>();
+            rect.pivot = pivot;
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+        }
+
+        private void LayoutOverlayCards()
+        {
+            // CanvasScaler uses a logarithmic blend at matchWidthOrHeight = 0.5.
+            // Derive reference-space safe dimensions without relying on a layout frame.
+            if (Screen.width <= 0 || Screen.height <= 0) return;
+            float scale = Mathf.Sqrt((Screen.width / 720f) * (Screen.height / 1280f));
+            Vector2 available = Screen.safeArea.size / scale;
+            if (actionButton != null)
+                actionButton.GetComponent<RectTransform>().sizeDelta = new Vector2(
+                    Mathf.Min(310f, (available.x - 48f) * 0.52f), 112f);
+            if (touchStick != null)
+            {
+                float stickSize = Mathf.Min(192f, (available.x - 72f) * 0.40f);
+                touchStick.GetComponent<RectTransform>().sizeDelta = Vector2.one * stickSize;
+            }
+            if (dialogueCardRect != null)
+                dialogueCardRect.sizeDelta = new Vector2(Mathf.Min(680f, available.x * 0.92f), Mathf.Min(740f, available.y * 0.94f));
+            if (journalCardRect != null)
+                journalCardRect.sizeDelta = new Vector2(Mathf.Min(680f, available.x * 0.92f), Mathf.Min(480f, available.y * 0.94f));
+            if (controlsCardRect != null)
+                controlsCardRect.sizeDelta = new Vector2(Mathf.Min(680f, available.x * 0.92f), Mathf.Min(740f, available.y * 0.94f));
         }
 
         private void ApplySafeArea(RectTransform safeRect)
@@ -480,39 +594,75 @@ namespace TastePassport.World
             safeRect.anchorMax = new Vector2(safeArea.xMax / Screen.width, safeArea.yMax / Screen.height);
             safeRect.offsetMin = Vector2.zero;
             safeRect.offsetMax = Vector2.zero;
+            lastSafeArea = safeArea;
+            lastScreenSize = new Vector2Int(Screen.width, Screen.height);
         }
 
         private void CreateQuestJournal(RectTransform parent)
         {
-            questJournalPanel = CreatePanel("World Quest Journal Panel", parent, new Vector2(0.08f, 0.43f),
-                new Vector2(0.92f, 0.65f), new Color(Paper.r, Paper.g, Paper.b, 0.98f));
-            CreateText("World Quest Journal Title", questJournalPanel.transform, new Vector2(0.03f, 0.68f),
-                new Vector2(0.96f, 0.96f), Localized("world_journal"), 24, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
-            objectiveDescriptionLabel = CreateText("World Quest Journal Objective", questJournalPanel.transform,
-                new Vector2(0.03f, 0.10f), new Vector2(0.96f, 0.72f), string.Empty, 20, Ink, TextAnchor.MiddleLeft, FontStyle.Normal);
-            CreateButton(questJournalPanel.transform, "Close World Quest Journal", "×",
-                new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-22f, -22f), new Vector2(48f, 48f),
-                ToggleQuestJournal, Paper, Ink, 24);
+            questJournalPanel = CreatePanel("World Quest Journal Panel", parent, Vector2.zero, Vector2.one,
+                new Color(Ink.r, Ink.g, Ink.b, 0.35f));
+            var card = CreatePanel("Quest Journal Card", questJournalPanel.transform,
+                Vector2.one * 0.5f, Vector2.one * 0.5f, Paper);
+            journalCardRect = card.GetComponent<RectTransform>();
+            CreateText("World Quest Journal Title", card.transform, new Vector2(0.03f, 0.77f), new Vector2(0.97f, 0.97f),
+                Localized("world_journal"), 28, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
+            objectiveDescriptionLabel = CreateText("World Quest Journal Objective", card.transform,
+                new Vector2(0.03f, 0.30f), new Vector2(0.97f, 0.77f), string.Empty, 23, Ink, TextAnchor.MiddleLeft, FontStyle.Normal);
+            CreateButton(card.transform, "Close World Quest Journal", Localized("world_close") + " · E / Esc",
+                new Vector2(0.05f, 0f), new Vector2(0.95f, 0f), new Vector2(0f, 20f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
+                ToggleQuestJournal, Jade, Paper, 20);
             questJournalPanel.SetActive(false);
         }
 
         private void CreateControlsGuide(RectTransform parent)
         {
-            controlsGuidePanel = CreatePanel("World Controls Guide", parent, new Vector2(0.08f, 0.39f),
-                new Vector2(0.92f, 0.67f), new Color(Paper.r, Paper.g, Paper.b, 0.98f));
-            CreateText("World Controls Guide Title", controlsGuidePanel.transform, new Vector2(0.04f, 0.68f),
-                new Vector2(0.96f, 0.96f), Localized("world_controls_title"), 25, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CreateText("World Controls Guide Copy", controlsGuidePanel.transform, new Vector2(0.05f, 0.28f),
-                new Vector2(0.95f, 0.72f), Localized("world_controls_copy"), 20, Ink, TextAnchor.MiddleCenter, FontStyle.Normal);
-            CreateButton(controlsGuidePanel.transform, "Close World Controls Guide", Localized("world_controls_close"),
-                new Vector2(0.22f, 0.03f), new Vector2(0.78f, 0.30f), Vector2.zero, Vector2.zero,
-                CloseControlsGuide, Jade, Color.white, 19);
+            controlsGuidePanel = CreatePanel("World Controls Guide", parent, Vector2.zero, Vector2.one,
+                new Color(Ink.r, Ink.g, Ink.b, 0.35f));
+            var card = CreatePanel("Controls Guide Card", controlsGuidePanel.transform,
+                Vector2.one * 0.5f, Vector2.one * 0.5f, Paper);
+            controlsCardRect = card.GetComponent<RectTransform>();
+            CreateText("World Controls Guide Title", card.transform, new Vector2(0.04f, 0.82f), new Vector2(0.96f, 0.98f),
+                Localized("world_controls_title"), 28, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
+            controlsGuideLabel = CreateText("World Controls Guide Copy", card.transform, new Vector2(0.04f, 0.20f), new Vector2(0.96f, 0.82f),
+                Localized("world_controls_copy"), 22, Ink, TextAnchor.MiddleLeft, FontStyle.Normal);
+            CreateButton(card.transform, "Close World Controls Guide", Localized("world_controls_close") + " · E",
+                new Vector2(0.05f, 0f), new Vector2(0.95f, 0f), new Vector2(0f, 20f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
+                CloseControlsGuide, Jade, Paper, 20);
             controlsGuidePanel.SetActive(!StoryProgressService.HasFlag(profile, "world-controls-guide-seen"));
+        }
+
+        private bool IsUtilityPanelOpen() =>
+            (controlsGuidePanel != null && controlsGuidePanel.activeSelf) ||
+            (questJournalPanel != null && questJournalPanel.activeSelf);
+
+        private void RefreshMovementAvailability()
+        {
+            bool canMove = !dialogueOpen && !IsUtilityPanelOpen();
+            player?.SetMovementEnabled(canMove);
+            if (headerGroup != null)
+            {
+                headerGroup.interactable = canMove;
+                headerGroup.blocksRaycasts = canMove;
+            }
+            // Keep the stick object active so an in-flight pointer can still receive PointerUp.
+            if (touchStickGroup != null)
+            {
+                touchStickGroup.alpha = canMove ? 1f : 0f;
+                touchStickGroup.blocksRaycasts = canMove;
+                touchStickGroup.interactable = canMove;
+            }
+            player?.SetTouchInput(Vector2.zero);
         }
 
         private void OpenControlsGuide()
         {
-            if (controlsGuidePanel != null) controlsGuidePanel.SetActive(true);
+            if (dialogueOpen || controlsGuidePanel == null) return;
+            questJournalPanel.SetActive(false);
+            controlsGuideLabel.text = Localized("world_controls_copy");
+            controlsGuidePanel.SetActive(true);
+            RefreshMovementAvailability();
+            RefreshActionButton();
         }
 
         private void CloseControlsGuide()
@@ -522,20 +672,26 @@ namespace TastePassport.World
             StoryProgressService.AddFlag(candidate, "world-controls-guide-seen");
             if (!TryPersistCandidate(candidate))
             {
-                if (objectiveDescriptionLabel != null) objectiveDescriptionLabel.text = Localized("save_error");
+                if (controlsGuideLabel != null) controlsGuideLabel.text = Localized("save_error");
                 return;
             }
             if (controlsGuidePanel != null) controlsGuidePanel.SetActive(false);
+            RefreshMovementAvailability();
+            RefreshActionButton();
         }
 
         private void ToggleQuestJournal()
         {
-            if (questJournalPanel != null) questJournalPanel.SetActive(!questJournalPanel.activeSelf);
+            if (dialogueOpen || questJournalPanel == null) return;
+            controlsGuidePanel.SetActive(false);
+            questJournalPanel.SetActive(!questJournalPanel.activeSelf);
+            RefreshMovementAvailability();
+            RefreshActionButton();
         }
 
         private void UpdateMovementObjective()
         {
-            if (world == null || world.Id != "hoian" || player == null || !player.HasMoved ||
+            if (dialogueOpen || IsUtilityPanelOpen() || world == null || world.Id != "hoian" || player == null || !player.HasMoved ||
                 !LastSaveSucceeded || StoryProgressService.HasFlag(profile, "tutorial-nhung-reached")) return;
 
             WorldInteractable nhung = targets.Find(target => target != null && target.Definition.Id == "nhung");
@@ -568,15 +724,16 @@ namespace TastePassport.World
         private void CreateTouchStick(RectTransform parent)
         {
             GameObject stickObject = CreatePanel("Touch Movement Stick", parent, Vector2.zero, Vector2.zero,
-                new Color(Jade.r, Jade.g, Jade.b, 0.42f));
+                new Color(Jade.r, Jade.g, Jade.b, 0.72f));
             RectTransform stickRect = stickObject.GetComponent<RectTransform>();
             stickRect.anchorMin = Vector2.zero;
             stickRect.anchorMax = Vector2.zero;
             stickRect.pivot = Vector2.zero;
-            stickRect.anchoredPosition = new Vector2(36f, 36f);
-            stickRect.sizeDelta = new Vector2(216f, 216f);
+            stickRect.anchoredPosition = new Vector2(24f, 28f);
+            stickRect.sizeDelta = new Vector2(192f, 192f);
             var stickImage = stickObject.GetComponent<Image>();
             stickImage.raycastTarget = true;
+            touchStickGroup = stickObject.AddComponent<CanvasGroup>();
             var stick = stickObject.AddComponent<WorldTouchStick>();
             var handle = CreatePanel("Touch Stick Handle", stickRect, new Vector2(0.30f, 0.30f), new Vector2(0.70f, 0.70f),
                 new Color(Paper.r, Paper.g, Paper.b, 0.94f));
@@ -618,44 +775,90 @@ namespace TastePassport.World
         private void RefreshActionButton()
         {
             if (actionButton == null || actionLabel == null) return;
-            if (dialogueOpen)
-            {
-                string activityId = lastInteraction == null || lastInteraction.Target == null ? null : lastInteraction.Target.ActivityId;
-                actionLabel.text = string.IsNullOrEmpty(activityId)
-                    ? Localized("world_continue")
-                    : Localized("world_start_activity") + " · " + Localized(activityId == "lantern-craft"
-                        ? "activity_lantern" : activityId == "hanji-craft" ? "activity_hanji" : "world_continue");
-                actionButton.interactable = true;
-                return;
-            }
+            actionButton.gameObject.SetActive(!dialogueOpen && !IsUtilityPanelOpen());
+            if (dialogueOpen || IsUtilityPanelOpen()) return;
             WorldInteractable nearest = FindNearestTarget();
-            bool canInteract = nearest != null;
-            actionLabel.text = canInteract
-                ? Localized("world_action") + " · " + Localized(nearest.Definition.NameKey)
+            actionLabel.text = nearest != null
+                ? Localized(nearest.Definition.IsNpc ? "world_talk_to" : "world_discover") + " · " +
+                    Localized(nearest.Definition.NameKey) + "\nE / Space"
                 : Localized("world_approach");
-            actionButton.interactable = canInteract;
+            actionButton.interactable = nearest != null;
         }
 
-        private void OnActionButton() => ContinueDialogue();
+        private void OnActionButton() => ContinueVisibleDialogue();
+
+        private void OpenDialogue(WorldInteractableDefinition definition)
+        {
+            showingOptionalDialogue = false;
+            dialogueOpen = true;
+            // Direct integrations may interact before dismissing the first-use guide.
+            // Hiding it here is transient and does not record its persisted seen flag.
+            controlsGuidePanel.SetActive(false);
+            questJournalPanel.SetActive(false);
+            dialoguePanel.SetActive(true);
+            bool isNpc = definition != null && definition.IsNpc;
+            dialogueKindLabel.text = Localized(isNpc ? "world_conversation" : "world_discovery");
+            // Objects retain discovery copy and their own title rather than an NPC portrait.
+            dialoguePortrait.gameObject.SetActive(isNpc);
+            var speakerRect = speakerLabel.rectTransform;
+            var kindRect = dialogueKindLabel.rectTransform;
+            speakerRect.anchorMin = new Vector2(isNpc ? 0.26f : 0.03f, 0.72f);
+            kindRect.anchorMin = new Vector2(isNpc ? 0.26f : 0.03f, 0.87f);
+            optionalDialogueButton.gameObject.SetActive(isNpc && !string.IsNullOrEmpty(definition.OptionalDialogueKey));
+            bool hasActivity = isNpc && !string.IsNullOrEmpty(definition.ActivityId);
+            dialogueActivityButton.gameObject.SetActive(hasActivity);
+            if (hasActivity)
+                dialogueActivityButton.GetComponentInChildren<Text>().text = Localized(definition.ActivityId == "lantern-craft"
+                    ? "activity_lantern" : definition.ActivityId == "hanji-craft" ? "activity_hanji" : "world_start_activity") + " · F";
+            dialogueContinueButton.GetComponentInChildren<Text>().text = Localized("world_close") + " · E / Space";
+            RefreshMovementAvailability();
+        }
+
+        private void ShowOptionalDialogue()
+        {
+            WorldInteractableDefinition target = lastInteraction?.Target;
+            if (!dialogueOpen || IsUtilityPanelOpen() || target == null || !target.IsNpc ||
+                string.IsNullOrEmpty(target.OptionalDialogueKey)) return;
+            // This is view state only: no profile writes, story transactions, or rewards.
+            showingOptionalDialogue = true;
+            dialogueLabel.text = Localized(target.OptionalDialogueKey);
+            optionalDialogueButton.gameObject.SetActive(false);
+            dialogueContinueButton.GetComponentInChildren<Text>().text = Localized("world_return_dialogue") + " · E";
+        }
+
+        private void RestorePrimaryDialogue()
+        {
+            if (!dialogueOpen || lastInteraction == null) return;
+            dialogueLabel.text = Localized(lastInteraction.DialogueKey);
+            OpenDialogue(lastInteraction.Target);
+        }
+
+        private void StartDialogueActivity()
+        {
+            WorldInteractableDefinition target = lastInteraction?.Target;
+            if (!dialogueOpen || IsUtilityPanelOpen() || target == null || !target.IsNpc ||
+                string.IsNullOrEmpty(target.ActivityId)) return;
+            string activityId = target.ActivityId;
+            Action<string> callback = onActivityRequested;
+            Close();
+            callback?.Invoke(activityId);
+        }
+
+        private void ContinueVisibleDialogue()
+        {
+            if (IsUtilityPanelOpen()) return;
+            if (!dialogueOpen) InteractNearest();
+            else if (showingOptionalDialogue) RestorePrimaryDialogue();
+            else DismissDialogue();
+        }
 
         public void ContinueDialogue()
         {
-            if (!dialogueOpen)
-            {
-                InteractNearest();
-                return;
-            }
-            if (dialogueOpen)
-            {
-                string activityId = lastInteraction == null || lastInteraction.Target == null ? null : lastInteraction.Target.ActivityId;
-                if (!string.IsNullOrEmpty(activityId))
-                {
-                    Action<string> callback = onActivityRequested;
-                    Close();
-                    callback?.Invoke(activityId);
-                }
-                else DismissDialogue();
-            }
+            // Preserve the legacy activity route for programmatic callers. Touch and
+            // keyboard continue use ContinueVisibleDialogue; the activity CTA calls StartDialogueActivity directly.
+            if (!dialogueOpen) InteractNearest();
+            else if (!string.IsNullOrEmpty(lastInteraction?.Target?.ActivityId)) StartDialogueActivity();
+            else DismissDialogue();
         }
 
         private Button CreateButton(Transform parent, string name, string label, Vector2 anchorMin, Vector2 anchorMax,
@@ -663,11 +866,17 @@ namespace TastePassport.World
         {
             GameObject buttonObject = CreatePanel(name, parent, anchorMin, anchorMax, background);
             RectTransform rect = buttonObject.GetComponent<RectTransform>();
-            rect.pivot = anchorMin == anchorMax ? anchorMin : rect.pivot;
+            rect.pivot = new Vector2(anchorMin.x == anchorMax.x ? anchorMin.x : 0.5f,
+                anchorMin.y == anchorMax.y ? anchorMin.y : 0.5f);
             rect.anchoredPosition = anchoredPosition;
             rect.sizeDelta = size;
             var button = buttonObject.AddComponent<Button>();
             button.targetGraphic = buttonObject.GetComponent<Image>();
+            var colors = button.colors;
+            colors.highlightedColor = GameUiTheme.Cream;
+            colors.pressedColor = GameUiTheme.Border;
+            colors.disabledColor = new Color(1f, 1f, 1f, 0.55f);
+            button.colors = colors;
             button.onClick.AddListener(() => clicked?.Invoke());
             CreateText("Label", buttonObject.transform, Vector2.zero, Vector2.one, label, fontSize, foreground, TextAnchor.MiddleCenter, FontStyle.Bold);
             return button;

@@ -17,10 +17,12 @@ namespace TastePassport.World
         public readonly bool IsNpc;
         public readonly string ActivityId;
         public readonly string RequiredImprintId;
+        public readonly string OptionalDialogueKey;
 
         public WorldInteractableDefinition(string id, string nameKey, string speakerKey, string firstDialogueKey,
             string repeatDialogueKey, string storyFlag, string imprintId, string spriteResourcePath,
-            Vector2 position, float interactionRadius, bool isNpc, string activityId = null, string requiredImprintId = null)
+            Vector2 position, float interactionRadius, bool isNpc, string activityId = null, string requiredImprintId = null,
+            string optionalDialogueKey = null)
         {
             Id = id;
             NameKey = nameKey;
@@ -35,6 +37,7 @@ namespace TastePassport.World
             IsNpc = isNpc;
             ActivityId = activityId;
             RequiredImprintId = requiredImprintId;
+            OptionalDialogueKey = optionalDialogueKey;
         }
     }
 
@@ -70,9 +73,11 @@ namespace TastePassport.World
             new[]
             {
                 new WorldInteractableDefinition("nhung", "character_nhung", "character_nhung", "prologue_nhung_first", "nhung_repeat",
-                    "nhung-intro-seen", "dau-xu-book-discovered", "Art/Characters/Nhung", new Vector2(-3.7f, -1.72f), 1.35f, true),
+                    "nhung-intro-seen", "dau-xu-book-discovered", "Art/Characters/Nhung", new Vector2(-3.7f, -1.72f), 1.35f, true,
+                    optionalDialogueKey: "nhung_optional"),
                 new WorldInteractableDefinition("lan", "character_lan", "character_lan", "lan_first", "lan_repeat",
-                    "lan-met", "lantern-maker-met", "Art/Characters/Lan", new Vector2(-0.75f, -1.72f), 1.35f, true, "lantern-craft"),
+                    "lan-met", "lantern-maker-met", "Art/Characters/Lan", new Vector2(-0.75f, -1.72f), 1.35f, true, "lantern-craft",
+                    optionalDialogueKey: "lan_optional"),
                 new WorldInteractableDefinition("chuacau", "landmark_chuacau", "dauxu_speaker", "chuacau_discovery_first", "chuacau_discovery_repeat",
                     "chuacau-observed", "stamp-chuacau", null, new Vector2(1.45f, -1.7f), 1.25f, false),
                 new WorldInteractableDefinition("lantern-display", "lantern_display", "dauxu_speaker", "lantern_display_first", "lantern_display_repeat",
@@ -86,9 +91,11 @@ namespace TastePassport.World
             new[]
             {
                 new WorldInteractableDefinition("gabo", "character_gabo", "character_gabo", "gabo_first", "gabo_repeat",
-                    "gabo-met", "jeonju-postcard-opened", "Art/Characters/GaBo", new Vector2(-3.7f, -1.72f), 1.35f, true),
+                    "gabo-met", "jeonju-postcard-opened", "Art/Characters/GaBo", new Vector2(-3.7f, -1.72f), 1.35f, true,
+                    optionalDialogueKey: "gabo_optional"),
                 new WorldInteractableDefinition("bkim", "character_kim", "character_kim", "bkim_first", "bkim_repeat",
-                    "bkim-met", "hanji-workshop-opened", "Art/Characters/BKim", new Vector2(-0.75f, -1.72f), 1.35f, true, "hanji-craft"),
+                    "bkim-met", "hanji-workshop-opened", "Art/Characters/BKim", new Vector2(-0.75f, -1.72f), 1.35f, true, "hanji-craft",
+                    optionalDialogueKey: "bkim_optional"),
                 new WorldInteractableDefinition("hanok", "landmark_hanok", "dauxu_speaker", "hanok_discovery_first", "hanok_discovery_repeat",
                     "hanok-observed", "stamp-hanok", null, new Vector2(1.05f, -1.7f), 1.25f, false),
                 new WorldInteractableDefinition("gyeonggijeon", "landmark_gyeonggijeon", "dauxu_speaker", "gyeonggijeon_first", "gyeonggijeon_repeat",
