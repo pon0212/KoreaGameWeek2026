@@ -39,8 +39,10 @@ namespace TastePassport.World
         private GameObject questJournalPanel;
         private Button actionButton;
         private Button dialogueContinueButton;
+        private Button dialogueNarrationButton;
         private Button optionalDialogueButton;
         private Button dialogueActivityButton;
+        private Button controlsGuideCloseButton;
         private Text dialogueKindLabel;
         private Text controlsGuideLabel;
         private RectTransform dialogueCardRect;
@@ -52,6 +54,7 @@ namespace TastePassport.World
         private Rect lastSafeArea;
         private Vector2Int lastScreenSize;
         private bool showingOptionalDialogue;
+        private bool controlsGuideSaveFailed;
         private WorldTouchStick touchStick;
         private Action onClose;
         private Action<string> onActivityRequested;
@@ -153,6 +156,7 @@ namespace TastePassport.World
         public void Close()
         {
             if (!isOpen) return;
+            StoryNarration.Stop();
             SaveCheckpoint();
             isOpen = false;
             dialogueOpen = false;
@@ -212,6 +216,7 @@ namespace TastePassport.World
 
         public void DismissDialogue()
         {
+            StoryNarration.Stop();
             dialogueOpen = false;
             showingOptionalDialogue = false;
             lastInteraction = null;
@@ -539,10 +544,13 @@ namespace TastePassport.World
             dialogueLabel.resizeTextMaxSize = 23;
             dialogueLabel.verticalOverflow = VerticalWrapMode.Truncate;
             dialogueContinueButton = CreateButton(dialogueCard.transform, "Dialogue Continue", string.Empty,
-                new Vector2(0.03f, 0f), new Vector2(0.49f, 0f), new Vector2(0f, 16f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
+                new Vector2(0.03f, 0f), new Vector2(0.31f, 0f), new Vector2(0f, 16f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
                 ContinueVisibleDialogue, GameUiTheme.Cream, Ink, 20);
+            dialogueNarrationButton = CreateButton(dialogueCard.transform, "Dialogue Listen", Localized("read_story"),
+                new Vector2(0.345f, 0f), new Vector2(0.655f, 0f), new Vector2(0f, 16f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
+                SpeakCurrentDialogue, GameUiTheme.Cream, Ink, 20);
             optionalDialogueButton = CreateButton(dialogueCard.transform, "Dialogue Ask More", Localized("world_ask_more") + " · Q",
-                new Vector2(0.51f, 0f), new Vector2(0.97f, 0f), new Vector2(0f, 16f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
+                new Vector2(0.69f, 0f), new Vector2(0.97f, 0f), new Vector2(0f, 16f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
                 ShowOptionalDialogue, GameUiTheme.Cream, Ink, 20);
             dialogueActivityButton = CreateButton(dialogueCard.transform, "Dialogue Activity", string.Empty,
                 new Vector2(0.03f, 0f), new Vector2(0.97f, 0f), new Vector2(0f, 88f), new Vector2(0f, 88f),
@@ -626,7 +634,7 @@ namespace TastePassport.World
                 Localized("world_controls_title"), 28, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
             controlsGuideLabel = CreateText("World Controls Guide Copy", card.transform, new Vector2(0.04f, 0.20f), new Vector2(0.96f, 0.82f),
                 Localized("world_controls_copy"), 22, Ink, TextAnchor.MiddleLeft, FontStyle.Normal);
-            CreateButton(card.transform, "Close World Controls Guide", Localized("world_controls_close") + " · E",
+            controlsGuideCloseButton = CreateButton(card.transform, "Close World Controls Guide", Localized("world_controls_close") + " · E",
                 new Vector2(0.05f, 0f), new Vector2(0.95f, 0f), new Vector2(0f, 20f), new Vector2(0f, GameUiTheme.MinimumTapTarget),
                 CloseControlsGuide, Jade, Paper, 20);
             controlsGuidePanel.SetActive(!StoryProgressService.HasFlag(profile, "world-controls-guide-seen"));
@@ -659,7 +667,9 @@ namespace TastePassport.World
         {
             if (dialogueOpen || controlsGuidePanel == null) return;
             questJournalPanel.SetActive(false);
+            controlsGuideSaveFailed = false;
             controlsGuideLabel.text = Localized("world_controls_copy");
+            controlsGuideCloseButton.GetComponentInChildren<Text>().text = Localized("world_controls_close") + " · E";
             controlsGuidePanel.SetActive(true);
             RefreshMovementAvailability();
             RefreshActionButton();
@@ -667,14 +677,33 @@ namespace TastePassport.World
 
         private void CloseControlsGuide()
         {
+            if (controlsGuideSaveFailed)
+            {
+                DismissControlsGuideWithoutSaving();
+                return;
+            }
             var candidate = new PlayerProfile();
             candidate.CopyFrom(profile);
             StoryProgressService.AddFlag(candidate, "world-controls-guide-seen");
             if (!TryPersistCandidate(candidate))
             {
-                if (controlsGuideLabel != null) controlsGuideLabel.text = Localized("save_error");
+                controlsGuideSaveFailed = true;
+                if (controlsGuideLabel != null)
+                    controlsGuideLabel.text = Localized("world_controls_save_error");
+                if (controlsGuideCloseButton != null)
+                    controlsGuideCloseButton.GetComponentInChildren<Text>().text = Localized("world_controls_skip_save") + " · E";
                 return;
             }
+            controlsGuideSaveFailed = false;
+            if (controlsGuidePanel != null) controlsGuidePanel.SetActive(false);
+            RefreshMovementAvailability();
+            RefreshActionButton();
+        }
+
+        private void DismissControlsGuideWithoutSaving()
+        {
+            // The profile remains untouched after the failed candidate save, so the guide reappears next visit.
+            controlsGuideSaveFailed = false;
             if (controlsGuidePanel != null) controlsGuidePanel.SetActive(false);
             RefreshMovementAvailability();
             RefreshActionButton();
@@ -789,6 +818,7 @@ namespace TastePassport.World
 
         private void OpenDialogue(WorldInteractableDefinition definition)
         {
+            StoryNarration.Stop();
             showingOptionalDialogue = false;
             dialogueOpen = true;
             // Direct integrations may interact before dismissing the first-use guide.
@@ -805,6 +835,17 @@ namespace TastePassport.World
             speakerRect.anchorMin = new Vector2(isNpc ? 0.26f : 0.03f, 0.72f);
             kindRect.anchorMin = new Vector2(isNpc ? 0.26f : 0.03f, 0.87f);
             optionalDialogueButton.gameObject.SetActive(isNpc && !string.IsNullOrEmpty(definition.OptionalDialogueKey));
+            dialogueNarrationButton.gameObject.SetActive(isNpc);
+            dialogueContinueButton.GetComponent<RectTransform>().anchorMax = new Vector2(isNpc ? 0.31f : 0.49f, 0f);
+            dialogueNarrationButton.GetComponent<RectTransform>().anchorMin = new Vector2(isNpc ? 0.345f : 0.51f, 0f);
+            dialogueNarrationButton.GetComponent<RectTransform>().anchorMax = new Vector2(isNpc ? 0.655f : 0.97f, 0f);
+            optionalDialogueButton.GetComponent<RectTransform>().anchorMin = new Vector2(0.69f, 0f);
+            optionalDialogueButton.GetComponent<RectTransform>().anchorMax = new Vector2(0.97f, 0f);
+            if (!isNpc)
+            {
+                dialogueContinueButton.GetComponent<RectTransform>().anchorMax = new Vector2(0.49f, 0f);
+                optionalDialogueButton.GetComponent<RectTransform>().anchorMin = new Vector2(0.51f, 0f);
+            }
             bool hasActivity = isNpc && !string.IsNullOrEmpty(definition.ActivityId);
             dialogueActivityButton.gameObject.SetActive(hasActivity);
             if (hasActivity)
@@ -820,6 +861,7 @@ namespace TastePassport.World
             if (!dialogueOpen || IsUtilityPanelOpen() || target == null || !target.IsNpc ||
                 string.IsNullOrEmpty(target.OptionalDialogueKey)) return;
             // This is view state only: no profile writes, story transactions, or rewards.
+            StoryNarration.Stop();
             showingOptionalDialogue = true;
             dialogueLabel.text = Localized(target.OptionalDialogueKey);
             optionalDialogueButton.gameObject.SetActive(false);
@@ -829,8 +871,16 @@ namespace TastePassport.World
         private void RestorePrimaryDialogue()
         {
             if (!dialogueOpen || lastInteraction == null) return;
+            StoryNarration.Stop();
             dialogueLabel.text = Localized(lastInteraction.DialogueKey);
             OpenDialogue(lastInteraction.Target);
+        }
+
+        private void SpeakCurrentDialogue()
+        {
+            if (!dialogueOpen || dialogueLabel == null || dialogueNarrationButton == null ||
+                !dialogueNarrationButton.gameObject.activeSelf) return;
+            StoryNarration.Speak(profile.language, dialogueLabel.text);
         }
 
         private void StartDialogueActivity()
