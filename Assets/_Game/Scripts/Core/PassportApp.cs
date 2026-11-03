@@ -16,14 +16,14 @@ namespace TastePassport.Core
     public sealed class PassportApp : MonoBehaviour
     {
         private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards }
-        private static readonly Color Cream = Hex("#F6E9D4");
-        private static readonly Color Lantern = Hex("#E6A14D");
-        private static readonly Color Jade = Hex("#357E84");
-        private static readonly Color Ink = Hex("#352820");
-        private static readonly Color Paper = Hex("#FFF9EE");
-        private static readonly Color Vermilion = Hex("#A94A42");
-        private static readonly Color Border = Hex("#D9C6A7");
-        private static readonly Color Muted = Hex("#51463D");
+        private static readonly Color Cream = GameUiTheme.Cream;
+        private static readonly Color Lantern = GameUiTheme.Lantern;
+        private static readonly Color Jade = GameUiTheme.Jade;
+        private static readonly Color Ink = GameUiTheme.Ink;
+        private static readonly Color Paper = GameUiTheme.Paper;
+        private static readonly Color Vermilion = GameUiTheme.Vermilion;
+        private static readonly Color Border = GameUiTheme.Border;
+        private static readonly Color Muted = GameUiTheme.Muted;
         private readonly Color[] avatarColors = { Lantern, Jade, Vermilion };
         private static Sprite roundedSprite;
         private static Sprite circleSprite;

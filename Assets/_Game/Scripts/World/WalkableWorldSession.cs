@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using TastePassport.Localization;
 using TastePassport.Save;
 using TastePassport.Story;
+using TastePassport.UI;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -15,9 +16,9 @@ namespace TastePassport.World
     {
         private const float PlayerSpriteScale = 0.22f;
         private const float CameraSize = 3.3f;
-        private static readonly Color Ink = new Color(0.12f, 0.16f, 0.17f);
-        private static readonly Color Jade = new Color(0.13f, 0.42f, 0.39f);
-        private static readonly Color Paper = new Color(0.98f, 0.94f, 0.83f);
+        private static readonly Color Ink = GameUiTheme.Ink;
+        private static readonly Color Jade = GameUiTheme.Jade;
+        private static readonly Color Paper = GameUiTheme.Paper;
 
         private readonly List<WorldInteractable> targets = new List<WorldInteractable>();
         private PlayerProfile profile;
