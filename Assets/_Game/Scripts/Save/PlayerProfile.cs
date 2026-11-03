@@ -24,8 +24,8 @@ namespace TastePassport.Save
         public List<string> inventoryItems = new List<string>();
         public List<string> culturalCards = new List<string>();
         public string lastWorldId = "hoian";
-        public float lastWorldX = -6f;
-        public float lastWorldY = -2f;
+        public float lastWorldX = -5.1f;
+        public float lastWorldY = -1.8f;
 
         public void CopyFrom(PlayerProfile source)
         {
@@ -73,8 +73,8 @@ namespace TastePassport.Save
                 profile.storyFlags = new List<string>();
                 profile.worldImprints = new List<string>();
                 profile.lastWorldId = "hoian";
-                profile.lastWorldX = -6f;
-                profile.lastWorldY = -2f;
+                profile.lastWorldX = -5.1f;
+                profile.lastWorldY = -1.8f;
             }
 
             if (profile.storyFlags == null) profile.storyFlags = new List<string>();
@@ -87,8 +87,8 @@ namespace TastePassport.Save
             profile.culturalCards = NormalizeIds(profile.culturalCards);
             profile.chapterIndex = profile.mainStoryCompleted ? 4 : Math.Max(1, Math.Min(4, profile.chapterIndex));
             profile.lastWorldId = profile.lastWorldId == "jeonju" ? "jeonju" : "hoian";
-            if (!IsFinite(profile.lastWorldX)) profile.lastWorldX = -6f;
-            if (!IsFinite(profile.lastWorldY)) profile.lastWorldY = -2f;
+            if (!IsFinite(profile.lastWorldX)) profile.lastWorldX = -5.1f;
+            if (!IsFinite(profile.lastWorldY)) profile.lastWorldY = -1.8f;
             profile.lastWorldX = Math.Max(-12f, Math.Min(12f, profile.lastWorldX));
             profile.lastWorldY = Math.Max(-5f, Math.Min(5f, profile.lastWorldY));
             profile.schemaVersion = PlayerProfile.CurrentSchemaVersion;

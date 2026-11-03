@@ -37,8 +37,11 @@ namespace TastePassport.Core
         private UiFeedbackSound feedbackSound;
         private Page page;
         private Page settingsReturnPage;
+        private Page worldReturnPage = Page.Map;
+        private Page profileEditReturnPage = Page.Menu;
         private string draftName = "";
         private int draftAvatar;
+        private bool editingProfile;
         private string notice;
         private Rect lastSafeArea;
         private ExplorationRun run;
@@ -404,7 +407,21 @@ namespace TastePassport.Core
         {
             Header(parent, T("subtitle"));
             Label(parent, T("tagline"), 25, 92, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Button(parent, profile.created ? T("continue") : T("start"), Jade, () => Navigate(profile.created ? Page.Map : Page.Language));
+            Button(parent, profile.created ? T("continue") : T("start"), Jade, () =>
+            {
+                if (!profile.created)
+                {
+                    Navigate(Page.Language);
+                    return;
+                }
+
+                string lastWorld = profile.lastWorldId;
+                if (lastWorld == "hoian" || (lastWorld == "jeonju" && IsJeonjuUnlocked(profile)))
+                    OpenWorld(lastWorld);
+                else Navigate(Page.Map);
+            });
+            if (profile.created)
+                Button(parent, T("edit_profile"), Paper, () => OpenCharacterEditor(Page.Menu), Ink);
 
             var spread = Card(parent, 320);
             Label(spread, T("living_passport"), 26, 84, Jade, TextAnchor.MiddleCenter, FontStyle.Bold, true);
@@ -436,7 +453,7 @@ namespace TastePassport.Core
 
         private void DrawCreate(Transform parent)
         {
-            Header(parent, T("create"));
+            Header(parent, editingProfile ? T("edit_profile") : T("create"));
             Artwork(parent, TravelArtworkKind.Passport, 124);
             Label(parent, T("name_label"), 29, 50, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
             var field = Input(parent, draftName, T("name_hint"));
@@ -465,8 +482,22 @@ namespace TastePassport.Core
                 DrawAvatar(avatar.transform, i);
             }
             Spacer(parent, 20);
-            Button(parent, T("create"), Jade, CreateProfile);
-            Button(parent, T("back"), Paper, () => Navigate(Page.Language), Ink);
+            Button(parent, T(editingProfile ? "save_profile" : "create"), Jade, CreateProfile);
+            Button(parent, T("back"), Paper, () =>
+            {
+                bool wasEditing = editingProfile;
+                editingProfile = false;
+                Navigate(wasEditing ? profileEditReturnPage : Page.Language);
+            }, Ink);
+        }
+
+        private void OpenCharacterEditor(Page returnPage)
+        {
+            editingProfile = true;
+            profileEditReturnPage = returnPage;
+            draftName = profile.playerName;
+            draftAvatar = profile.avatarIndex;
+            Navigate(Page.Create);
         }
 
         private void CreateProfile()
@@ -479,11 +510,18 @@ namespace TastePassport.Core
             candidate.created = true;
             if (!store.TrySave(candidate)) { notice = T("save_error"); Show(); return; }
             profile = candidate;
-            Navigate(Page.Passport);
+            if (editingProfile)
+            {
+                editingProfile = false;
+                Navigate(profileEditReturnPage);
+                return;
+            }
+            OpenWorld("hoian");
         }
 
         private void DrawPassport(Transform parent)
         {
+            RecordTutorialPassportView();
             Header(parent, T("passport"));
             Artwork(parent, TravelArtworkKind.Passport, 200);
             var card = Card(parent, 210);
@@ -513,7 +551,7 @@ namespace TastePassport.Core
             }
             Button(parent, T("open_map"), Jade, () => Navigate(Page.Map));
             Button(parent, T("wardrobe"), Lantern, () => Navigate(Page.Wardrobe));
-            Button(parent, T("edit_profile"), Paper, () => { draftName = profile.playerName; draftAvatar = profile.avatarIndex; Navigate(Page.Create); }, Ink);
+            Button(parent, T("edit_profile"), Paper, () => OpenCharacterEditor(Page.Passport), Ink);
             Button(parent, T("back"), Paper, () => Navigate(Page.Menu), Ink);
         }
 
@@ -722,6 +760,7 @@ namespace TastePassport.Core
             Label(parent, T("lantern_item") + ": " + LanternVariantLabel(lanternResultItemId), 27, 74, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             Button(parent, T("inventory"), Jade, () => Navigate(Page.Inventory));
             Button(parent, T("culture_cards"), Lantern, () => Navigate(Page.CultureCards));
+            Button(parent, T("continue_free_exploration"), Jade, () => OpenWorld("hoian"));
             Button(parent, T("craft_again"), Paper, StartLanternCraft, Ink);
             Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
@@ -1086,6 +1125,12 @@ namespace TastePassport.Core
             if (FirstJourneyComplete()) Label(parent, T("first_journey_complete"), 29, 110, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Label(parent, T("map_intro"), 27, 54, Ink, TextAnchor.MiddleCenter);
             Label(parent, T("map_illustration"), 22, 42, Muted, TextAnchor.MiddleCenter);
+            MapObjectiveDefinition nextObjective = MapObjectiveService.GetCurrent(profile, IsJeonjuUnlocked(profile));
+            var objectiveCard = Card(parent, 226);
+            Label(objectiveCard, T("map_next_step"), 24, 42, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(objectiveCard, T(nextObjective.TitleKey), 30, 56, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(objectiveCard, T(nextObjective.DescriptionKey), 23, 72, Muted, TextAnchor.MiddleCenter);
+            Button(objectiveCard, T(nextObjective.ActionLabelKey), Jade, () => RunMapObjective(nextObjective));
             var hoian = Card(parent, 980);
             Artwork(hoian, TravelArtworkKind.VietnamJourney, 220);
             Label(hoian, T("hoian"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
@@ -1138,6 +1183,25 @@ namespace TastePassport.Core
             Button(parent, T("settings"), Paper, () => { settingsReturnPage = Page.Map; Navigate(Page.Settings); }, Ink);
         }
 
+        private void RunMapObjective(MapObjectiveDefinition objective)
+        {
+            if (objective == null) return;
+            switch (objective.Action)
+            {
+                case MapObjectiveAction.ExploreWorld: OpenWorld(objective.WorldId); break;
+                case MapObjectiveAction.OpenPassport: Navigate(Page.Passport); break;
+                case MapObjectiveAction.HoiAnArchitecture: StartLevel(LevelCatalog.HoiAn); break;
+                case MapObjectiveAction.CaoLau: StartRecipe(RecipeCatalog.CaoLau); break;
+                case MapObjectiveAction.HoiAnExchange: StartMatch(MatchCatalog.HoiAn); break;
+                case MapObjectiveAction.JeonjuArchitecture: StartLevel(LevelCatalog.Jeonju); break;
+                case MapObjectiveAction.Bibimbap: StartRecipe(RecipeCatalog.Bibimbap); break;
+                case MapObjectiveAction.JeonjuExchange: StartMatch(MatchCatalog.Jeonju); break;
+                case MapObjectiveAction.LanternCraft: StartLanternCraft(); break;
+                case MapObjectiveAction.HanjiCraft: StartHanjiCraft(); break;
+                case MapObjectiveAction.Festival: StartFinale(); break;
+            }
+        }
+
         private void OpenWorld(string worldId)
         {
             if (worldId == "jeonju" && !IsJeonjuUnlocked(profile))
@@ -1148,10 +1212,11 @@ namespace TastePassport.Core
 
             try
             {
+                worldReturnPage = Page.Map;
                 if (worldSession == null) worldSession = GetComponent<WalkableWorldSession>();
                 if (worldSession == null) worldSession = gameObject.AddComponent<WalkableWorldSession>();
                 safeRoot.gameObject.SetActive(false);
-                worldSession.Open(worldId, profile, store, ReturnFromWorld, HandleWorldActivity);
+                worldSession.Open(worldId, profile, store, ReturnFromWorld, HandleWorldActivity, OpenPassportFromWorld);
                 bool koreanWorld = worldId == "jeonju";
                 audioManager?.SetEnvironment(koreanWorld);
                 PlayStageAudio(Mathf.Clamp(profile.chapterIndex, 1, 3), koreanWorld);
@@ -1168,9 +1233,33 @@ namespace TastePassport.Core
         private void ReturnFromWorld()
         {
             if (safeRoot != null) safeRoot.gameObject.SetActive(true);
-            page = Page.Map;
+            page = worldReturnPage;
+            worldReturnPage = Page.Map;
             notice = worldSession != null && !worldSession.LastSaveSucceeded ? T("save_error") : null;
             Show();
+        }
+
+        private void OpenPassportFromWorld()
+        {
+            worldReturnPage = Page.Passport;
+            if (worldSession != null && worldSession.IsOpen) worldSession.Close();
+        }
+
+        private void RecordTutorialPassportView()
+        {
+            if (profile == null || store == null ||
+                StoryProgressService.HasFlag(profile, "tutorial-passport-viewed") ||
+                !StoryProgressService.HasFlag(profile, "lantern-display-seen")) return;
+
+            var candidate = new PlayerProfile();
+            candidate.CopyFrom(profile);
+            StoryProgressService.AddFlag(candidate, "tutorial-passport-viewed");
+            if (!store.TrySave(candidate))
+            {
+                notice = T("save_error");
+                return;
+            }
+            profile.CopyFrom(candidate);
         }
 
         private void HandleWorldActivity(string activityId)

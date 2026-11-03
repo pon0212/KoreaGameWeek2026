@@ -19,8 +19,14 @@ namespace TastePassport.World
         private Vector2 keyboardInput;
         private Vector2 touchInput;
         private Vector3 cameraVelocity;
+        private Transform visualTransform;
+        private SpriteRenderer visualRenderer;
+        private Vector3 visualOrigin;
+        private Vector3 visualScale = Vector3.one;
+        private bool movementEnabled = true;
 
         public Vector2 Position => body != null ? body.position : (Vector2)transform.position;
+        public bool HasMoved { get; private set; }
 
         private void Awake()
         {
@@ -75,17 +81,51 @@ namespace TastePassport.World
             touchInput = Vector2.ClampMagnitude(input, 1f);
         }
 
+        public void SetMovementEnabled(bool enabled)
+        {
+            movementEnabled = enabled;
+            if (!enabled)
+            {
+                keyboardInput = Vector2.zero;
+                touchInput = Vector2.zero;
+            }
+        }
+
+        public void SetVisual(SpriteRenderer renderer)
+        {
+            visualRenderer = renderer;
+            visualTransform = renderer != null ? renderer.transform : null;
+            if (visualTransform == null) return;
+            visualOrigin = visualTransform.localPosition;
+            visualScale = visualTransform.localScale;
+        }
+
         private void Update()
         {
-            keyboardInput = ReadKeyboardInput();
+            keyboardInput = movementEnabled ? ReadKeyboardInput() : Vector2.zero;
         }
 
         private void FixedUpdate()
         {
             if (body == null || definition == null) return;
-            Vector2 input = touchInput.sqrMagnitude > 0.01f ? touchInput : keyboardInput;
+            Vector2 input = movementEnabled ? (touchInput.sqrMagnitude > 0.01f ? touchInput : keyboardInput) : Vector2.zero;
             Vector2 next = body.position + input * Speed * Time.fixedDeltaTime;
-            body.MovePosition(ClampToBounds(next, minimumPosition, maximumPosition));
+            Vector2 bounded = ClampToBounds(next, minimumPosition, maximumPosition);
+            if (Vector2.SqrMagnitude(bounded - body.position) > 0.0001f) HasMoved = true;
+            body.MovePosition(bounded);
+            AnimateVisual(input);
+        }
+
+        private void AnimateVisual(Vector2 input)
+        {
+            if (visualTransform == null) return;
+            bool walking = input.sqrMagnitude > 0.01f;
+            if (visualRenderer != null && Mathf.Abs(input.x) > 0.01f)
+                visualRenderer.flipX = input.x < 0f;
+            float bob = walking ? Mathf.Abs(Mathf.Sin(Time.time * 15f)) * 0.055f : Mathf.Sin(Time.time * 2.2f) * 0.012f;
+            visualTransform.localPosition = visualOrigin + Vector3.up * bob;
+            float squash = walking ? 1f + Mathf.Sin(Time.time * 15f) * 0.025f : 1f;
+            visualTransform.localScale = new Vector3(visualScale.x, visualScale.y * squash, visualScale.z);
         }
 
         private void LateUpdate()
@@ -114,12 +154,17 @@ namespace TastePassport.World
             Keyboard keyboard = Keyboard.current;
             if (keyboard == null) return Vector2.zero;
 
-            float x = 0f;
-            float y = 0f;
-            if (keyboard.leftArrowKey.isPressed || keyboard.aKey.isPressed) x -= 1f;
-            if (keyboard.rightArrowKey.isPressed || keyboard.dKey.isPressed) x += 1f;
-            if (keyboard.downArrowKey.isPressed || keyboard.sKey.isPressed) y -= 1f;
-            if (keyboard.upArrowKey.isPressed || keyboard.wKey.isPressed) y += 1f;
+            return GetKeyboardMovement(
+                keyboard.leftArrowKey.isPressed || keyboard.aKey.isPressed,
+                keyboard.rightArrowKey.isPressed || keyboard.dKey.isPressed,
+                keyboard.downArrowKey.isPressed || keyboard.sKey.isPressed,
+                keyboard.upArrowKey.isPressed || keyboard.wKey.isPressed);
+        }
+
+        public static Vector2 GetKeyboardMovement(bool leftPressed, bool rightPressed, bool downPressed, bool upPressed)
+        {
+            float x = (rightPressed ? 1f : 0f) - (leftPressed ? 1f : 0f);
+            float y = (upPressed ? 1f : 0f) - (downPressed ? 1f : 0f);
             var input = new Vector2(x, y);
             return input.sqrMagnitude > 1f ? input.normalized : input;
         }

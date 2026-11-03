@@ -25,8 +25,18 @@ namespace TastePassport.World
     {
         private static Sprite markerSprite;
         private WorldInteractableDefinition definition;
+        private Transform questMarker;
+        private Vector3 questMarkerBasePosition;
 
         public WorldInteractableDefinition Definition => definition;
+
+        private void Update()
+        {
+            if (questMarker == null || !questMarker.gameObject.activeSelf) return;
+            Vector3 position = questMarkerBasePosition;
+            position.y += Mathf.Sin(Time.unscaledTime * 4f) * 0.08f;
+            questMarker.localPosition = position;
+        }
 
         public void Configure(WorldInteractableDefinition target)
         {
@@ -54,6 +64,39 @@ namespace TastePassport.World
                 renderer.sortingOrder = 8;
                 transform.localScale = Vector3.one * 0.48f;
             }
+        }
+
+        public void SetQuestHighlighted(bool highlighted)
+        {
+            if (!highlighted)
+            {
+                if (questMarker != null) questMarker.gameObject.SetActive(false);
+                return;
+            }
+
+            if (questMarker == null)
+            {
+                var markerObject = new GameObject("Quest Marker - " + (definition == null ? "target" : definition.Id));
+                questMarker = markerObject.transform;
+                questMarker.SetParent(transform, false);
+                float parentScale = Mathf.Max(0.01f, Mathf.Abs(transform.lossyScale.y));
+                questMarker.localScale = Vector3.one / parentScale;
+                questMarkerBasePosition = new Vector3(0f, 1.25f / parentScale, -0.5f);
+                questMarker.localPosition = questMarkerBasePosition;
+
+                var markerText = markerObject.AddComponent<TextMesh>();
+                markerText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                markerText.text = "!";
+                markerText.fontSize = 96;
+                markerText.characterSize = 0.55f;
+                markerText.anchor = TextAnchor.MiddleCenter;
+                markerText.alignment = TextAlignment.Center;
+                markerText.color = new Color(0.98f, 0.66f, 0.18f);
+                var meshRenderer = markerObject.GetComponent<MeshRenderer>();
+                meshRenderer.sortingOrder = 40;
+            }
+
+            questMarker.gameObject.SetActive(true);
         }
 
         public void ApplyLanternColor(string colorId)

@@ -9,6 +9,7 @@ using TastePassport.Story;
 using TastePassport.World;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace TastePassport.Core
@@ -23,6 +24,11 @@ namespace TastePassport.Core
         private int stage, mission, searchIndex, pieceIndex, recipeStep;
         private bool replaying, hoianWorldChecked, jeonjuWorldChecked;
         private float started, nextTick;
+        private WorldTouchStick movementStick;
+        private PointerEventData movementPointer;
+        private Vector2 movementTestStart;
+        private float movementTestEnd;
+        private float cameraMovementStartX;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Attach()
@@ -83,7 +89,38 @@ namespace TastePassport.Core
                         if (!profile.created || profile.playerName != "Smoke Player" || profile.avatarIndex != 1)
                             throw new InvalidDataException("Profile creation was not saved");
                         VerifyBackupRecovery();
-                        Click("Mở bản đồ"); stage = 5; break;
+                        var firstWorld = app.GetComponent<WalkableWorldSession>();
+                        if (firstWorld == null || !firstWorld.IsOpen)
+                            throw new InvalidOperationException("Creating a new profile did not enter the walkable Hội An world");
+                        if (Vector2.Distance(firstWorld.PlayerPosition, WorldCatalog.Get("hoian").SpawnPoint) > 0.01f)
+                            throw new InvalidOperationException("A new explorer did not enter Hội An at its spawn point");
+                        if (new ProfileStore(testPath).Load().storyFlags.Contains("tutorial-nhung-reached"))
+                            throw new InvalidDataException("The first-time movement tutorial completed before the player moved");
+                        var objectiveLabel = GameObject.Find("World Objective Label")?.GetComponent<Text>();
+                        if (objectiveLabel == null || objectiveLabel.text != GameText.Get("vi", "world_objective_find_nhung"))
+                            throw new InvalidOperationException("The first world objective did not tell the player to meet Nhung");
+                        if (GameObject.Find("Quest Marker - nhung") == null)
+                            throw new InvalidOperationException("The first world objective did not mark Nhung in the world");
+                        var controlsPanel = GameObject.Find("World Controls Guide");
+                        var controlsHelp = GameObject.Find("World Controls Help")?.GetComponent<Button>();
+                        if (controlsPanel == null || !controlsPanel.activeSelf || controlsHelp == null ||
+                            !controlsPanel.GetComponentsInChildren<Text>(true).Any(t => t.text == GameText.Get("vi", "world_controls_copy")))
+                            throw new InvalidOperationException("The first-time world controls guide did not appear with its Vietnamese instructions");
+                        controlsPanel.GetComponentInChildren<Button>(true).onClick.Invoke();
+                        if (controlsPanel.activeSelf) throw new InvalidOperationException("The world controls guide did not close");
+                        controlsHelp.onClick.Invoke();
+                        if (!controlsPanel.activeSelf) throw new InvalidOperationException("The world controls help button did not reopen the guide");
+                        controlsPanel.GetComponentInChildren<Button>(true).onClick.Invoke();
+                        var journalButton = GameObject.Find("World Quest Journal")?.GetComponent<Button>();
+                        var journalPanel = GameObject.Find("World HUD")?.GetComponentsInChildren<Transform>(true)
+                            .FirstOrDefault(transform => transform.name == "World Quest Journal Panel")?.gameObject;
+                        if (journalButton == null || journalPanel == null || journalPanel.activeSelf)
+                            throw new InvalidOperationException("The world quest journal was missing or opened by default");
+                        journalButton.onClick.Invoke();
+                        if (!journalPanel.activeSelf || !journalPanel.GetComponentsInChildren<Text>(true).Any(t => t.text == GameText.Get("vi", "world_hint_find_nhung")))
+                            throw new InvalidOperationException("The world quest journal did not show the active objective");
+                        journalButton.onClick.Invoke();
+                        StartTouchMovementCheck(); break;
                     case 5:
                         if (mission == 0 && !hoianWorldChecked)
                         {
@@ -207,12 +244,20 @@ namespace TastePassport.Core
                     case 21:
                         if (Find("Tiếp tục hành trình") == null)
                             throw new InvalidOperationException("The menu did not reopen after settings");
-                        Click("Tiếp tục hành trình"); stage = 22;
+                        if (Find(GameText.Get("vi", "edit_profile")) == null)
+                            throw new InvalidOperationException("The main menu did not provide direct character editing");
+                        Click(GameText.Get("vi", "edit_profile")); stage = 61;
                         break;
                     case 22:
-                        string craftButton = GameText.Get("vi", "lantern_craft_map");
-                        if (Find(craftButton) == null) throw new InvalidOperationException("Map lantern craft entry is missing");
-                        Click(craftButton); stage = 23;
+                        var resumedWorld = app.GetComponent<WalkableWorldSession>();
+                        if (resumedWorld == null || !resumedWorld.IsOpen)
+                            throw new InvalidOperationException("Continue did not reopen the last walkable world");
+                        resumedWorld.Close();
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "map_next_step")) ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "world_objective_find_lan")) ||
+                            Find(GameText.Get("vi", "map_do_next")) == null)
+                            throw new InvalidOperationException("The map did not guide the player to the next Hội An objective");
+                        Click(GameText.Get("vi", "map_do_next")); stage = 57;
                         break;
                     case 23:
                         Click(GameText.Get("vi", "frame_hexagon")); stage = 24;
@@ -236,7 +281,7 @@ namespace TastePassport.Core
                             !crafted.worldImprints.Contains("lantern-display-ready") ||
                             !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "lantern_result_title")))
                             throw new InvalidDataException("Lantern craft result, inventory, or cultural cards were not saved");
-                        Click(GameText.Get("vi", "inventory")); stage = 27;
+                        Click(GameText.Get("vi", "continue_free_exploration")); stage = 59;
                         break;
                     case 27:
                         string variantLabel = GameText.Get("vi", "frame_hexagon") + " · " + GameText.Get("vi", "color_blue");
@@ -258,6 +303,9 @@ namespace TastePassport.Core
                         if (Find(GameText.Get("vi", "finale_start")) != null ||
                             !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "finale_locked_hint")))
                             throw new InvalidOperationException("The festival unlocked before the Hanji craft was completed");
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "world_objective_craft_hanji")) ||
+                            Find(GameText.Get("vi", "hanji_craft_map")) == null)
+                            throw new InvalidOperationException("The map did not guide the player to the missing Hanji craft");
                         Click(GameText.Get("vi", "hanji_craft_map")); stage = 31;
                         break;
                     case 31:
@@ -340,6 +388,9 @@ namespace TastePassport.Core
                             throw new InvalidDataException("Hanji rewards changed after returning from the Jeonju display");
                         if (Find(GameText.Get("vi", "finale_start")) == null)
                             throw new InvalidOperationException("The festival did not unlock after six missions and both crafts");
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "map_next_step")) ||
+                            Find(GameText.Get("vi", "finale_start")) == null)
+                            throw new InvalidOperationException("The map did not guide the player to festival preparation");
                         Click(GameText.Get("vi", "finale_start")); stage = 44;
                         break;
                     case 44:
@@ -424,6 +475,7 @@ namespace TastePassport.Core
                         break;
                     case 49:
                         if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "main_story_completed")) ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "world_objective_free_explore")) ||
                             Find(GameText.Get("vi", "view_ending")) == null ||
                             Find(GameText.Get("vi", "explore_hoian")) == null ||
                             Find(GameText.Get("vi", "explore_jeonju")) == null)
@@ -462,6 +514,144 @@ namespace TastePassport.Core
                         jeonjuFree.Close();
                         Finish(0, "DẤU XỨ smoke PASS: Vietnamese-first display, Korean switching, six missions, both crafts, seven saved festival stations, three shared activity links, animated ending, and free exploration");
                         break;
+                    case 54:
+                        var hoiAnMovement = app.GetComponent<WalkableWorldSession>();
+                        if (hoiAnMovement == null || !hoiAnMovement.IsOpen)
+                            throw new InvalidOperationException("Hội An closed before the joystick movement check");
+                        var movingObjective = GameObject.Find("World Objective Label")?.GetComponent<Text>();
+                        if (movingObjective != null && movingObjective.text == GameText.Get("vi", "world_objective_find_nhung") &&
+                            Time.realtimeSinceStartup < movementTestEnd)
+                            break;
+                        movementStick.OnPointerUp(movementPointer);
+                        if (hoiAnMovement.PlayerPosition.x <= movementTestStart.x + 0.35f)
+                            throw new InvalidOperationException("The on-screen movement joystick did not move the world player during Play Mode");
+                        if (!new ProfileStore(testPath).Load().storyFlags.Contains("tutorial-nhung-reached") ||
+                            movingObjective == null || movingObjective.text != GameText.Get("vi", "world_objective_talk_nhung"))
+                            throw new InvalidOperationException("Moving within range of Nhung did not complete and save the movement tutorial");
+                        var worldPlayer = FindAnyObjectByType<WorldPlayerController>();
+                        if (worldPlayer == null) throw new InvalidOperationException("The walkable world player controller is missing");
+                        worldPlayer.SetTouchInput(Vector2.up);
+                        movementTestEnd = Time.realtimeSinceStartup + 0.8f;
+                        stage = 55;
+                        break;
+                    case 55:
+                        var northWorld = app.GetComponent<WalkableWorldSession>();
+                        if (Time.realtimeSinceStartup < movementTestEnd) break;
+                        var northPlayer = FindAnyObjectByType<WorldPlayerController>();
+                        if (northWorld == null || northPlayer == null || northWorld.PlayerPosition.y > -1.35f)
+                            throw new InvalidOperationException("The player passed through the north street building collision edge");
+                        northPlayer.SetTouchInput(Vector2.down);
+                        movementTestEnd = Time.realtimeSinceStartup + 0.8f;
+                        stage = 56;
+                        break;
+                    case 56:
+                        var southWorld = app.GetComponent<WalkableWorldSession>();
+                        if (Time.realtimeSinceStartup < movementTestEnd) break;
+                        var southPlayer = FindAnyObjectByType<WorldPlayerController>();
+                        if (southWorld == null || southPlayer == null || southWorld.PlayerPosition.y < -2.25f)
+                            throw new InvalidOperationException("The player passed through the south street edge collision");
+                        southPlayer.SetTouchInput(Vector2.zero);
+                        southWorld.SetPlayerPosition(movementTestStart);
+                        stage = 5;
+                        break;
+                    case 57:
+                        var lanWorld = app.GetComponent<WalkableWorldSession>();
+                        if (lanWorld == null || !lanWorld.IsOpen ||
+                            GameObject.Find("World Objective Label")?.GetComponent<Text>()?.text != GameText.Get("vi", "world_objective_find_lan"))
+                            throw new InvalidOperationException("The map objective did not return the player to the active Hội An story");
+                        var lanStickObject = GameObject.Find("Touch Movement Stick");
+                        movementStick = lanStickObject != null ? lanStickObject.GetComponent<WorldTouchStick>() : null;
+                        if (movementStick == null || EventSystem.current == null)
+                            throw new InvalidOperationException("The Hội An movement joystick was missing before the walk to Cô Lan");
+                        RectTransform lanStickRect = lanStickObject.GetComponent<RectTransform>();
+                        float lanRadius = Mathf.Min(lanStickRect.rect.width, lanStickRect.rect.height) * 0.38f;
+                        Vector2 lanScreenPosition = RectTransformUtility.WorldToScreenPoint(null,
+                            lanStickRect.TransformPoint(new Vector3(lanRadius, 0f, 0f)));
+                        movementPointer = new PointerEventData(EventSystem.current) { pointerId = 902, position = lanScreenPosition };
+                        movementTestEnd = Time.realtimeSinceStartup + 0.85f;
+                        movementStick.OnPointerDown(movementPointer);
+                        stage = 58;
+                        break;
+                    case 58:
+                        if (Time.realtimeSinceStartup < movementTestEnd) break;
+                        movementStick.OnPointerUp(movementPointer);
+                        var lanSession = app.GetComponent<WalkableWorldSession>();
+                        var lanDefinition = WorldCatalog.Get("hoian").Interactables.First(item => item.Id == "lan");
+                        if (lanSession == null || Vector2.Distance(lanSession.PlayerPosition, lanDefinition.Position) > lanDefinition.InteractionRadius)
+                            throw new InvalidOperationException("The joystick walk did not reach Cô Lan's interaction range");
+                        var lanInteraction = lanSession.InteractNearest();
+                        var lanObjective = GameObject.Find("World Objective Label")?.GetComponent<Text>();
+                        if (lanInteraction == null || lanInteraction.Target.Id != "lan" || lanInteraction.DialogueKey != "lan_first" ||
+                            lanObjective == null || lanObjective.text != GameText.Get("vi", "world_objective_craft_lantern"))
+                            throw new InvalidOperationException("Meeting Cô Lan did not open the craft objective and dialogue");
+                        lanSession.ContinueDialogue();
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "lantern_craft_title")))
+                            throw new InvalidOperationException("Cô Lan did not open the interactive lantern activity");
+                        stage = 23;
+                        break;
+                    case 59:
+                        var displayWorld = app.GetComponent<WalkableWorldSession>();
+                        GameObject lanternDisplay = GameObject.Find("World Target - lantern-display");
+                        var displayObjective = GameObject.Find("World Objective Label")?.GetComponent<Text>();
+                        if (displayWorld == null || !displayWorld.IsOpen || lanternDisplay == null ||
+                            displayObjective == null || displayObjective.text != GameText.Get("vi", "world_objective_see_lantern") ||
+                            GameObject.Find("Quest Marker - lantern-display") == null)
+                            throw new InvalidOperationException("Returning from the lantern activity did not restore the living world display and objective marker");
+                        var displayStickObject = GameObject.Find("Touch Movement Stick");
+                        movementStick = displayStickObject != null ? displayStickObject.GetComponent<WorldTouchStick>() : null;
+                        if (movementStick == null || EventSystem.current == null)
+                            throw new InvalidOperationException("The movement joystick was missing on return from the lantern activity");
+                        RectTransform displayStickRect = displayStickObject.GetComponent<RectTransform>();
+                        float displayRadius = Mathf.Min(displayStickRect.rect.width, displayStickRect.rect.height) * 0.38f;
+                        Vector2 displayScreenPosition = RectTransformUtility.WorldToScreenPoint(null,
+                            displayStickRect.TransformPoint(new Vector3(displayRadius, 0f, 0f)));
+                        if (Camera.main == null) throw new InvalidOperationException("The world camera was missing during free exploration");
+                        cameraMovementStartX = Camera.main.transform.position.x;
+                        movementPointer = new PointerEventData(EventSystem.current) { pointerId = 903, position = displayScreenPosition };
+                        movementTestStart = displayWorld.PlayerPosition;
+                        movementTestEnd = Time.realtimeSinceStartup + 1.9f;
+                        movementStick.OnPointerDown(movementPointer);
+                        stage = 60;
+                        break;
+                    case 60:
+                        if (Time.realtimeSinceStartup < movementTestEnd) break;
+                        movementStick.OnPointerUp(movementPointer);
+                        var displaySession = app.GetComponent<WalkableWorldSession>();
+                        var displayDefinition = WorldCatalog.Get("hoian").Interactables.First(item => item.Id == "lantern-display");
+                        if (Camera.main == null || Camera.main.transform.position.x <= cameraMovementStartX + 0.1f)
+                            throw new InvalidOperationException("The world camera did not follow the player during the walk to the lantern display");
+                        if (displaySession == null || Vector2.Distance(displaySession.PlayerPosition, displayDefinition.Position) > displayDefinition.InteractionRadius)
+                            throw new InvalidOperationException("The player could not walk from Cô Lan to the lantern display (start=" + movementTestStart +
+                                ", current=" + (displaySession == null ? Vector2.zero : displaySession.PlayerPosition) + ", target=" + displayDefinition.Position + ")");
+                        var displayInteraction = displaySession.InteractNearest();
+                        var passportObjective = GameObject.Find("World Objective Label")?.GetComponent<Text>();
+                        if (displayInteraction == null || displayInteraction.Target.Id != "lantern-display" ||
+                            !new ProfileStore(testPath).Load().storyFlags.Contains("lantern-display-seen") ||
+                            passportObjective == null || passportObjective.text != GameText.Get("vi", "world_objective_view_passport"))
+                            throw new InvalidOperationException("The crafted lantern did not become a saved world display or advance the tutorial");
+                        GameObject.Find("World Passport")?.GetComponent<Button>()?.onClick.Invoke();
+                        var passportProfile = new ProfileStore(testPath).Load();
+                        if (!passportProfile.storyFlags.Contains("tutorial-passport-viewed") ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "passport")))
+                            throw new InvalidOperationException("Opening the world passport did not complete and save the reward tutorial");
+                        ClickPrefix(GameText.Get("vi", "inventory") + " ·");
+                        stage = 27;
+                        break;
+                    case 61:
+                        var editorInput = app.GetComponentInChildren<InputField>();
+                        if (editorInput == null || editorInput.text != "Smoke Player" ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "edit_profile")))
+                            throw new InvalidOperationException("The main-menu character editor did not preload the existing profile");
+                        Click(GameText.Get("vi", "save_profile"));
+                        stage = 62;
+                        break;
+                    case 62:
+                        var editedProfile = new ProfileStore(testPath).Load();
+                        if (!editedProfile.created || editedProfile.playerName != "Smoke Player" || editedProfile.avatarIndex != 1 ||
+                            !editedProfile.storyFlags.Contains("tutorial-nhung-reached") || Find("Tiếp tục hành trình") == null)
+                            throw new InvalidDataException("Saving the character editor damaged existing story progress or did not return to the menu");
+                        Click("Tiếp tục hành trình"); stage = 22;
+                        break;
                 }
             }
             catch (Exception error) { Finish(2, "Taste Passport smoke FAIL: " + error); }
@@ -469,10 +659,31 @@ namespace TastePassport.Core
 
         private Button Find(string label) => app.GetComponentsInChildren<Button>().FirstOrDefault(b => b.name.StartsWith("Button " + label, StringComparison.Ordinal));
 
+        private void StartTouchMovementCheck()
+        {
+            var session = app.GetComponent<WalkableWorldSession>();
+            if (session == null || !session.IsOpen) throw new InvalidOperationException("Hội An did not open for the joystick movement check");
+            GameObject stickObject = GameObject.Find("Touch Movement Stick");
+            movementStick = stickObject != null ? stickObject.GetComponent<WorldTouchStick>() : null;
+            if (movementStick == null || EventSystem.current == null)
+                throw new InvalidOperationException("The world HUD movement joystick or EventSystem is missing");
+            RectTransform stickRect = stickObject.GetComponent<RectTransform>();
+            float radius = Mathf.Min(stickRect.rect.width, stickRect.rect.height) * 0.38f;
+            Vector2 screenPosition = RectTransformUtility.WorldToScreenPoint(null,
+                stickRect.TransformPoint(new Vector3(radius, 0f, 0f)));
+            movementPointer = new PointerEventData(EventSystem.current) { pointerId = 901, position = screenPosition };
+            movementTestStart = session.PlayerPosition;
+            movementTestEnd = Time.realtimeSinceStartup + 0.8f;
+            movementStick.OnPointerDown(movementPointer);
+            stage = 54;
+        }
+
         private void CheckWorldEntry(string worldId, string buttonKey, string firstDialogueKey, string expectedFlag, Action passed)
         {
             string buttonLabel = GameText.Get("vi", buttonKey);
-            if (worldId == "hoian" && Find(buttonLabel) == null)
+            var session = app.GetComponent<WalkableWorldSession>();
+            bool alreadyOpen = session != null && session.IsOpen;
+            if (worldId == "hoian" && !alreadyOpen && Find(buttonLabel) == null)
                 throw new InvalidOperationException("The Hội An exploration entry is missing from the map");
 
             if (worldId == "jeonju")
@@ -488,8 +699,11 @@ namespace TastePassport.Core
                     throw new InvalidOperationException("The unlocked Hanji workshop map entry is missing");
             }
 
-            Click(buttonLabel);
-            var session = app.GetComponent<WalkableWorldSession>();
+            if (!alreadyOpen)
+            {
+                Click(buttonLabel);
+                session = app.GetComponent<WalkableWorldSession>();
+            }
             if (session == null || !session.IsOpen) throw new InvalidOperationException("Map entry did not open " + worldId);
             if (GameText.Get("vi", "character_nhung") != "Nhung" || GameText.Get("vi", "character_gabo") != "Ga Bo (가보)")
                 throw new InvalidDataException("The official companion names were changed");
@@ -503,6 +717,14 @@ namespace TastePassport.Core
             var interaction = session.InteractNearest();
             if (interaction == null || interaction.DialogueKey != firstDialogueKey)
                 throw new InvalidDataException("The first companion dialogue is incorrect in " + worldId);
+            if (worldId == "hoian")
+            {
+                var objective = GameObject.Find("World Objective Label")?.GetComponent<Text>();
+                if (objective == null || objective.text != GameText.Get("vi", "world_objective_find_lan"))
+                    throw new InvalidOperationException("Talking to Nhung did not set the objective to meet Cô Lan");
+                if (GameObject.Find("Quest Marker - lan") == null)
+                    throw new InvalidOperationException("Talking to Nhung did not move the world marker to Cô Lan");
+            }
             if (worldId == "hoian" && !session.CurrentDialogueText.Contains("DẤU XỨ"))
                 throw new InvalidDataException("The Vietnamese prologue did not mention the DẤU XỨ book");
             if (worldId == "jeonju" && GameObject.Find("World Target - hanji-display") != null)

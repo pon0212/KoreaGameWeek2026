@@ -679,6 +679,20 @@ namespace TastePassport.EditorTools
             Require(WorldPlayerController.ClampToBounds(pointInside, minimum, maximum) == pointInside,
                 "player movement changed an in-bounds position");
 
+            MethodInfo keyboardMovement = typeof(WorldPlayerController).GetMethod("GetKeyboardMovement",
+                BindingFlags.Public | BindingFlags.Static);
+            Require(keyboardMovement != null,
+                "keyboard movement mapping is not exposed for deterministic WASD/arrow verification");
+            Require((Vector2)keyboardMovement.Invoke(null, new object[] { true, false, false, false }) == Vector2.left &&
+                    (Vector2)keyboardMovement.Invoke(null, new object[] { false, true, false, false }) == Vector2.right &&
+                    (Vector2)keyboardMovement.Invoke(null, new object[] { false, false, true, false }) == Vector2.down &&
+                    (Vector2)keyboardMovement.Invoke(null, new object[] { false, false, false, true }) == Vector2.up,
+                "keyboard movement did not map all four directions to the matching world axis");
+            Require(Vector2.Distance((Vector2)keyboardMovement.Invoke(null, new object[] { false, true, false, true }),
+                    new Vector2(1f, 1f).normalized) < 0.001f &&
+                    (Vector2)keyboardMovement.Invoke(null, new object[] { true, true, false, false }) == Vector2.zero,
+                "diagonal keyboard movement was not normalized or opposing keys did not cancel");
+
             var hoiAn = WorldCatalog.Get("hoian");
             var jeonju = WorldCatalog.Get("jeonju");
             Require(hoiAn != null && jeonju != null && hoiAn.BackgroundResourcePath != jeonju.BackgroundResourcePath,
