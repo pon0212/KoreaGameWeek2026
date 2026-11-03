@@ -165,6 +165,7 @@ namespace TastePassport.Core
                         break;
                     case 14:
                         Click("Lật bưu thiếp");
+                        nextTick = Time.realtimeSinceStartup + .5f;
                         stage = 15;
                         break;
                     case 15:
@@ -174,17 +175,33 @@ namespace TastePassport.Core
                         stage = 16;
                         break;
                     case 16: Click("Quay lại"); stage = 17; break;
-                    case 17: Click("Cài đặt"); stage = 18; break;
+                    case 17:
+                        Click("Cài đặt");
+                        if (app.GetComponentsInChildren<Slider>(true).Length != 3)
+                            throw new InvalidOperationException("Settings did not render independent music, effects, and ambience sliders");
+                        foreach (string key in new[] { "settings_music_volume", "settings_sfx_volume", "settings_ambience_volume" })
+                            if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", key)))
+                                throw new InvalidOperationException("A Vietnamese audio control label is missing: " + key);
+                        stage = 18;
+                        break;
                     case 18: Click("한국어"); stage = 19; break;
                     case 19:
                         var translated = new ProfileStore(testPath).Load();
-                        if (translated.language != "ko" || Find("뒤로") == null)
+                        if (translated.language != "ko" || Find("뒤로") == null ||
+                            app.GetComponentsInChildren<Slider>(true).Length != 3)
                             throw new InvalidDataException("Korean switch was not saved or rendered");
+                        foreach (string key in new[] { "settings_music_volume", "settings_sfx_volume", "settings_ambience_volume" })
+                            if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("ko", key)))
+                                throw new InvalidOperationException("A Korean audio control label is missing: " + key);
                         Click("Tiếng Việt"); stage = 20;
                         break;
                     case 20:
-                        if (new ProfileStore(testPath).Load().language != "vi" || Find("Quay lại") == null)
+                        if (new ProfileStore(testPath).Load().language != "vi" || Find("Quay lại") == null ||
+                            app.GetComponentsInChildren<Slider>(true).Length != 3)
                             throw new InvalidDataException("Vietnamese switch was not saved or rendered in settings");
+                        foreach (string key in new[] { "settings_music_volume", "settings_sfx_volume", "settings_ambience_volume" })
+                            if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", key)))
+                                throw new InvalidOperationException("A Vietnamese audio control label is missing after switching back: " + key);
                         Click("Quay lại"); stage = 21;
                         break;
                     case 21:

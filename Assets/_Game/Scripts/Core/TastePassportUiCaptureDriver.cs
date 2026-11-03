@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using TastePassport.Gameplay;
 using TastePassport.Save;
+using TastePassport.Story;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -25,7 +26,7 @@ namespace TastePassport.Core
         private MethodInfo navigate;
         private Type pageType;
         private RenderTexture target;
-        private static readonly string[] Pages = { "Menu", "Map", "Passport", "Dialogue", "Explore", "RecipeGame", "Postcard" };
+        private static readonly string[] Pages = { "Menu", "Map", "Passport", "Dialogue", "Explore", "RecipeGame", "Postcard", "Settings", "Finale", "FinaleResult" };
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Attach()
@@ -83,7 +84,7 @@ namespace TastePassport.Core
             nextFrame = Time.realtimeSinceStartup + .35f;
             try
             {
-                if (index == Pages.Length * 2) { Finish(0, "Taste Passport UI capture PASS: seven pages at 720x1280 and 1080x2400"); return; }
+                if (index == Pages.Length * 2) { Finish(0, "Taste Passport UI capture PASS: ten pages at 720x1280 and 1080x2400"); return; }
                 int width = index < Pages.Length ? 720 : 1080;
                 int height = index < Pages.Length ? 1280 : 2400;
                 if (!prepared)
@@ -100,6 +101,11 @@ namespace TastePassport.Core
                     {
                         typeof(PassportApp).GetMethod("StartRecipe", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(app, new object[] { RecipeCatalog.CaoLau });
                         typeof(PassportApp).GetField("recipeDeadline", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(app, Time.time + 90f);
+                    }
+                    if (page == "Finale" || page == "FinaleResult")
+                    {
+                        var festivalProfile = CreateFestivalCaptureProfile(page == "FinaleResult");
+                        typeof(PassportApp).GetField("profile", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(app, festivalProfile);
                     }
                     navigate.Invoke(app, new[] { Enum.Parse(pageType, page) });
                     prepared = true;
@@ -127,6 +133,32 @@ namespace TastePassport.Core
                 index++;
             }
             catch (Exception error) { Finish(2, "Taste Passport UI capture failed: " + error); }
+        }
+
+        private static PlayerProfile CreateFestivalCaptureProfile(bool completed)
+        {
+            var profile = new PlayerProfile { created = true, playerName = "Nhung", language = "vi", avatarIndex = 1, chapterIndex = 4 };
+            string[] missions =
+            {
+                LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
+                LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id
+            };
+            foreach (string mission in missions) ProgressService.Record(profile, mission, 300, 3);
+            StoryProgressService.AddImprint(profile, "lantern-display-ready");
+            StoryProgressService.AddImprint(profile, "hanji-display-ready");
+            StoryProgressService.RecordInteraction(profile, "festival-invitation-received", "festival-invitation");
+            int stations = completed ? FestivalPreparationRun.StationCount : 2;
+            for (int station = 0; station < stations; station++)
+            {
+                StoryProgressService.AddImprint(profile, FestivalPreparationRun.GetPlacementImprintId(station));
+                string decoration = FestivalPreparationRun.GetDecorationId(station % FestivalPreparationRun.DecorationCount);
+                StoryProgressService.AddImprint(profile, FestivalPreparationRun.GetDecorationImprintId(station, decoration));
+            }
+            int links = completed ? FestivalPreparationRun.LinkCount : 1;
+            for (int i = 0; i < links; i++)
+                StoryProgressService.AddImprint(profile, FestivalPreparationRun.GetConnectionImprintId(FestivalPreparationRun.GetLinkId(i)));
+            if (completed) StoryProgressService.CompleteMainStory(profile);
+            return profile;
         }
 
         private void Finish(int code, string message)

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Reflection;
 using TastePassport.Core;
 using TastePassport.Gameplay;
 using TastePassport.Localization;
@@ -61,6 +62,91 @@ namespace TastePassport.EditorTools
                 Require(vietnamese != key, "Vietnamese festival text is missing: " + key);
                 Require(korean != key && korean != vietnamese, "Korean festival text is missing or falls back to Vietnamese: " + key);
             }
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Phase Six Audio")]
+        public static void RunPhaseSixAudioChecks()
+        {
+            Type settingsType = Type.GetType("TastePassport.UI.GameAudioSettings, Assembly-CSharp");
+            Require(settingsType != null, "separate music, effects, and ambience settings are missing");
+            var musicVolume = settingsType.GetProperty("MusicVolume");
+            var sfxVolume = settingsType.GetProperty("SfxVolume");
+            var ambienceVolume = settingsType.GetProperty("AmbienceVolume");
+            var muted = settingsType.GetProperty("Muted");
+            var setMusic = settingsType.GetMethod("SetMusicVolume");
+            var setSfx = settingsType.GetMethod("SetSfxVolume");
+            var setAmbience = settingsType.GetMethod("SetAmbienceVolume");
+            var setMuted = settingsType.GetMethod("SetMuted");
+            Require(musicVolume != null && sfxVolume != null && ambienceVolume != null && muted != null &&
+                    setMusic != null && setSfx != null && setAmbience != null && setMuted != null,
+                "audio settings do not expose saved controls for all three channels and mute");
+
+            string[] keys = { "tp_music_volume", "tp_sfx_volume", "tp_ambience_volume", "tp_sound" };
+            bool[] hadValue = new bool[keys.Length];
+            float[] oldFloat = new float[3];
+            int oldMute = 1;
+            for (int i = 0; i < keys.Length; i++) hadValue[i] = PlayerPrefs.HasKey(keys[i]);
+            oldFloat[0] = PlayerPrefs.GetFloat(keys[0], .4f);
+            oldFloat[1] = PlayerPrefs.GetFloat(keys[1], .5f);
+            oldFloat[2] = PlayerPrefs.GetFloat(keys[2], .25f);
+            oldMute = PlayerPrefs.GetInt(keys[3], 1);
+            try
+            {
+                setMusic.Invoke(null, new object[] { .72f });
+                setSfx.Invoke(null, new object[] { .43f });
+                setAmbience.Invoke(null, new object[] { .18f });
+                setMuted.Invoke(null, new object[] { true });
+                PlayerPrefs.Save();
+                Require(Mathf.Abs((float)musicVolume.GetValue(null) - .72f) < .001f &&
+                        Mathf.Abs((float)sfxVolume.GetValue(null) - .43f) < .001f &&
+                        Mathf.Abs((float)ambienceVolume.GetValue(null) - .18f) < .001f && (bool)muted.GetValue(null),
+                    "audio settings did not persist independently");
+                setMusic.Invoke(null, new object[] { -2f });
+                setSfx.Invoke(null, new object[] { 2f });
+                Require(Mathf.Abs((float)musicVolume.GetValue(null)) < .001f &&
+                        Mathf.Abs((float)sfxVolume.GetValue(null) - 1f) < .001f,
+                    "audio channel values were not clamped to the supported range");
+            }
+            finally
+            {
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    if (!hadValue[i]) PlayerPrefs.DeleteKey(keys[i]);
+                    else if (i < 3) PlayerPrefs.SetFloat(keys[i], oldFloat[i]);
+                    else PlayerPrefs.SetInt(keys[i], oldMute);
+                }
+                PlayerPrefs.Save();
+            }
+            Debug.Log("Dấu Xứ phase six audio settings smoke PASS: three saved channels, mute, and clamped values");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Android Gradle Temp")]
+        public static void RunAndroidGradleTempChecks()
+        {
+            Require(Application.platform == RuntimePlatform.WindowsEditor,
+                "Android Gradle temp validation requires the Windows Editor");
+            bool preparesShutdown = false;
+            foreach (object attribute in typeof(TastePassportBuild).GetCustomAttributes(false))
+                if (attribute.GetType().FullName == "UnityEditor.InitializeOnLoadAttribute") preparesShutdown = true;
+            Require(preparesShutdown, "Unity does not prepare the safe Gradle temp directory when the Editor starts");
+            var helper = typeof(TastePassportBuild).GetMethod("EnsureAndroidGradleTemp",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Require(helper != null, "Android builds do not retain the safe Gradle temp directory for Unity shutdown");
+
+            string windowsTemp = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp");
+            Require(Directory.Exists(windowsTemp), "Windows temp directory is missing: " + windowsTemp);
+            try
+            {
+                helper.Invoke(null, null);
+            }
+            catch (TargetInvocationException error)
+            {
+                throw error.InnerException ?? error;
+            }
+            Require(Environment.GetEnvironmentVariable("TEMP") == windowsTemp &&
+                    Environment.GetEnvironmentVariable("TMP") == windowsTemp,
+                "Unity did not retain the safe TEMP/TMP values after configuring Android builds");
+            Debug.Log("Dấu Xứ phase seven Android temp smoke PASS: safe temp retained for Gradle shutdown within the Unity process");
         }
 
         [MenuItem("Tools/Taste Passport/Validate Phase Three")]

@@ -8,6 +8,7 @@ using TastePassport.UI;
 using TastePassport.World;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.Events;
 using UnityEngine.UI;
 
 namespace TastePassport.Core
@@ -66,6 +67,10 @@ namespace TastePassport.Core
         private Text lanternMaterialStatus;
         private HanjiCraftRun hanjiCraftRun;
         private string hanjiResultItemId;
+        private GameAudioManager audioManager;
+        private RectTransform postcardCard;
+        private Coroutine postcardFlip;
+        private bool rebuildingPostcardForFlip;
 
         private string T(string key, string place = null) => GameText.Get(profile.language, key, profile.playerName, place);
 
@@ -107,6 +112,10 @@ namespace TastePassport.Core
             AudioListener.volume = PlayerPrefs.GetInt("tp_sound", 1) == 1 ? 1 : 0;
             feedbackSound = GetComponent<UiFeedbackSound>();
             if (feedbackSound == null) feedbackSound = gameObject.AddComponent<UiFeedbackSound>();
+            StageAudioDirector.For(gameObject);
+            audioManager = GameAudioManager.For(gameObject);
+            audioManager.SetEnvironment(false);
+            PlayStageAudio(1, false);
             EnsureFont();
             EnsureCanvas();
             EnsureEventSystem();
@@ -117,6 +126,12 @@ namespace TastePassport.Core
         private void OnApplicationFocus(bool focused)
         {
             if (focused) UpdateSafeArea();
+        }
+
+        private void PlayStageAudio(int stage, bool korean)
+        {
+            StageAudioDirector.For(gameObject).PlayStage(stage, korean);
+            audioManager?.NotifyMusicTransition();
         }
 
         private void Update()
@@ -179,6 +194,7 @@ namespace TastePassport.Core
         private void Navigate(Page target)
         {
             notice = null;
+            if (target == Page.Passport) audioManager?.PlayCue(GameSoundCue.BookOpen);
             page = target;
             resetScroll = true;
             Show();
@@ -186,6 +202,12 @@ namespace TastePassport.Core
 
         private void Show()
         {
+            if (postcardFlip != null && !rebuildingPostcardForFlip)
+            {
+                StopCoroutine(postcardFlip);
+                postcardFlip = null;
+            }
+            postcardCard = null;
             if (finaleReveal != null)
             {
                 StopCoroutine(finaleReveal);
@@ -380,22 +402,22 @@ namespace TastePassport.Core
 
         private void DrawMenu(Transform parent)
         {
-            Header(parent, T("title"));
-            Label(parent, T("subtitle"), 26, 42, Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(parent, T("tagline"), 28, 62, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            var spread = Card(parent, 362);
-            Label(spread, T("living_passport"), 30, 80, Jade, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            Header(parent, T("subtitle"));
+            Label(parent, T("tagline"), 25, 92, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Button(parent, profile.created ? T("continue") : T("start"), Jade, () => Navigate(profile.created ? Page.Map : Page.Language));
+
+            var spread = Card(parent, 320);
+            Label(spread, T("living_passport"), 26, 84, Jade, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             var destinations = NewRect("Two culture destinations", spread);
-            SetHeight(destinations, 190);
+            SetHeight(destinations, 130);
             AddHorizontal(destinations);
             Artwork(destinations, TravelArtworkKind.HoiAn, 184);
             Artwork(destinations, TravelArtworkKind.Jeonju, 184);
             AddJourneyThread(spread);
-            var card = Card(parent, 118);
-            Label(card, T("welcome"), 31, 78, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            Label(parent, "◆  " + T("tomorrow_note"), 23, 76, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var card = Card(parent, 150);
+            Label(card, T("welcome"), 26, 100, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            Label(parent, "◆  " + T("tomorrow_note"), 23, 100, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             NarrationButtons(parent, T("story_full"));
-            Button(parent, profile.created ? T("continue") : T("start"), Jade, () => Navigate(profile.created ? Page.Map : Page.Language));
             Button(parent, T("language"), Lantern, () => Navigate(Page.Language));
             if (profile.created) Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
             Button(parent, T("settings"), Paper, () => { settingsReturnPage = Page.Menu; Navigate(Page.Settings); }, Ink);
@@ -503,7 +525,8 @@ namespace TastePassport.Core
             lanternResultItemId = null;
             lanternMaterialStatus = null;
             koreanBackdrop = false;
-            StageAudioDirector.For(gameObject).PlayStage(2, false);
+            audioManager?.SetEnvironment(false);
+            PlayStageAudio(2, false);
             Navigate(Page.LanternCraft);
         }
 
@@ -669,6 +692,7 @@ namespace TastePassport.Core
                 return;
             }
             profile = candidate;
+            audioManager?.PlayCue(GameSoundCue.Craft);
             lanternResultItemId = InventoryService.LanternProductPrefix + lanternCraftRun.FrameId + "-" + lanternCraftRun.ColorId;
             Navigate(Page.LanternResult);
         }
@@ -708,6 +732,8 @@ namespace TastePassport.Core
             hanjiCraftRun = new HanjiCraftRun();
             hanjiResultItemId = null;
             koreanBackdrop = true;
+            audioManager?.SetEnvironment(true);
+            PlayStageAudio(2, true);
             Navigate(Page.HanjiCraft);
         }
 
@@ -834,6 +860,7 @@ namespace TastePassport.Core
                 return;
             }
             profile = candidate;
+            audioManager?.PlayCue(GameSoundCue.Craft);
             hanjiResultItemId = InventoryService.HanjiProductPrefix + hanjiCraftRun.ShapeId + "-" +
                                 hanjiCraftRun.PaperColorId + "-" + hanjiCraftRun.MotifId;
             Navigate(Page.HanjiResult);
@@ -976,6 +1003,7 @@ namespace TastePassport.Core
             Header(parent, T(definition.TitleKey));
             Label(parent, T(postcardBack ? "back_side" : "front"), 29, 65, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var card = Card(parent, postcardBack ? 460 : 535);
+            postcardCard = card as RectTransform;
             if (!postcardBack)
             {
                 Label(card, T(definition.TitleKey), 31, 85, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
@@ -1004,8 +1032,52 @@ namespace TastePassport.Core
                 Label(card, T("tomorrow_clue_" + (postcardIndex + 1)), 24, 82, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
                 NarrationButtons(parent, T(definition.StoryKey));
             }
-            Button(parent, T("flip_postcard"), Jade, () => { postcardBack = !postcardBack; Show(); });
+            Button(parent, T("flip_postcard"), Jade, StartPostcardFlip);
             Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
+        }
+
+        private void StartPostcardFlip()
+        {
+            if (postcardFlip != null) return;
+            audioManager?.PlayCue(GameSoundCue.PageFlip);
+            postcardFlip = StartCoroutine(AnimatePostcardFlip());
+        }
+
+        private IEnumerator AnimatePostcardFlip()
+        {
+            if (postcardCard == null)
+            {
+                postcardBack = !postcardBack;
+                postcardFlip = null;
+                Show();
+                yield break;
+            }
+
+            yield return ScalePostcard(postcardCard, 1f, 0f);
+            postcardBack = !postcardBack;
+            rebuildingPostcardForFlip = true;
+            Show();
+            rebuildingPostcardForFlip = false;
+            if (postcardCard != null)
+            {
+                postcardCard.localScale = new Vector3(0f, 1f, 1f);
+                yield return ScalePostcard(postcardCard, 0f, 1f);
+            }
+            postcardFlip = null;
+        }
+
+        private IEnumerator ScalePostcard(RectTransform card, float from, float to)
+        {
+            const float duration = .16f;
+            float elapsed = 0f;
+            while (card != null && elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float scale = Mathf.Lerp(from, to, Mathf.SmoothStep(0f, 1f, elapsed / duration));
+                card.localScale = new Vector3(scale, 1f, 1f);
+                yield return null;
+            }
+            if (card != null) card.localScale = new Vector3(to, 1f, 1f);
         }
 
         private void DrawMap(Transform parent)
@@ -1080,6 +1152,9 @@ namespace TastePassport.Core
                 if (worldSession == null) worldSession = gameObject.AddComponent<WalkableWorldSession>();
                 safeRoot.gameObject.SetActive(false);
                 worldSession.Open(worldId, profile, store, ReturnFromWorld, HandleWorldActivity);
+                bool koreanWorld = worldId == "jeonju";
+                audioManager?.SetEnvironment(koreanWorld);
+                PlayStageAudio(Mathf.Clamp(profile.chapterIndex, 1, 3), koreanWorld);
             }
             catch (Exception error)
             {
@@ -1224,17 +1299,67 @@ namespace TastePassport.Core
             Button(parent, "Tiếng Việt" + (profile.language == "vi" ? "  ✓" : ""), profile.language == "vi" ? Jade : Paper, () => ChangeLanguage("vi"), profile.language == "vi" ? Color.white : Ink);
             Button(parent, "한국어" + (profile.language == "ko" ? "  ✓" : ""), profile.language == "ko" ? Jade : Paper, () => ChangeLanguage("ko"), profile.language == "ko" ? Color.white : Ink);
             Label(parent, T("settings_sound"), 29, 58, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-            Button(parent, T(PlayerPrefs.GetInt("tp_sound", 1) == 1 ? "on" : "off"), Lantern, () =>
+            if (audioManager == null) audioManager = GameAudioManager.For(gameObject);
+            AudioVolumeSlider(parent, T("settings_music_volume"), audioManager.MusicVolume, audioManager.SetMusicVolume);
+            AudioVolumeSlider(parent, T("settings_sfx_volume"), audioManager.SfxVolume, audioManager.SetSfxVolume);
+            AudioVolumeSlider(parent, T("settings_ambience_volume"), audioManager.AmbienceVolume, audioManager.SetAmbienceVolume);
+            Button(parent, T(audioManager.Muted ? "sound_muted" : "sound_unmuted"), Lantern, () =>
             {
-                int state = PlayerPrefs.GetInt("tp_sound", 1) == 1 ? 0 : 1;
-                PlayerPrefs.SetInt("tp_sound", state);
-                PlayerPrefs.Save();
-                AudioListener.volume = state;
-                if (state == 0) StoryNarration.Stop();
+                bool mute = !audioManager.Muted;
+                audioManager.SetMuted(mute);
+                if (mute) StoryNarration.Stop();
                 Show();
             });
             Spacer(parent, 28);
             Button(parent, T("back"), Paper, () => Navigate(settingsReturnPage), Ink);
+        }
+
+        private void AudioVolumeSlider(Transform parent, string label, float value, UnityAction<float> changed)
+        {
+            Label(parent, label, 25, 42, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var root = NewRect("Audio volume slider - " + label, parent);
+            SetHeight(root, 76);
+
+            var track = NewRect("Track", root);
+            track.anchorMin = new Vector2(.045f, .42f);
+            track.anchorMax = new Vector2(.955f, .58f);
+            track.offsetMin = track.offsetMax = Vector2.zero;
+            var trackImage = track.gameObject.AddComponent<Image>();
+            trackImage.color = Border;
+            trackImage.raycastTarget = true;
+
+            var fillArea = NewRect("Fill Area", root);
+            fillArea.anchorMin = track.anchorMin;
+            fillArea.anchorMax = track.anchorMax;
+            fillArea.offsetMin = fillArea.offsetMax = Vector2.zero;
+            var fill = NewRect("Fill", fillArea);
+            Stretch(fill);
+            var fillImage = fill.gameObject.AddComponent<Image>();
+            fillImage.color = Jade;
+            fillImage.raycastTarget = false;
+
+            var handleArea = NewRect("Handle Area", root);
+            handleArea.anchorMin = new Vector2(.045f, .05f);
+            handleArea.anchorMax = new Vector2(.955f, .95f);
+            handleArea.offsetMin = handleArea.offsetMax = Vector2.zero;
+            var handle = NewRect("Handle", handleArea);
+            handle.anchorMin = handle.anchorMax = new Vector2(.5f, .5f);
+            handle.sizeDelta = new Vector2(34, 34);
+            var handleImage = handle.gameObject.AddComponent<Image>();
+            handleImage.sprite = CircleSprite();
+            handleImage.color = Lantern;
+            handleImage.raycastTarget = true;
+
+            var slider = root.gameObject.AddComponent<Slider>();
+            slider.minValue = 0f;
+            slider.maxValue = 1f;
+            slider.wholeNumbers = false;
+            slider.direction = Slider.Direction.LeftToRight;
+            slider.fillRect = fill;
+            slider.handleRect = handle;
+            slider.targetGraphic = handleImage;
+            slider.SetValueWithoutNotify(Mathf.Clamp01(value));
+            slider.onValueChanged.AddListener(changed);
         }
 
         private void StartFinale()
@@ -1264,6 +1389,9 @@ namespace TastePassport.Core
             profile = candidate;
             festivalRun = new FestivalPreparationRun(profile);
             koreanBackdrop = false;
+            audioManager?.SetEnvironment(false);
+            PlayStageAudio(3, false);
+            audioManager?.PlayCue(GameSoundCue.Unlock);
             StoryNarration.Stop();
             Navigate(Page.Finale);
         }
@@ -1279,7 +1407,7 @@ namespace TastePassport.Core
                 "  ·  " + festivalRun.ConnectedCount + "/" + FestivalPreparationRun.LinkCount,
                 25, 62, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
 
-            var markCard = Card(parent, 300);
+            var markCard = Card(parent, 380);
             Label(markCard, T("festival_marks_title"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             int markRows = (FestivalPreparationRun.MarkCount + 2) / 3;
             for (int rowIndex = 0; rowIndex < markRows; rowIndex++)
@@ -1380,10 +1508,10 @@ namespace TastePassport.Core
             AddFestivalFriend(guests, "character_lan", "Art/Characters/Lan");
             AddFestivalFriend(guests, "character_kim", "Art/Characters/BKim");
 
-            var endingCard = Card(parent, 360);
+            var endingCard = Card(parent, 560);
             var endingGroup = endingCard.gameObject.AddComponent<CanvasGroup>();
             endingGroup.alpha = 0f;
-            Label(endingCard, T("finale_reveal"), 29, 230, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(endingCard, T("finale_reveal"), 29, 300, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             NarrationButtons(endingCard, T("finale_reveal"));
             Label(parent, T("main_story_completed"), 27, 58, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Button(parent, T("continue_free_exploration"), Jade, () => Navigate(Page.Map));
@@ -1608,6 +1736,7 @@ namespace TastePassport.Core
                 return;
             }
             profile = candidate;
+            audioManager?.PlayCue(GameSoundCue.FestivalComplete);
             Navigate(Page.FinaleResult);
         }
 
@@ -1619,7 +1748,8 @@ namespace TastePassport.Core
             recipeResult = false;
             matchResult = false;
             run = new ExplorationRun(level, Environment.TickCount);
-            StageAudioDirector.For(gameObject).PlayStage(1, koreanBackdrop);
+            audioManager?.SetEnvironment(koreanBackdrop);
+            PlayStageAudio(1, koreanBackdrop);
             placedFragments = new bool[3];
             selectedFragment = -1;
             Navigate(Page.Dialogue);
@@ -1900,6 +2030,7 @@ namespace TastePassport.Core
             saved.coins += 20 + run.Stars * 5;
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
+            audioManager?.PlayCue(GameSoundCue.Stamp);
             recipeResult = false;
             matchResult = false;
             Navigate(Page.Result);
@@ -1935,7 +2066,8 @@ namespace TastePassport.Core
             koreanBackdrop = recipe == RecipeCatalog.Bibimbap;
             matchResult = false;
             recipeRun = new RecipeRun(recipe, Environment.TickCount);
-            StageAudioDirector.For(gameObject).PlayStage(2, koreanBackdrop);
+            audioManager?.SetEnvironment(koreanBackdrop);
+            PlayStageAudio(2, koreanBackdrop);
             Navigate(Page.RecipeDialogue);
         }
 
@@ -2039,6 +2171,7 @@ namespace TastePassport.Core
             saved.coins += 20 + recipeRun.Stars * 5;
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
+            audioManager?.PlayCue(GameSoundCue.Stamp);
             recipeResult = true;
             matchResult = false;
             Navigate(Page.Result);
@@ -2050,7 +2183,8 @@ namespace TastePassport.Core
             resultCommitted = false;
             koreanBackdrop = definition == MatchCatalog.Jeonju;
             matchRun = new MatchRun(definition, Environment.TickCount);
-            StageAudioDirector.For(gameObject).PlayStage(3, koreanBackdrop);
+            audioManager?.SetEnvironment(koreanBackdrop);
+            PlayStageAudio(3, koreanBackdrop);
             Navigate(Page.MatchDialogue);
         }
 
@@ -2110,6 +2244,7 @@ namespace TastePassport.Core
             saved.coins += 20 + matchRun.Stars * 5;
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
+            audioManager?.PlayCue(GameSoundCue.Stamp);
             recipeResult = false;
             matchResult = true;
             Navigate(Page.Result);
