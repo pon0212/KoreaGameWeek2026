@@ -127,7 +127,10 @@ namespace TastePassport.World
 
         private void BuildStreet(WorldDefinition world)
         {
-            float laneCenter = (world.MinimumPosition.y + world.MaximumPosition.y) * 0.5f;
+            // The movement lane follows the saved spawn row (y = -1.8 in both towns),
+            // not the midpoint of the full camera/world bounds. This matches the space
+            // between the existing north/south collision barriers and the NPC row.
+            float laneCenter = world.SpawnPoint.y;
             float width = world.MaximumPosition.x - world.MinimumPosition.x + 0.45f;
             CreateBox(transform, "Raised Street Foundation", new Vector3(0f, laneCenter - 0.02f, 0.58f),
                 new Vector3(width, 1.13f, 0.68f), streetMaterial);
