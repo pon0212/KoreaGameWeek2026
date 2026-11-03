@@ -19,10 +19,7 @@ namespace TastePassport.World
         private Vector2 keyboardInput;
         private Vector2 touchInput;
         private Vector3 cameraVelocity;
-        private Transform visualTransform;
-        private SpriteRenderer visualRenderer;
-        private Vector3 visualOrigin;
-        private Vector3 visualScale = Vector3.one;
+        private WorldCharacterModelBuilder characterModel;
         private bool movementEnabled = true;
 
         public Vector2 Position => body != null ? body.position : (Vector2)transform.position;
@@ -61,6 +58,9 @@ namespace TastePassport.World
             {
                 followCamera.orthographic = true;
                 followCamera.orthographicSize = 3.3f;
+                // A restrained isometric angle gives the generated town visible side faces while
+                // preserving the existing XY movement plane and orthographic coordinate scale.
+                followCamera.transform.rotation = Quaternion.Euler(6f, -8f, 0f);
                 followCamera.transform.position = new Vector3(body.position.x, -0.15f, followCamera.transform.position.z);
             }
         }
@@ -91,13 +91,10 @@ namespace TastePassport.World
             }
         }
 
-        public void SetVisual(SpriteRenderer renderer)
+        public void SetCharacterModel(WorldCharacterModelBuilder model)
         {
-            visualRenderer = renderer;
-            visualTransform = renderer != null ? renderer.transform : null;
-            if (visualTransform == null) return;
-            visualOrigin = visualTransform.localPosition;
-            visualScale = visualTransform.localScale;
+            characterModel = model;
+            if (characterModel != null) characterModel.SetFacingLeft(false);
         }
 
         private void Update()
@@ -118,14 +115,10 @@ namespace TastePassport.World
 
         private void AnimateVisual(Vector2 input)
         {
-            if (visualTransform == null) return;
             bool walking = input.sqrMagnitude > 0.01f;
-            if (visualRenderer != null && Mathf.Abs(input.x) > 0.01f)
-                visualRenderer.flipX = input.x < 0f;
-            float bob = walking ? Mathf.Abs(Mathf.Sin(Time.time * 15f)) * 0.055f : Mathf.Sin(Time.time * 2.2f) * 0.012f;
-            visualTransform.localPosition = visualOrigin + Vector3.up * bob;
-            float squash = walking ? 1f + Mathf.Sin(Time.time * 15f) * 0.025f : 1f;
-            visualTransform.localScale = new Vector3(visualScale.x, visualScale.y * squash, visualScale.z);
+            if (characterModel == null) return;
+            characterModel.SetWalking(walking);
+            if (Mathf.Abs(input.x) > 0.01f) characterModel.SetFacingLeft(input.x < 0f);
         }
 
         private void LateUpdate()
