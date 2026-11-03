@@ -619,20 +619,23 @@ namespace TastePassport.Core
             Header(parent, T("lantern_craft_title"));
             if (lanternCraftRun != null && lanternCraftRun.Complete)
             {
-                Label(parent, T("craft_completed_pending_save"), 27, 112, Ink, TextAnchor.MiddleCenter);
+                ActivityGuide(parent, "activity_complete", "craft_completed_pending_save");
                 Button(parent, T("save_result"), Jade, CompleteLanternCraft);
-                Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+                CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
                 return;
             }
-            Label(parent, T("lantern_craft_intro"), 27, 108, Ink, TextAnchor.MiddleCenter);
-            DrawLanternPreview(parent, 230);
+            ActivityGuide(parent, "activity_lantern_phase", "lantern_craft_intro");
+            int completed = (string.IsNullOrEmpty(lanternCraftRun.FrameId) ? 0 : 1) +
+                (string.IsNullOrEmpty(lanternCraftRun.ColorId) ? 0 : 1) +
+                (lanternCraftRun.FabricPlaced ? 1 : 0) + (lanternCraftRun.TasselPlaced ? 1 : 0);
+            ProgressStrip(parent, completed, 4, T("activity_craft_progress"));
+            DrawLanternPreview(parent, 170);
             if (!string.IsNullOrEmpty(lanternCraftRun.FrameId))
-                Label(parent, T("frame_" + lanternCraftRun.FrameId) +
-                    (string.IsNullOrEmpty(lanternCraftRun.ColorId) ? "" : " · " + T("color_" + lanternCraftRun.ColorId)),
-                    25, 48, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(parent, T("frame_" + lanternCraftRun.FrameId) +
+                    (string.IsNullOrEmpty(lanternCraftRun.ColorId) ? "" : " · " + T("color_" + lanternCraftRun.ColorId)), 25, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
 
-            var frameCard = Card(parent, 245);
-            Label(frameCard, T("craft_choose_frame"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var frameCard = JourneyCard(parent);
+            CollectionCopy(frameCard, T("craft_choose_frame"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var frameRow = NewRect("Lantern frame choices", frameCard);
             SetHeight(frameRow, 104);
             AddHorizontal(frameRow);
@@ -644,8 +647,8 @@ namespace TastePassport.Core
                     () => SelectLanternFrame(chosenFrame), lanternCraftRun.FrameId == frameId ? Color.white : Ink);
             }
 
-            var colorCard = Card(parent, 350);
-            Label(colorCard, T("craft_choose_color"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var colorCard = JourneyCard(parent);
+            CollectionCopy(colorCard, T("craft_choose_color"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int rowIndex = 0; rowIndex < 2; rowIndex++)
             {
                 var colorRow = NewRect("Lantern color choices", colorCard);
@@ -658,21 +661,19 @@ namespace TastePassport.Core
                     bool isSelected = lanternCraftRun.ColorId == colorId;
                     Button(colorRow, T("color_" + colorId) + (isSelected ? " ✓" : ""),
                         isSelected ? ColorForLantern(colorId) : Paper,
-                        () => SelectLanternColor(chosenColor), isSelected ? Color.white : Ink);
+                        () => SelectLanternColor(chosenColor), isSelected && colorId != "gold" ? Color.white : Ink);
                 }
             }
 
-            var materialsCard = Card(parent, 380);
-            Label(materialsCard, T("craft_materials"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(materialsCard, T("craft_drag_hint"), 23, 55, Muted, TextAnchor.MiddleCenter);
+            var materialsCard = JourneyCard(parent);
+            CollectionCopy(materialsCard, T("craft_materials"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(materialsCard, T("craft_drag_hint"), 23, Muted, TextAnchor.MiddleCenter);
             var materialRow = NewRect("Lantern craft materials", materialsCard);
             SetHeight(materialRow, 112);
             AddHorizontal(materialRow);
             AddLanternMaterial(materialRow, LanternCraftRun.FabricMaterialId, "material_fabric");
             AddLanternMaterial(materialRow, LanternCraftRun.TasselMaterialId, "material_tassel");
-            lanternMaterialStatus = Label(materialsCard,
-                string.IsNullOrEmpty(selectedLanternMaterialId) ? T("craft_material_unselected") : T("craft_selected_material") + ": " + T("material_" + selectedLanternMaterialId),
-                23, 42, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            lanternMaterialStatus = CollectionCopy(materialsCard, string.IsNullOrEmpty(selectedLanternMaterialId) ? T("craft_material_unselected") : T("craft_selected_material") + ": " + T("material_" + selectedLanternMaterialId), 23, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
 
             var slotsRow = NewRect("Lantern craft drop zones", parent);
             SetHeight(slotsRow, 230);
@@ -680,10 +681,10 @@ namespace TastePassport.Core
             AddLanternDropZone(slotsRow, LanternCraftRun.FabricSlotId, "craft_slot_fabric", lanternCraftRun.FabricPlaced);
             AddLanternDropZone(slotsRow, LanternCraftRun.TasselSlotId, "craft_slot_tassel", lanternCraftRun.TasselPlaced);
 
-            var processCard = Card(parent, 190);
-            Label(processCard, T("lantern_craft_process_title"), 26, 43, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(processCard, T("lantern_craft_process"), 24, 125, Ink, TextAnchor.MiddleCenter);
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            var processCard = JourneyCard(parent);
+            CollectionCopy(processCard, T("lantern_craft_process_title"), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(processCard, T("lantern_craft_process"), 24, Ink, TextAnchor.MiddleCenter);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void AddLanternMaterial(Transform parent, string materialId, string labelKey)
@@ -801,14 +802,19 @@ namespace TastePassport.Core
         private void DrawLanternResult(Transform parent)
         {
             Header(parent, T("lantern_result_title"));
-            DrawLanternPreview(parent, 300, InventoryService.GetLanternColorId(lanternResultItemId));
-            Label(parent, T("lantern_result_copy"), 28, 90, Ink, TextAnchor.MiddleCenter);
-            Label(parent, T("lantern_item") + ": " + LanternVariantLabel(lanternResultItemId), 27, 74, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Button(parent, T("inventory"), Jade, () => Navigate(Page.Inventory));
-            Button(parent, T("culture_cards"), Lantern, () => Navigate(Page.CultureCards));
+            ActivityGuide(parent, "activity_saved", "lantern_result_copy");
+            DrawLanternPreview(parent, 210, InventoryService.GetLanternColorId(lanternResultItemId));
+            var earned = JourneyCard(parent);
+            CollectionCopy(earned, T("activity_earned"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(earned, T("lantern_item") + ": " + LanternVariantLabel(lanternResultItemId), 27, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (InventoryService.HasCultureCard(profile, InventoryService.LanternCardId))
+                CollectionCopy(earned, T("culture_cards") + ": " + T("culture_lantern_title"), 26, Ink, TextAnchor.MiddleCenter);
+            CollectionCopy(parent, T("activity_lantern_next"), 26, Muted, TextAnchor.MiddleCenter);
             Button(parent, T("continue_free_exploration"), Jade, () => OpenWorld("hoian"));
-            Button(parent, T("craft_again"), Paper, StartLanternCraft, Ink);
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("inventory"), Paper, () => Navigate(Page.Inventory), Ink);
+            CompactButton(parent, T("culture_cards"), Paper, () => Navigate(Page.CultureCards), Ink);
+            CompactButton(parent, T("craft_again"), Paper, StartLanternCraft, Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void StartHanjiCraft()
@@ -826,14 +832,19 @@ namespace TastePassport.Core
         {
             Header(parent, T("hanji_craft_title"));
             if (hanjiCraftRun == null) hanjiCraftRun = new HanjiCraftRun();
-            Label(parent, T("hanji_craft_intro"), 27, 86, Ink, TextAnchor.MiddleCenter);
-            DrawHanjiPreview(parent, 250, hanjiCraftRun.ShapeId, hanjiCraftRun.PaperColorId);
+            ActivityGuide(parent, "activity_hanji_phase", "hanji_craft_intro");
+            int completed = (string.IsNullOrEmpty(hanjiCraftRun.PaperColorId) ? 0 : 1) +
+                (string.IsNullOrEmpty(hanjiCraftRun.ShapeId) ? 0 : 1) +
+                (string.IsNullOrEmpty(hanjiCraftRun.MotifId) ? 0 : 1) +
+                (hanjiCraftRun.CutApplied ? 1 : 0) + (hanjiCraftRun.FoldApplied ? 1 : 0) +
+                (hanjiCraftRun.DecorationApplied ? 1 : 0);
+            ProgressStrip(parent, completed, 6, T("activity_craft_progress"));
+            DrawHanjiPreview(parent, 170, hanjiCraftRun.ShapeId, hanjiCraftRun.PaperColorId);
             if (!string.IsNullOrEmpty(hanjiCraftRun.ShapeId))
-                Label(parent, HanjiVariantLabel(hanjiCraftRun.ShapeId, hanjiCraftRun.PaperColorId, hanjiCraftRun.MotifId),
-                    25, 52, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(parent, HanjiVariantLabel(hanjiCraftRun.ShapeId, hanjiCraftRun.PaperColorId, hanjiCraftRun.MotifId), 25, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
 
-            var colorCard = Card(parent, 300);
-            Label(colorCard, T("hanji_choose_color"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var colorCard = JourneyCard(parent);
+            CollectionCopy(colorCard, T("hanji_choose_color"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int rowIndex = 0; rowIndex < 2; rowIndex++)
             {
                 var row = NewRect("Hanji paper color choices", colorCard);
@@ -845,12 +856,12 @@ namespace TastePassport.Core
                     bool selected = hanjiCraftRun.PaperColorId == colorId;
                     Button(row, T("hanji_color_" + colorId) + (selected ? " ✓" : ""),
                         selected ? ColorForHanji(colorId) : Paper,
-                        () => SelectHanjiColor(colorId), selected ? Color.white : Ink);
+                        () => SelectHanjiColor(colorId), selected && colorId != "gold" ? Color.white : Ink);
                 }
             }
 
-            var shapeCard = Card(parent, 250);
-            Label(shapeCard, T("hanji_choose_shape"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var shapeCard = JourneyCard(parent);
+            CollectionCopy(shapeCard, T("hanji_choose_shape"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var shapeRow = NewRect("Hanji product shape choices", shapeCard);
             SetHeight(shapeRow, 132);
             AddHorizontal(shapeRow);
@@ -862,8 +873,8 @@ namespace TastePassport.Core
                     selected ? Jade : Paper, () => SelectHanjiShape(chosenShape), selected ? Color.white : Ink);
             }
 
-            var motifCard = Card(parent, 210);
-            Label(motifCard, T("hanji_choose_motif"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var motifCard = JourneyCard(parent);
+            CollectionCopy(motifCard, T("hanji_choose_motif"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var motifRow = NewRect("Hanji motif choices", motifCard);
             SetHeight(motifRow, 108);
             AddHorizontal(motifRow);
@@ -872,24 +883,29 @@ namespace TastePassport.Core
                 string chosenMotif = motifId;
                 bool selected = hanjiCraftRun.MotifId == motifId;
                 Button(motifRow, T("hanji_motif_" + motifId) + (selected ? " ✓" : ""),
-                    selected ? Lantern : Paper, () => SelectHanjiMotif(chosenMotif), selected ? Color.white : Ink);
+                    selected ? Lantern : Paper, () => SelectHanjiMotif(chosenMotif), Ink);
             }
 
-            var processCard = Card(parent, 360);
-            Label(processCard, T("hanji_process_title"), 27, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(processCard, T("hanji_process_copy"), 24, 88, Ink, TextAnchor.MiddleCenter);
+            var processCard = JourneyCard(parent);
+            CollectionCopy(processCard, T("hanji_process_title"), 27, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(processCard, T("hanji_process_copy"), 24, Ink, TextAnchor.MiddleCenter);
+            bool designReady = !string.IsNullOrEmpty(hanjiCraftRun.PaperColorId) &&
+                !string.IsNullOrEmpty(hanjiCraftRun.ShapeId) && !string.IsNullOrEmpty(hanjiCraftRun.MotifId);
+            bool cutNext = designReady && !hanjiCraftRun.CutApplied;
+            bool foldNext = hanjiCraftRun.CutApplied && !hanjiCraftRun.FoldApplied;
+            bool decorateNext = hanjiCraftRun.FoldApplied && !hanjiCraftRun.DecorationApplied;
             Button(processCard, T("hanji_cut") + StepMark(hanjiCraftRun.CutApplied),
-                hanjiCraftRun.CutApplied ? Jade : Paper, () => ApplyHanjiAction("cut"), hanjiCraftRun.CutApplied ? Color.white : Ink);
+                cutNext ? Jade : Paper, () => ApplyHanjiAction("cut"), cutNext ? Color.white : Ink);
             Button(processCard, T("hanji_fold") + StepMark(hanjiCraftRun.FoldApplied),
-                hanjiCraftRun.FoldApplied ? Jade : Paper, () => ApplyHanjiAction("fold"), hanjiCraftRun.FoldApplied ? Color.white : Ink);
+                foldNext ? Jade : Paper, () => ApplyHanjiAction("fold"), foldNext ? Color.white : Ink);
             Button(processCard, T("hanji_decorate") + StepMark(hanjiCraftRun.DecorationApplied),
-                hanjiCraftRun.DecorationApplied ? Jade : Paper, () => ApplyHanjiAction("decorate"), hanjiCraftRun.DecorationApplied ? Color.white : Ink);
+                decorateNext ? Jade : Paper, () => ApplyHanjiAction("decorate"), decorateNext ? Color.white : Ink);
             if (hanjiCraftRun.Complete)
             {
-                Label(processCard, T("hanji_completed_pending_save"), 23, 54, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(processCard, T("hanji_completed_pending_save"), 23, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
                 Button(processCard, T("save_result"), Jade, CompleteHanjiCraft);
             }
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private static string StepMark(bool applied) => applied ? "  ✓" : "";
@@ -973,15 +989,18 @@ namespace TastePassport.Core
         private void DrawHanjiResult(Transform parent)
         {
             Header(parent, T("hanji_result_title"));
-            DrawHanjiPreview(parent, 300, InventoryService.GetHanjiShapeId(hanjiResultItemId),
+            ActivityGuide(parent, "activity_saved", "hanji_result_copy");
+            DrawHanjiPreview(parent, 210, InventoryService.GetHanjiShapeId(hanjiResultItemId),
                 InventoryService.GetHanjiColorId(hanjiResultItemId));
-            Label(parent, T("hanji_result_copy"), 28, 88, Ink, TextAnchor.MiddleCenter);
-            Label(parent, T("hanji_item") + ": " + HanjiVariantLabel(hanjiResultItemId),
-                27, 74, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var earned = JourneyCard(parent);
+            CollectionCopy(earned, T("activity_earned"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(earned, T("hanji_item") + ": " + HanjiVariantLabel(hanjiResultItemId), 27, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(earned, T("culture_cards") + ": " + T("culture_hanji_title"), 26, Ink, TextAnchor.MiddleCenter);
+            CollectionCopy(parent, T("activity_hanji_next"), 26, Muted, TextAnchor.MiddleCenter);
             Button(parent, T("inventory"), Jade, () => Navigate(Page.Inventory));
-            Button(parent, T("culture_cards"), Lantern, () => Navigate(Page.CultureCards));
-            Button(parent, T("hanji_again"), Paper, StartHanjiCraft, Ink);
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("culture_cards"), Paper, () => Navigate(Page.CultureCards), Ink);
+            CompactButton(parent, T("hanji_again"), Paper, StartHanjiCraft, Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void DrawInventory(Transform parent)
@@ -1572,15 +1591,14 @@ namespace TastePassport.Core
         {
             if (festivalRun == null) festivalRun = new FestivalPreparationRun(profile);
             Header(parent, T("finale_title"));
-            Artwork(parent, TravelArtworkKind.Friendship, 150);
-            Label(parent, T("finale_clue"), 27, 112, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(parent, T("festival_progress") + ": " + festivalRun.PlacedCount + "/" + FestivalPreparationRun.StationCount +
-                "  ·  " + festivalRun.DecoratedCount + "/" + FestivalPreparationRun.StationCount +
-                "  ·  " + festivalRun.ConnectedCount + "/" + FestivalPreparationRun.LinkCount,
-                25, 62, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            ActivityGuide(parent, "activity_festival_phase", "activity_festival_hint");
+            ProgressStrip(parent, festivalRun.PlacedCount, FestivalPreparationRun.StationCount, T("activity_marks_placed"));
+            ProgressStrip(parent, festivalRun.DecoratedCount, FestivalPreparationRun.StationCount, T("activity_stations_decorated"));
+            ProgressStrip(parent, festivalRun.ConnectedCount, FestivalPreparationRun.LinkCount, T("festival_links_progress"));
+            Artwork(parent, TravelArtworkKind.Friendship, 120);
 
-            var markCard = Card(parent, 380);
-            Label(markCard, T("festival_marks_title"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var markCard = JourneyCard(parent);
+            CollectionCopy(markCard, T("festival_marks_title"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             int markRows = (FestivalPreparationRun.MarkCount + 2) / 3;
             for (int rowIndex = 0; rowIndex < markRows; rowIndex++)
             {
@@ -1599,9 +1617,9 @@ namespace TastePassport.Core
                 }
             }
 
-            var decorationCard = Card(parent, 220);
-            Label(decorationCard, T("festival_decor_title"), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(decorationCard, T("festival_decor_hint"), 23, 56, Muted, TextAnchor.MiddleCenter);
+            var decorationCard = JourneyCard(parent);
+            CollectionCopy(decorationCard, T("festival_decor_title"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(decorationCard, T("festival_decor_hint"), 23, Muted, TextAnchor.MiddleCenter);
             var decorations = NewRect("Festival decoration choices", decorationCard);
             SetHeight(decorations, 92);
             AddHorizontal(decorations);
@@ -1610,7 +1628,7 @@ namespace TastePassport.Core
                 string decorationId = FestivalPreparationRun.GetDecorationId(i);
                 bool selected = festivalRun.SelectedDecorationId == decorationId;
                 Button(decorations, T("festival_decoration_" + decorationId) + (selected ? " ✓" : ""),
-                    selected ? Lantern : Paper, () => SelectFestivalDecoration(decorationId), selected ? Color.white : Ink);
+                    selected ? Lantern : Paper, () => SelectFestivalDecoration(decorationId), Ink);
             }
 
             for (int station = 0; station < FestivalPreparationRun.StationCount; station++)
@@ -1620,23 +1638,23 @@ namespace TastePassport.Core
                 festivalRun.DecoratedCount == FestivalPreparationRun.StationCount)
                 DrawFestivalConnections(parent);
             else
-                Label(parent, T("festival_finish_stations_hint"), 24, 72, Muted, TextAnchor.MiddleCenter);
+                CollectionCopy(parent, T("festival_finish_stations_hint"), 24, Muted, TextAnchor.MiddleCenter);
             if (festivalRun.Complete)
                 Button(parent, T("festival_finish_action"), Jade, CompleteFestival);
-            Button(parent, T("back_map"), Paper, () => { festivalRun = null; Navigate(Page.Map); }, Ink);
+            CompactButton(parent, T("back_map"), Paper, () => { festivalRun = null; Navigate(Page.Map); }, Ink);
         }
 
         private void DrawFestivalStation(Transform parent, int stationIndex)
         {
             string stationId = FestivalPreparationRun.GetStationId(stationIndex);
-            var card = Card(parent, 210);
-            Label(card, T("festival_station_" + stationId), 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var card = JourneyCard(parent);
+            CollectionCopy(card, T("festival_station_" + stationId), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             if (festivalRun.IsStationPlaced(stationIndex))
             {
                 int mark = festivalRun.GetPlacedMarkForStation(stationIndex);
-                Label(card, "◆  " + T("finale_mark_" + mark), 24, 44, Ink, TextAnchor.MiddleCenter);
+                CollectionCopy(card, "◆  " + T("finale_mark_" + mark), 24, Ink, TextAnchor.MiddleCenter);
             }
-            else Label(card, T("festival_station_empty"), 23, 40, Muted, TextAnchor.MiddleCenter);
+            else CollectionCopy(card, T("festival_station_empty"), 23, Muted, TextAnchor.MiddleCenter);
 
             if (!festivalRun.IsStationPlaced(stationIndex))
             {
@@ -1646,9 +1664,8 @@ namespace TastePassport.Core
             }
             else if (festivalRun.IsStationDecorated(stationIndex))
             {
-                Label(card, T("festival_station_decorated") + ": " +
-                    T("festival_decoration_" + festivalRun.GetDecorationForStation(stationIndex)),
-                    23, 48, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(card, T("festival_station_decorated") + ": " +
+                    T("festival_decoration_" + festivalRun.GetDecorationForStation(stationIndex)), 23, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             }
             else
             {
@@ -1661,17 +1678,18 @@ namespace TastePassport.Core
         private void DrawFinaleResult(Transform parent)
         {
             Header(parent, T("finale_reveal_title"));
+            ActivityGuide(parent, "activity_saved", "activity_finale_result_hint");
             Artwork(parent, TravelArtworkKind.Friendship, 190);
-            var festivalCard = Card(parent, 150);
+            var festivalCard = JourneyCard(parent);
             var festivalGroup = festivalCard.gameObject.AddComponent<CanvasGroup>();
             festivalGroup.alpha = 0f;
-            Label(festivalCard, T("festival_scene_title"), 31, 58, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(festivalCard, T("festival_corners_complete"), 25, 68, Ink, TextAnchor.MiddleCenter);
+            CollectionCopy(festivalCard, T("festival_scene_title"), 31, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(festivalCard, T("festival_corners_complete"), 25, Ink, TextAnchor.MiddleCenter);
 
-            var friendsCard = Card(parent, 220);
+            var friendsCard = JourneyCard(parent);
             var friendsGroup = friendsCard.gameObject.AddComponent<CanvasGroup>();
             friendsGroup.alpha = 0f;
-            Label(friendsCard, T("festival_friends_title"), 28, 46, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(friendsCard, T("festival_friends_title"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var guests = NewRect("Festival returning friends", friendsCard);
             SetHeight(guests, 148);
             AddHorizontal(guests);
@@ -1680,14 +1698,14 @@ namespace TastePassport.Core
             AddFestivalFriend(guests, "character_lan", "Art/Characters/Lan");
             AddFestivalFriend(guests, "character_kim", "Art/Characters/BKim");
 
-            var endingCard = Card(parent, 560);
+            var endingCard = JourneyCard(parent);
             var endingGroup = endingCard.gameObject.AddComponent<CanvasGroup>();
             endingGroup.alpha = 0f;
-            Label(endingCard, T("finale_reveal"), 29, 300, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            NarrationButtons(endingCard, T("finale_reveal"));
-            Label(parent, T("main_story_completed"), 27, 58, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(endingCard, T("finale_reveal"), 29, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            ActivityNarration(endingCard, T("finale_reveal"));
+            CollectionCopy(parent, T("main_story_completed"), 27, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Button(parent, T("continue_free_exploration"), Jade, () => Navigate(Page.Map));
-            Button(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
+            CompactButton(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
             finaleReveal = StartCoroutine(RevealFestivalEnding(festivalGroup, friendsGroup, endingGroup));
         }
 
@@ -1744,11 +1762,10 @@ namespace TastePassport.Core
 
         private void DrawFestivalConnections(Transform parent)
         {
-            var card = Card(parent, 680);
-            Label(card, T("festival_link_title"), 29, 52, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(card, T("festival_link_hint"), 24, 68, Ink, TextAnchor.MiddleCenter);
-            Label(card, T("festival_links_progress") + ": " + festivalRun.ConnectedCount + "/" + FestivalPreparationRun.LinkCount,
-                25, 46, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var card = JourneyCard(parent);
+            CollectionCopy(card, T("festival_link_title"), 29, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T("festival_link_hint"), 24, Ink, TextAnchor.MiddleCenter);
+            CollectionCopy(card, T("festival_links_progress") + ": " + festivalRun.ConnectedCount + "/" + FestivalPreparationRun.LinkCount, 25, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             var vietnam = NewRect("Vietnam activity link choices", card);
             SetHeight(vietnam, 98);
             AddHorizontal(vietnam);
@@ -1770,16 +1787,16 @@ namespace TastePassport.Core
                 bool connected = festivalRun.IsLinkConnected(FestivalPreparationRun.GetLinkId(i));
                 bool selected = festivalRun.SelectedKoreaActivityId == activityId;
                 var choice = Button(korea, T("festival_activity_ko_" + activityId) + (selected ? " ✓" : ""),
-                    selected ? Lantern : Paper, () => SelectFestivalActivity(false, activityId), selected ? Color.white : Ink);
+                    selected ? Lantern : Paper, () => SelectFestivalActivity(false, activityId), Ink);
                 choice.GetComponent<UnityEngine.UI.Button>().interactable = !connected;
             }
             for (int i = 0; i < FestivalPreparationRun.LinkCount; i++)
             {
                 string pairId = FestivalPreparationRun.GetLinkId(i);
-                Label(card, (festivalRun.IsLinkConnected(pairId) ? "◆  " : "○  ") + T("festival_pair_" + pairId),
-                    23, 40, festivalRun.IsLinkConnected(pairId) ? Jade : Muted, TextAnchor.MiddleCenter);
+                CollectionCopy(card, (festivalRun.IsLinkConnected(pairId) ? "◆  " : "○  ") + T("festival_pair_" + pairId), 23, festivalRun.IsLinkConnected(pairId) ? Jade : Muted, TextAnchor.MiddleCenter);
             }
-            Button(card, T("festival_connect"), Vermilion, ConnectFestivalActivities);
+            Button(card, T("festival_connect"), festivalRun.Complete ? Paper : Jade,
+                ConnectFestivalActivities, festivalRun.Complete ? Ink : Color.white);
         }
 
         private void SelectFestivalMark(int markIndex)
@@ -1933,25 +1950,42 @@ namespace TastePassport.Core
             Button(parent, T("stop_voice"), Paper, StoryNarration.Stop, Ink);
         }
 
+        private RectTransform ActivityGuide(Transform parent, string phaseKey, string hintKey)
+        {
+            var card = JourneyCard(parent);
+            CollectionCopy(card, T(phaseKey), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T(hintKey), 26, Ink, TextAnchor.MiddleCenter);
+            return card;
+        }
+
+        private void ActivityNarration(Transform parent, string text)
+        {
+            var row = NewRect("Activity narration", parent);
+            SetHeight(row, 74);
+            AddHorizontal(row);
+            CompactButton(row, T("read_story"), Paper, () => StoryNarration.Speak(profile.language, text), Ink);
+            CompactButton(row, T("stop_voice"), Paper, StoryNarration.Stop, Ink);
+        }
+
         private void DrawDialogue(Transform parent)
         {
             Header(parent, T(run.Level.PlaceKey));
-            Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 230);
+            ActivityGuide(parent, "activity_ready", "activity_explore_intro");
+            Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 150);
             SpeakerBadge(parent, T(run.Level == LevelCatalog.HoiAn ? "character_nhung" : "character_gabo"));
-            var card = Card(parent, 220);
-            Label(card, T(run.Level.GuideKey), 31, 172, Ink, TextAnchor.MiddleCenter);
-            NarrationButtons(parent, T(run.Level.GuideKey));
-            Label(parent, "◆  " + T("tomorrow_note"), 23, 96, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var card = JourneyCard(parent);
+            CollectionCopy(card, T(run.Level.GuideKey), 31, Ink, TextAnchor.MiddleCenter);
+            ActivityNarration(parent, T(run.Level.GuideKey));
             Button(parent, T("mission_start"), Jade, () => Navigate(Page.Explore));
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void DrawExplore(Transform parent)
         {
             Header(parent, T(run.Level.PlaceKey));
-            Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 170);
-            Label(parent, T("search_hint"), 27, 75, Ink, TextAnchor.MiddleCenter);
+            ActivityGuide(parent, "activity_search_phase", "search_hint");
             ProgressStrip(parent, run.FoundCount, 3, T("fragments"));
+            Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 140);
             for (int row = 0; row < 3; row++)
             {
                 var rowRect = NewRect("Places", parent);
@@ -1966,11 +2000,11 @@ namespace TastePassport.Core
                 {
                     int index = row * 2 + column;
                     bool inspected = run.IsInspected(index);
-                    var place = Button(rowRect, T(run.Level.ObjectKeys[index]) + (inspected ? " ✓" : " ?"), inspected ? Jade : Lantern, () => InspectPlace(index));
+                    var place = Button(rowRect, T(run.Level.ObjectKeys[index]) + (inspected ? " ✓" : " ?"), inspected ? Lantern : Paper, () => InspectPlace(index), Ink);
                     SetHeight(place.GetComponent<RectTransform>(), 137);
                 }
             }
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void InspectPlace(int index)
@@ -1984,9 +2018,10 @@ namespace TastePassport.Core
         private void DrawAssembly(Transform parent)
         {
             Header(parent, T("assemble_title"));
-            Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 150);
-            Label(parent, T("assemble_hint"), 26, 120, Ink, TextAnchor.MiddleCenter);
-            ProgressStrip(parent, (placedFragments[0] ? 1 : 0) + (placedFragments[1] ? 1 : 0) + (placedFragments[2] ? 1 : 0), 3, T("fragments"));
+            ActivityGuide(parent, "activity_assemble_phase", "assemble_hint");
+            ProgressStrip(parent, (placedFragments[0] ? 1 : 0) + (placedFragments[1] ? 1 : 0) + (placedFragments[2] ? 1 : 0), 3, T("activity_pieces_placed"));
+            Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 140);
+            CollectionCopy(parent, selectedFragment >= 0 ? T("activity_selected_piece") + " " + (selectedFragment + 1) : T("activity_select_piece"), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             pieceViews = new FragmentDrag[3];
             slotViews = new Transform[3];
             var pieces = NewRect("Fragments", parent);
@@ -1996,7 +2031,7 @@ namespace TastePassport.Core
             {
                 int index = i;
                 if (placedFragments[i]) { Spacer(pieces, 112); continue; }
-                var piece = Button(pieces, T("piece") + " " + (i + 1) + (selectedFragment == i ? " ✓" : ""), Lantern, () => { selectedFragment = index; Show(); });
+                var piece = Button(pieces, T("piece") + " " + (i + 1) + (selectedFragment == i ? " ✓" : ""), selectedFragment == i ? Lantern : Paper, () => { selectedFragment = index; Show(); }, Ink);
                 SetHeight(piece.GetComponent<RectTransform>(), 112);
                 pieceViews[i] = piece.AddComponent<FragmentDrag>();
                 pieceViews[i].PieceIndex = i;
@@ -2017,7 +2052,7 @@ namespace TastePassport.Core
             }
             if (placedFragments[0] && placedFragments[1] && placedFragments[2])
                 Button(parent, T("save_result"), Jade, CompleteRun);
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private static void AddHorizontal(RectTransform rect)
@@ -2096,8 +2131,8 @@ namespace TastePassport.Core
 
         private void ProgressStrip(Transform parent, int done, int total, string title)
         {
-            var card = Card(parent, 110);
-            Label(card, title + "  " + done + "/" + total, 26, 36, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var card = JourneyCard(parent);
+            CollectionCopy(card, title + "  " + done + "/" + total, 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             var row = NewRect("Progress marks", card);
             SetHeight(row, 24);
             AddHorizontal(row);
@@ -2216,22 +2251,24 @@ namespace TastePassport.Core
             string subjectKey = matchResult ? matchRun.Definition.TitleKey : recipeResult ? recipeRun.Recipe.DishKey : run.Level.PlaceKey;
             int score = matchResult ? matchRun.Score : recipeResult ? recipeRun.Score : run.Score;
             int stars = matchResult ? matchRun.Stars : recipeResult ? recipeRun.Stars : run.Stars;
-            Header(parent, T("result_title"));
-            if (FirstJourneyComplete()) Label(parent, T("first_journey_complete"), 28, 105, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Header(parent, T("activity_result_title"));
+            ActivityGuide(parent, "activity_saved", "activity_result_hint");
+            if (FirstJourneyComplete()) CollectionCopy(parent, T("first_journey_complete"), 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Artwork(parent, matchResult ? TravelArtworkKind.Friendship : recipeResult ? (recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau) : run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 210);
-            var card = Card(parent, 326);
-            Label(card, T("result_intro", T(subjectKey)), 29, 135, Ink, TextAnchor.MiddleCenter);
-            Label(card, T("score") + ": " + score, 35, 75, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(card, T("stars") + ": " + new string('★', stars), 30, 60, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            var stamp = Card(parent, 128);
-            Label(stamp, "◆  " + T("stamp") + ": " + T(subjectKey), 28, 80, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            var card = JourneyCard(parent);
+            CollectionCopy(card, T("activity_result_completed", T(subjectKey)), 29, Ink, TextAnchor.MiddleCenter);
+            CollectionCopy(card, T("score") + ": " + score, 35, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T("stars") + ": " + new string('★', stars), 30, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T("activity_coins_earned") + ": " + (20 + stars * 5) + " ◆", 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var stamp = JourneyCard(parent);
+            CollectionCopy(stamp, "◆  " + T("stamp") + ": " + T(subjectKey), 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             string speaker = T(koreanBackdrop ? "character_gabo" : "character_nhung");
-            var letter = Card(parent, 174);
-            Label(letter, "◆  " + speaker, 25, 36, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(letter, T(koreanBackdrop ? "stamp_message_gabo" : "stamp_message_nhung", T(subjectKey)), 24, 90, Ink, TextAnchor.MiddleCenter);
+            var letter = JourneyCard(parent);
+            CollectionCopy(letter, "◆  " + speaker, 25, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(letter, T(koreanBackdrop ? "stamp_message_gabo" : "stamp_message_nhung", T(subjectKey)), 24, Ink, TextAnchor.MiddleCenter);
             Button(parent, T("passport"), Jade, () => Navigate(Page.Passport));
-            Button(parent, T("replay"), Lantern, () => { if (matchResult) StartMatch(matchRun.Definition); else if (recipeResult) StartRecipe(recipeRun.Recipe); else StartLevel(run.Level); });
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("replay"), Paper, () => { if (matchResult) StartMatch(matchRun.Definition); else if (recipeResult) StartRecipe(recipeRun.Recipe); else StartLevel(run.Level); }, Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void StartRecipe(RecipeDefinition recipe)
@@ -2249,42 +2286,43 @@ namespace TastePassport.Core
         private void DrawRecipeDialogue(Transform parent)
         {
             Header(parent, T(recipeRun.Recipe.DishKey));
-            Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 230);
+            ActivityGuide(parent, "activity_ready", "activity_recipe_intro");
+            Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 150);
             SpeakerBadge(parent, T(recipeRun.Recipe == RecipeCatalog.Bibimbap ? "character_kim" : "character_lan"));
-            var card = Card(parent, 218);
-            Label(card, T(recipeRun.Recipe.GuideKey), 30, 170, Ink, TextAnchor.MiddleCenter);
-            NarrationButtons(parent, T(recipeRun.Recipe.GuideKey));
+            var card = JourneyCard(parent);
+            CollectionCopy(card, T(recipeRun.Recipe.GuideKey), 30, Ink, TextAnchor.MiddleCenter);
+            ActivityNarration(parent, T(recipeRun.Recipe.GuideKey));
             if (recipeRun.Recipe == RecipeCatalog.Bibimbap) KoreaVisuals.DecorateRecipePanel(card);
             else HoiAnVisuals.DecorateRecipePanel(card);
-            Label(parent, T("recipe_hint"), 25, 110, Jade, TextAnchor.MiddleCenter);
-            Label(parent, "◆  " + T("tomorrow_note"), 23, 96, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Button(parent, T("mission_start"), Jade, () =>
+            CollectionCopy(parent, T("recipe_hint"), 25, Jade, TextAnchor.MiddleCenter);
+            Button(parent, T("activity_start_recipe"), Jade, () =>
             {
                 recipeDeadline = Time.time + 90f;
                 Navigate(Page.RecipeGame);
             });
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void DrawRecipeGame(Transform parent)
         {
             bool bibimbap = recipeRun.Recipe == RecipeCatalog.Bibimbap;
             Header(parent, T(recipeRun.Recipe.DishKey));
-            Artwork(parent, bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 270);
             if (recipeRun.Complete)
             {
-                Label(parent, T("save_result"), 32, 180, Jade, TextAnchor.MiddleCenter);
+                ActivityGuide(parent, "activity_complete", "activity_pending_save");
                 Button(parent, T("save_result"), Jade, CompleteRecipe);
-                Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+                CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
                 return;
             }
-            recipeTimer = Label(parent, "", 32, bibimbap ? 56 : 70, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var status = ActivityGuide(parent, "activity_recipe_phase", "activity_recipe_tap");
+            recipeTimer = CollectionCopy(status, "", 32, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             ProgressStrip(parent, recipeRun.StepIndex, recipeRun.Recipe.Steps.Length, T("recipe_step"));
-            var guide = Card(parent, 178);
+            Artwork(parent, bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 140);
+            var guide = JourneyCard(parent);
             if (bibimbap) KoreaVisuals.DecorateRecipePanel(guide);
             else HoiAnVisuals.DecorateRecipePanel(guide);
-            Label(guide, T("recipe_step") + " " + (recipeRun.StepIndex + 1) + "/" + recipeRun.Recipe.Steps.Length, 29, 58, Jade, TextAnchor.MiddleCenter);
-            Label(guide, T(recipeRun.Recipe.Steps[recipeRun.StepIndex]), 37, 70, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(guide, T("recipe_step") + " " + (recipeRun.StepIndex + 1) + "/" + recipeRun.Recipe.Steps.Length, 29, Jade, TextAnchor.MiddleCenter);
+            CollectionCopy(guide, T(recipeRun.Recipe.Steps[recipeRun.StepIndex]), 37, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int row = 0; row < (recipeRun.Choices.Length + 1) / 2; row++)
             {
                 var ingredients = NewRect("Ingredients", parent);
@@ -2302,7 +2340,7 @@ namespace TastePassport.Core
                         KoreaVisuals.StyleIngredientCard(ingredient.GetComponent<RectTransform>(), recipeRun.Choices[index]);
                 }
             }
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void ChooseIngredient(int index)
@@ -2322,18 +2360,22 @@ namespace TastePassport.Core
         private void DrawRecipeMix(Transform parent)
         {
             Header(parent, T("bibimbap"));
-            Artwork(parent, TravelArtworkKind.Bibimbap, 280);
+            ActivityGuide(parent, "activity_mix_phase", "activity_mix_hint");
+            ProgressStrip(parent, recipeRun.StepIndex, recipeRun.Recipe.Steps.Length, T("activity_ingredients_ready"));
+            Artwork(parent, TravelArtworkKind.Bibimbap, 210);
             Button(parent, T("mix"), Jade, CompleteRecipe);
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void DrawRecipeFail(Transform parent)
         {
             Header(parent, T(recipeRun.Recipe.DishKey));
+            ActivityGuide(parent, "activity_retry", "activity_recipe_retry_hint");
+            ProgressStrip(parent, recipeRun.StepIndex, recipeRun.Recipe.Steps.Length, T("activity_ingredients_ready"));
             Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 210);
-            Label(parent, T("time_out"), 32, 200, Vermilion, TextAnchor.MiddleCenter);
+            CollectionCopy(parent, T("time_out"), 32, Vermilion, TextAnchor.MiddleCenter);
             Button(parent, T("replay"), Jade, () => StartRecipe(recipeRun.Recipe));
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void CompleteRecipe()
@@ -2366,36 +2408,37 @@ namespace TastePassport.Core
         private void DrawMatchDialogue(Transform parent)
         {
             Header(parent, T(matchRun.Definition.TitleKey));
-            Artwork(parent, TravelArtworkKind.Friendship, 200);
+            ActivityGuide(parent, "activity_ready", "activity_match_intro");
+            Artwork(parent, TravelArtworkKind.Friendship, 150);
             SpeakerBadge(parent, T(matchRun.Definition == MatchCatalog.HoiAn ? "character_nhung" : "character_gabo"));
-            var card = Card(parent, 230);
-            Label(card, T(matchRun.Definition.GuideKey), 29, 180, Ink, TextAnchor.MiddleCenter);
-            NarrationButtons(parent, T(matchRun.Definition.GuideKey));
-            Label(parent, "◆  " + T("tomorrow_note"), 23, 96, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Button(parent, T("mission_start"), Jade, () => Navigate(Page.MatchGame));
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            var card = JourneyCard(parent);
+            CollectionCopy(card, T(matchRun.Definition.GuideKey), 29, Ink, TextAnchor.MiddleCenter);
+            ActivityNarration(parent, T(matchRun.Definition.GuideKey));
+            Button(parent, T("activity_start_match"), Jade, () => Navigate(Page.MatchGame));
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void DrawMatchGame(Transform parent)
         {
             Header(parent, T(matchRun.Definition.TitleKey));
-            Artwork(parent, TravelArtworkKind.Friendship, 140);
             if (matchRun.Complete)
             {
+                ActivityGuide(parent, "activity_complete", "activity_pending_save");
                 Button(parent, T("save_result"), Jade, CompleteMatch);
                 return;
             }
-            Label(parent, T("match_hint"), 25, 80, Ink, TextAnchor.MiddleCenter);
-            ProgressStrip(parent, matchRun.StepIndex, matchRun.Definition.RequestKeys.Length, T("recipe_step"));
-            Label(parent, T("recipe_step") + " " + (matchRun.StepIndex + 1) + "/" + matchRun.Definition.RequestKeys.Length, 28, 58, Jade, TextAnchor.MiddleCenter);
-            var request = Card(parent, 210);
-            Label(request, T(matchRun.CurrentRequestKey), 31, 165, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            ActivityGuide(parent, "activity_match_phase", "activity_match_intro");
+            ProgressStrip(parent, matchRun.StepIndex, matchRun.Definition.RequestKeys.Length, T("activity_guests_helped"));
+            Artwork(parent, TravelArtworkKind.Friendship, 120);
+            CollectionCopy(parent, T("recipe_step") + " " + (matchRun.StepIndex + 1) + "/" + matchRun.Definition.RequestKeys.Length, 28, Jade, TextAnchor.MiddleCenter);
+            var request = JourneyCard(parent);
+            CollectionCopy(request, T(matchRun.CurrentRequestKey), 31, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int i = 0; i < matchRun.AnswerCount; i++)
             {
                 int choice = i;
-                Button(parent, T(matchRun.AnswerKey(i)), i == 1 ? Jade : Lantern, () => ChooseMatch(choice));
+                Button(parent, T(matchRun.AnswerKey(i)), Paper, () => ChooseMatch(choice), Ink);
             }
-            Button(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void ChooseMatch(int choice)
