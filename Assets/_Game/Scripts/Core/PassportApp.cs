@@ -31,6 +31,7 @@ namespace TastePassport.Core
         private ProfileStore store;
         private PlayerProfile profile;
         private Canvas canvas;
+        private GameUiDioramaStage dioramaStage;
         private RectTransform safeRoot;
         private Font font;
         private Font displayFont;
@@ -44,6 +45,7 @@ namespace TastePassport.Core
         private bool editingProfile;
         private string notice;
         private Rect lastSafeArea;
+        private Rect lastCameraViewport;
         private ExplorationRun run;
         private bool[] placedFragments = new bool[3];
         private int selectedFragment = -1;
@@ -148,24 +150,36 @@ namespace TastePassport.Core
             }
         }
 
+        private void LateUpdate()
+        {
+            // Follow viewport/camera changes without reparenting the Canvas away from the app.
+            if (canvas == null || safeRoot == null || !safeRoot.gameObject.activeSelf) return;
+            var mainCamera = Camera.main;
+            if (mainCamera != null && WorldSpaceCanvasFitter.Configure(canvas, mainCamera) &&
+                (Screen.safeArea != lastSafeArea || mainCamera.pixelRect != lastCameraViewport))
+                UpdateSafeArea();
+        }
+
         private void EnsureCanvas()
         {
-            canvas = GetComponentInChildren<Canvas>();
+            canvas = GetComponentInChildren<Canvas>(true);
             if (canvas == null)
             {
                 var obj = new GameObject("Passport Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
                 obj.transform.SetParent(transform, false);
                 canvas = obj.GetComponent<Canvas>();
             }
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.pixelPerfect = true;
             var scaler = canvas.GetComponent<CanvasScaler>();
             if (scaler == null) scaler = canvas.gameObject.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(720, 1280);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
+            scaler.dynamicPixelsPerUnit = 1f;
             if (canvas.GetComponent<GraphicRaycaster>() == null) canvas.gameObject.AddComponent<GraphicRaycaster>();
+
+            WorldSpaceCanvasFitter.Configure(canvas, Camera.main);
+            dioramaStage = GameUiDioramaStage.Ensure(transform);
 
             safeRoot = canvas.transform.Find("Safe Area") as RectTransform;
             if (safeRoot == null) safeRoot = NewRect("Safe Area", canvas.transform);
@@ -188,8 +202,14 @@ namespace TastePassport.Core
             if (safeRoot == null || Screen.width <= 0 || Screen.height <= 0) return;
             Rect area = Screen.safeArea;
             lastSafeArea = area;
-            safeRoot.anchorMin = new Vector2(area.xMin / Screen.width, area.yMin / Screen.height);
-            safeRoot.anchorMax = new Vector2(area.xMax / Screen.width, area.yMax / Screen.height);
+            Rect viewport = canvas != null && canvas.worldCamera != null
+                ? canvas.worldCamera.pixelRect : new Rect(0, 0, Screen.width, Screen.height);
+            if (viewport.width <= 0f || viewport.height <= 0f) return;
+            lastCameraViewport = viewport;
+            safeRoot.anchorMin = new Vector2(Mathf.Clamp01((area.xMin - viewport.xMin) / viewport.width),
+                Mathf.Clamp01((area.yMin - viewport.yMin) / viewport.height));
+            safeRoot.anchorMax = new Vector2(Mathf.Clamp01((area.xMax - viewport.xMin) / viewport.width),
+                Mathf.Clamp01((area.yMax - viewport.yMin) / viewport.height));
             safeRoot.offsetMin = Vector2.zero;
             safeRoot.offsetMax = Vector2.zero;
         }
@@ -217,19 +237,36 @@ namespace TastePassport.Core
                 finaleReveal = null;
             }
             EnsureFont();
+            WorldSpaceCanvasFitter.Configure(canvas, Camera.main);
+            UpdateSafeArea();
+            if (dioramaStage == null) dioramaStage = GameUiDioramaStage.Ensure(transform);
+            dioramaStage?.SetDestination(koreanBackdrop);
+            dioramaStage?.SetStageVisible(safeRoot.gameObject.activeSelf);
             var previousScroll = safeRoot.Find("Page Scroll")?.GetComponent<ScrollRect>();
             float savedScroll = resetScroll || previousScroll == null ? 1f : previousScroll.verticalNormalizedPosition;
-            for (int i = safeRoot.childCount - 1; i >= 0; i--) Destroy(safeRoot.GetChild(i).gameObject);
-            var backdrop = Panel("Destination Background", safeRoot, Color.white, true);
-            string backdropPath = koreanBackdrop ? "Art/KoreaJourney" : "Art/VietnamJourney";
-            backdrop.sprite = Resources.Load<Sprite>(backdropPath);
-            backdrop.type = Image.Type.Simple;
-            if (koreanBackdrop) KoreaVisuals.Attach(backdrop.rectTransform, TravelArtworkKind.KoreaJourney);
-            else HoiAnVisuals.Attach(backdrop.rectTransform, TravelArtworkKind.VietnamJourney);
-            // Keep the supplied destination illustration recognizable between cards.
-            // Cards stay opaque so the foreground copy and controls remain crisp.
-            backdrop.color = new Color(1f, 1f, 1f, backdrop.sprite == null ? 1f : .82f);
-            Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, backdrop.sprite == null ? 1f : .38f), true);
+            for (int i = safeRoot.childCount - 1; i >= 0; i--)
+            {
+                // Destroy is deferred; disable old raycast targets immediately during rebuilds.
+                var oldPage = safeRoot.GetChild(i).gameObject;
+                oldPage.SetActive(false);
+                Destroy(oldPage);
+            }
+            Panel("Destination Background", safeRoot, Cream, true);
+            if (dioramaStage != null && dioramaStage.StageTexture != null)
+            {
+                var surface = NewRect("3D destination stage", safeRoot);
+                Stretch(surface);
+                var image = surface.gameObject.AddComponent<RawImage>();
+                image.texture = dioramaStage.StageTexture;
+                image.raycastTarget = false;
+                // Fill the viewport without stretching the portrait stage on taller displays.
+                float viewportAspect = safeRoot.rect.width / Mathf.Max(1f, safeRoot.rect.height);
+                float textureAspect = (float)image.texture.width / image.texture.height;
+                float uvWidth = Mathf.Min(1f, viewportAspect / textureAspect);
+                float uvHeight = Mathf.Min(1f, textureAspect / viewportAspect);
+                image.uvRect = new Rect((1f - uvWidth) * .5f, (1f - uvHeight) * .5f, uvWidth, uvHeight);
+            }
+            Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, .22f), true);
             if (page == Page.Menu || page == Page.Map || page == Page.Passport || page == Page.Postcard)
             {
                 var petals = NewRect("Floating cherry blossoms", safeRoot);
@@ -405,10 +442,15 @@ namespace TastePassport.Core
 
         private void DrawMenu(Transform parent)
         {
-            Header(parent, T("subtitle"));
+            var title = JourneyCard(parent);
+            title.name = "Menu title plaque";
+            CollectionCopy(title, T("title"), 44, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(title, T("subtitle"), 28, Muted, TextAnchor.MiddleCenter);
+            Spacer(parent, 144);
             var welcome = JourneyCard(parent);
-            Label(welcome, T(profile.created ? "journey_welcome_back" : "journey_first_run"), 30, 66, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(welcome, T(profile.created ? "journey_resume_hint" : "journey_setup_hint"), 26, 92, Muted, TextAnchor.MiddleCenter);
+            welcome.name = "Journey start surface";
+            CollectionCopy(welcome, T(profile.created ? "journey_welcome_back" : "journey_first_run"), 30, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(welcome, T(profile.created ? "journey_resume_hint" : "journey_setup_hint"), 26, Muted, TextAnchor.MiddleCenter);
             Button(welcome, profile.created ? T("continue") : T("start"), Jade, () =>
             {
                 if (!profile.created)
@@ -562,13 +604,36 @@ namespace TastePassport.Core
         private void DrawPassport(Transform parent)
         {
             RecordTutorialPassportView();
-            Header(parent, T("passport"));
-            var identity = JourneyCard(parent);
-            Artwork(identity, TravelArtworkKind.Passport, 160);
-            CollectionCopy(identity, profile.playerName, 36, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(identity, T("passport_intro"), 26, Muted, TextAnchor.MiddleCenter);
+            var title = JourneyCard(parent);
+            CollectionCopy(title, T("passport"), 38, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Spacer(parent, 64);
+            var book = JourneyCard(parent);
+            book.name = "Open passport book";
+            book.GetComponent<Image>().color = Jade;
+            book.GetComponent<VerticalLayoutGroup>().padding = new RectOffset(12, 12, 12, 12);
+            var spread = NewRect("Open book spread", book);
+            AddHorizontal(spread);
+            var spreadLayout = spread.GetComponent<HorizontalLayoutGroup>();
+            spreadLayout.spacing = 10;
+            spreadLayout.childForceExpandHeight = true;
+            var identity = JourneyCard(spread);
+            identity.name = "Passport left leaf";
+            identity.localRotation = Quaternion.Euler(0f, -3f, 0f);
+            Artwork(identity, TravelArtworkKind.Passport, 144);
+            CollectionCopy(identity, profile.playerName, 32, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             CollectionCopy(identity, T("avatar_" + profile.avatarIndex), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(identity, T("coins") + ": " + profile.coins + " ◆", 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var greeting = JourneyCard(spread);
+            greeting.name = "Passport right leaf";
+            greeting.localRotation = Quaternion.Euler(0f, 3f, 0f);
+            CollectionCopy(greeting, T("passport_intro"), 26, Muted, TextAnchor.MiddleCenter);
+            Rule(greeting);
+            CollectionCopy(greeting, T("coins") + ": " + profile.coins + " ◆", 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var spine = Panel("Book binding", spread, Border).rectTransform;
+            spine.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+            spine.anchorMin = new Vector2(.5f, 0f);
+            spine.anchorMax = new Vector2(.5f, 1f);
+            spine.sizeDelta = new Vector2(6f, 0f);
+            spine.anchoredPosition = Vector2.zero;
             Button(parent, T("open_map"), Jade, () => Navigate(Page.Map));
             var stamps = JourneyCard(parent);
             CollectionCopy(stamps, T("stamps"), 30, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
@@ -1194,11 +1259,14 @@ namespace TastePassport.Core
         private void DrawMap(Transform parent)
         {
             var heading = JourneyCard(parent);
-            Label(heading, T("map"), 38, 60, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            heading.name = "Map travel desk";
+            CollectionCopy(heading, T("map"), 38, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             Label(heading, T("journey_progress") + "  " + JourneyStampCount(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
                 LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id) + "/6", 26, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             MapObjectiveDefinition nextObjective = MapObjectiveService.GetCurrent(profile, IsJeonjuUnlocked(profile));
+            Spacer(parent, 64);
             var objectiveCard = JourneyCard(parent);
+            objectiveCard.name = "Next objective surface";
             Label(objectiveCard, T("map_next_step"), 24, 42, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var objectiveTitle = Label(objectiveCard, T(nextObjective.TitleKey), 30, 86, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             // Some existing objective keys contain a full mission introduction.
@@ -1206,12 +1274,11 @@ namespace TastePassport.Core
             var titleSize = objectiveTitle.GetComponent<LayoutElement>();
             titleSize.minHeight = -1;
             titleSize.preferredHeight = -1;
-            Label(objectiveCard, T(nextObjective.DescriptionKey), 26, 112, Muted, TextAnchor.MiddleCenter);
+            CollectionCopy(objectiveCard, T(nextObjective.DescriptionKey), 26, Muted, TextAnchor.MiddleCenter);
             Button(objectiveCard, T(nextObjective.ActionLabelKey), Jade, () => RunMapObjective(nextObjective));
-            JourneyNavigation(parent, Page.Map);
             Label(parent, T("journey_destinations"), 30, 54, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
             var hoian = JourneyCard(parent);
-            Artwork(hoian, TravelArtworkKind.VietnamJourney, 150);
+            hoian.name = "Hoi An destination surface";
             Label(hoian, T("hoian"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             Label(hoian, T("hoian_desc"), 26, 42, Muted, TextAnchor.MiddleCenter);
             DestinationProgress(hoian, LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id);
@@ -1219,6 +1286,7 @@ namespace TastePassport.Core
                 () => { showHoiAnActivities = !showHoiAnActivities; Show(); }, Ink);
             if (showHoiAnActivities)
             {
+                Artwork(hoian, TravelArtworkKind.VietnamJourney, 150);
                 Label(hoian, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
                 CompactButton(hoian, T("explore_hoian"), Paper, () => OpenWorld("hoian"), Ink);
                 CompactButton(hoian, MissionLabel("journey_hoian_architecture", LevelCatalog.HoiAn.Id), Paper, () => StartLevel(LevelCatalog.HoiAn), Ink);
@@ -1229,7 +1297,7 @@ namespace TastePassport.Core
             }
             HoiAnVisuals.DecorateLocationCard(hoian);
             var jeonju = JourneyCard(parent);
-            Artwork(jeonju, TravelArtworkKind.KoreaJourney, 150);
+            jeonju.name = "Jeonju destination surface";
             Label(jeonju, T("jeonju"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             Label(jeonju, T("jeonju_desc"), 26, 42, Muted, TextAnchor.MiddleCenter);
             DestinationProgress(jeonju, LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id);
@@ -1239,6 +1307,7 @@ namespace TastePassport.Core
                 () => { showJeonjuActivities = !showJeonjuActivities; Show(); }, Ink);
             if (showJeonjuActivities)
             {
+                Artwork(jeonju, TravelArtworkKind.KoreaJourney, 150);
                 Label(jeonju, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
                 CompactButton(jeonju, T("explore_jeonju") + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
                     jeonjuUnlocked ? () => OpenWorld("jeonju") : () => Toast(T("jeonju_not_unlocked")), Ink);
@@ -1250,6 +1319,7 @@ namespace TastePassport.Core
                 JourneyMissionButton(jeonju, "jeonju_exchange", MatchCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, "bibimbap", () => StartMatch(MatchCatalog.Jeonju));
             }
             KoreaVisuals.DecorateLocationCard(jeonju);
+            JourneyNavigation(parent, Page.Map);
             var storyCard = JourneyCard(parent);
             Label(storyCard, profile.mainStoryCompleted ? T("main_story_completed") : T("chapter_title_4"),
                 29, 86, profile.mainStoryCompleted ? Jade : Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
@@ -1317,6 +1387,7 @@ namespace TastePassport.Core
                 if (worldSession == null) worldSession = GetComponent<WalkableWorldSession>();
                 if (worldSession == null) worldSession = gameObject.AddComponent<WalkableWorldSession>();
                 safeRoot.gameObject.SetActive(false);
+                dioramaStage?.SetStageVisible(false);
                 worldSession.Open(worldId, profile, store, ReturnFromWorld, HandleWorldActivity, OpenPassportFromWorld);
                 bool koreanWorld = worldId == "jeonju";
                 audioManager?.SetEnvironment(koreanWorld);
@@ -1325,6 +1396,7 @@ namespace TastePassport.Core
             catch (Exception error)
             {
                 safeRoot.gameObject.SetActive(true);
+                dioramaStage?.SetStageVisible(true);
                 Debug.LogException(error);
                 notice = T("world_open_error");
                 Show();
@@ -1334,6 +1406,7 @@ namespace TastePassport.Core
         private void ReturnFromWorld()
         {
             if (safeRoot != null) safeRoot.gameObject.SetActive(true);
+            dioramaStage?.SetStageVisible(true);
             page = worldReturnPage;
             worldReturnPage = Page.Map;
             notice = worldSession != null && !worldSession.LastSaveSucceeded ? T("save_error") : null;
@@ -2596,6 +2669,11 @@ namespace TastePassport.Core
         {
             var card = Panel("Card", parent, Paper).rectTransform;
             SetHeight(card, height);
+            // A shallow physical offset and soft edge lift each paper surface above its stage.
+            card.localPosition = new Vector3(0f, 0f, -3f);
+            var shadow = card.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(Ink.r, Ink.g, Ink.b, .24f);
+            shadow.effectDistance = new Vector2(0f, -8f);
             var border = card.gameObject.AddComponent<Outline>();
             border.effectColor = Border;
             border.effectDistance = new Vector2(2, -2);
