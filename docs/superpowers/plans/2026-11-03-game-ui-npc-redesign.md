@@ -51,7 +51,6 @@
 
 - [ ] Create `GameUiTheme` with the approved existing palette and minimum control size.
 - [ ] Replace duplicate palette declarations in `PassportApp` and `WalkableWorldSession` with the shared values without changing page behavior.
-- [ ] Run `dotnet build Assembly-CSharp.csproj -v:q`; expected: successful compile with no C# errors.
 
 ### Task 2: Start flow, journey map, and progress navigation
 
@@ -67,7 +66,6 @@
 - [ ] Redesign `DrawMenu`, `DrawLanguage`, and `DrawCreate` around one prominent next action, clearer first-run setup, and compact access to profile/passport/settings.
 - [ ] Redesign `DrawMap` with one focused next-step card, two destination sections, grouped activity actions, and readable locked-state explanations; retain the existing mission callbacks and requirements.
 - [ ] Add or revise localized keys for navigation, destination sections, progress, and locked-state helper copy in both languages.
-- [ ] Run `dotnet build Assembly-CSharp.csproj -v:q`; expected: successful compile with no C# errors.
 
 ### Task 3: Passport, collections, and settings
 
@@ -82,7 +80,6 @@
 - [ ] Redesign `DrawPassport`, `DrawPostcard`, `DrawInventory`, `DrawCultureCards`, `DrawWardrobe`, and `DrawSettings` to share page headers, status labels, card spacing, action hierarchy, and clear return actions.
 - [ ] Preserve all current stamp, coin, item, culture-card, outfit, postcard, and settings values and callbacks.
 - [ ] Add or revise equivalent Vietnamese/Korean labels for collection states, settings groups, and navigation.
-- [ ] Run `dotnet build Assembly-CSharp.csproj -v:q`; expected: successful compile with no C# errors.
 
 ### Task 4: World HUD and NPC conversation flow
 
@@ -102,7 +99,6 @@
 - [ ] Redesign `CreateHud`, `CreateQuestJournal`, and `CreateControlsGuide` into a compact objective card, named contextual action, clearly accessible help/passport/journal buttons, and safe-area-aware touch controls.
 - [ ] Redesign the dialogue panel to show speaker portrait/name/copy, a continue/close action, an optional “Hỏi thêm” action when a key exists, and a distinct activity CTA only for NPCs with `ActivityId`.
 - [ ] Keep movement paused during dialogue, resume on close, and route keyboard input to the same visible actions as touch.
-- [ ] Run `dotnet build Assembly-CSharp.csproj -v:q`; expected: successful compile with no C# errors.
 
 ### Task 5: Activities, instructions, and result screens
 
@@ -117,7 +113,6 @@
 - [ ] Apply the shared screen hierarchy to `DrawDialogue`, `DrawExplore`, `DrawAssembly`, recipe, match, craft, finale, and their result views: concise instruction, visible step/progress, one primary action, and readable feedback.
 - [ ] Preserve drag/tap alternatives, timers, answer evaluation, score/stars, rewards, and replay behavior.
 - [ ] Keep result screens explicit about earned items/stamps and the next available action.
-- [ ] Run `dotnet build Assembly-CSharp.csproj -v:q`; expected: successful compile with no C# errors.
 
 ### Task 6: Compile and produce the refreshed playable build
 
@@ -127,7 +122,8 @@
 **Interfaces:**
 - Use the existing scene and `TastePassportBuild` editor entry points; no save migration or project package change.
 
-- [ ] Run `dotnet build Assembly-CSharp.csproj -v:q` and `dotnet build Assembly-CSharp-Editor.csproj -v:q`; expected: both complete without C# errors.
+- [ ] Fast-forward the reviewed feature branch into the original project checkout, preserving its unrelated local edits.
+- [ ] Run `dotnet build Assembly-CSharp.csproj -v:q` and `dotnet build Assembly-CSharp-Editor.csproj -v:q` in the original project checkout, where Unity's generated project references and Library cache are available; expected: both complete without C# errors.
 - [ ] Build Windows and Android players using the existing Unity build entry points; expected: new build outputs include the UI changes.
 - [ ] Launch the Windows player for the visible preview previously requested; report separately if Unity license/module availability prevents either platform build.
 
