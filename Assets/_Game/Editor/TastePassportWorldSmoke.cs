@@ -60,10 +60,21 @@ namespace TastePassport.EditorTools
                     motionType.GetMethod("Awake", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, null);
                     var pointer = new PointerEventData(null) { button = PointerEventData.InputButton.Left };
                     ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerDownHandler);
+                    motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { 1f / 60f });
+                    float partialPressScale = button.GetComponentInChildren<Text>().transform.localScale.x;
+                    Require(partialPressScale > .97f && partialPressScale < 1f,
+                        "press motion snaps to its target in one 60 Hz frame");
+                    motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { 1f / 30f });
+                    Require(Mathf.Abs(button.GetComponentInChildren<Text>().transform.localScale.x - .985f) < .0001f,
+                        "press motion does not follow its configured 0.1-second transition duration");
                     motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { .2f });
                     Require(button.GetComponentInChildren<Text>().transform.localScale.x < 1f, "press does not produce restrained visual response");
                     ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerUpHandler);
                     ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerEnterHandler);
+                    motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { 1f / 60f });
+                    float partialHighlightScale = button.GetComponentInChildren<Text>().transform.localScale.x;
+                    Require(partialHighlightScale > .97f && partialHighlightScale < 1.015f,
+                        "highlight motion snaps to its target in one 60 Hz frame");
                     motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { .2f });
                     Require(button.GetComponentInChildren<Text>().transform.localScale.x > 1f, "highlight does not produce visual response");
                     button.interactable = false;

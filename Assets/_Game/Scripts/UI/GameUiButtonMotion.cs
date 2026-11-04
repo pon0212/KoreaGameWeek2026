@@ -17,6 +17,9 @@ namespace TastePassport.UI
         private bool hovered;
         private bool selected;
         private float scale = 1f;
+        private float transitionStart = 1f;
+        private float transitionTarget = 1f;
+        private float transitionElapsed;
 
         private void Awake()
         {
@@ -42,7 +45,15 @@ namespace TastePassport.UI
             }
             float target = pressed ? GameUiTheme.PressedVisualScale :
                 hovered || selected ? GameUiTheme.HighlightedVisualScale : 1f;
-            scale = Mathf.MoveTowards(scale, target, Mathf.Max(0f, deltaTime) / GameUiTheme.ButtonMotionSeconds);
+            if (target != transitionTarget)
+            {
+                transitionStart = scale;
+                transitionTarget = target;
+                transitionElapsed = 0f;
+            }
+            transitionElapsed += Mathf.Max(0f, deltaTime);
+            scale = Mathf.Lerp(transitionStart, transitionTarget,
+                transitionElapsed / GameUiTheme.ButtonMotionSeconds);
             ApplyScale();
         }
 
@@ -56,7 +67,8 @@ namespace TastePassport.UI
         private void ResetVisuals()
         {
             pressed = hovered = selected = false;
-            scale = 1f;
+            scale = transitionStart = transitionTarget = 1f;
+            transitionElapsed = 0f;
             ApplyScale();
         }
 
