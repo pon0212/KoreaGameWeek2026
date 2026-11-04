@@ -10,6 +10,7 @@ namespace TastePassport.World
         private const float Speed = 3.2f;
         private const float CollisionInset = 0.28f;
         private const float CameraFollowTime = 0.18f;
+        private const float WorldCameraDepth = -10f;
 
         private Rigidbody2D body;
         private Camera followCamera;
@@ -61,7 +62,7 @@ namespace TastePassport.World
                 // A restrained isometric angle gives the generated town visible side faces while
                 // preserving the existing XY movement plane and orthographic coordinate scale.
                 followCamera.transform.rotation = Quaternion.Euler(6f, -8f, 0f);
-                followCamera.transform.position = new Vector3(body.position.x, -0.15f, followCamera.transform.position.z);
+                PositionCameraImmediately(body.position);
             }
         }
 
@@ -73,7 +74,7 @@ namespace TastePassport.World
             body.position = bounded;
             transform.position = new Vector3(bounded.x, bounded.y, transform.position.z);
             if (followCamera != null)
-                followCamera.transform.position = new Vector3(bounded.x, bounded.y, followCamera.transform.position.z);
+                PositionCameraImmediately(bounded);
         }
 
         public void SetTouchInput(Vector2 input)
@@ -124,15 +125,46 @@ namespace TastePassport.World
         private void LateUpdate()
         {
             if (followCamera == null || definition == null) return;
+            float targetX = GetCameraTargetX(transform.position.x);
+            float targetY = GetCameraTargetY(transform.position.y);
+            Vector3 target = CameraPositionForWorldPoint(new Vector2(targetX, targetY));
+            followCamera.transform.position = Vector3.SmoothDamp(followCamera.transform.position, target, ref cameraVelocity, CameraFollowTime);
+        }
+
+        private float GetCameraTargetX(float playerX)
+        {
             float halfWidth = followCamera.orthographicSize * followCamera.aspect;
             float cameraMinX = definition.MinimumPosition.x + halfWidth;
             float cameraMaxX = definition.MaximumPosition.x - halfWidth;
-            float targetX = cameraMinX > cameraMaxX
+            return cameraMinX > cameraMaxX
                 ? (definition.MinimumPosition.x + definition.MaximumPosition.x) * 0.5f
-                : Mathf.Clamp(transform.position.x, cameraMinX, cameraMaxX);
-            float targetY = Mathf.Clamp(transform.position.y + 0.45f, -0.45f, 0.35f);
-            Vector3 target = new Vector3(targetX, targetY, followCamera.transform.position.z);
-            followCamera.transform.position = Vector3.SmoothDamp(followCamera.transform.position, target, ref cameraVelocity, CameraFollowTime);
+                : Mathf.Clamp(playerX, cameraMinX, cameraMaxX);
+        }
+
+        private static float GetCameraTargetY(float playerY)
+        {
+            return Mathf.Clamp(playerY + 0.45f, -0.45f, 0.35f);
+        }
+
+        private void PositionCameraImmediately(Vector2 playerPosition)
+        {
+            float targetX = GetCameraTargetX(playerPosition.x);
+            float targetY = GetCameraTargetY(playerPosition.y);
+            followCamera.transform.position = CameraPositionForWorldPoint(new Vector2(targetX, targetY));
+            cameraVelocity = Vector3.zero;
+        }
+
+        private Vector3 CameraPositionForWorldPoint(Vector2 target)
+        {
+            // The town geometry uses positive Z and the world-space HUD sits at the camera's
+            // near plane plus one unit. Keep the camera behind both, then compensate for the
+            // isometric rotation so the same XY point remains centered on the screen.
+            Vector3 forward = followCamera.transform.forward;
+            float depth = -WorldCameraDepth / Mathf.Max(0.001f, forward.z);
+            Vector3 worldTarget = new Vector3(target.x, target.y, 0f);
+            Vector3 cameraPosition = worldTarget - forward * depth;
+            cameraPosition.z = WorldCameraDepth;
+            return cameraPosition;
         }
 
         public static Vector2 ClampToBounds(Vector2 position, Vector2 minimum, Vector2 maximum)
