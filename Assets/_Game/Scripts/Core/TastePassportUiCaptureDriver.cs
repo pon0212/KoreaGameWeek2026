@@ -31,6 +31,8 @@ namespace TastePassport.Core
         private static readonly string[] Pages =
         {
             "Menu", "Map", "Passport", "Dialogue", "Explore", "RecipeGame", "Postcard", "Settings", "Finale", "FinaleResult",
+            "Card_journey_vi", "Card_target_vi", "Card_dialogue_vi", "Card_activity_vi", "Card_reward_vi", "Card_passport_vi", "Card_ending_vi",
+            "Card_journey_ko", "Card_target_ko", "Card_dialogue_ko", "Card_activity_ko", "Card_reward_ko", "Card_passport_ko", "Card_ending_ko",
             "WorldGuide", "WorldHud", "WorldDialogue", "WorldJournal", "WorldPassport", "WorldHudKo", "WorldDialogueKo", "WorldReturn"
         };
 
@@ -90,7 +92,7 @@ namespace TastePassport.Core
             {
                 if (index == Pages.Length * 2)
                 {
-                    Finish(0, "Taste Passport UI capture PASS: eighteen pages, including world HUD/dialogue/journal/passport/return, at 720x1280 and 1080x2400");
+                    Finish(0, "Taste Passport UI capture PASS: " + index + " images, including 28 VI/KO campaign card states and all optional world pages, at 720x1280 and 1080x2400");
                     return;
                 }
                 int width = index < Pages.Length ? 720 : 1080;
@@ -102,7 +104,11 @@ namespace TastePassport.Core
                     captureCamera.targetTexture = target;
                     captureCanvas.worldCamera = captureCamera;
                     string page = Pages[index % Pages.Length];
-                    if (page.StartsWith("World", StringComparison.Ordinal))
+                    if (page.StartsWith("Card_", StringComparison.Ordinal))
+                    {
+                        PrepareCardCapture(page);
+                    }
+                    else if (page.StartsWith("World", StringComparison.Ordinal))
                     {
                         PrepareWorldCapture(page);
                     }
@@ -129,6 +135,8 @@ namespace TastePassport.Core
                 }
                 foreach (var group in app.GetComponentsInChildren<CanvasGroup>(true)) group.alpha = 1f;
                 Canvas.ForceUpdateCanvases();
+                string capturePage = Pages[index % Pages.Length];
+                if (capturePage.StartsWith("Card_", StringComparison.Ordinal)) VerifyCardCapture(capturePage);
                 var request = new RenderPipeline.StandardRequest { destination = target };
                 if (!RenderPipeline.SupportsRenderRequest(captureCamera, request))
                     throw new InvalidOperationException("URP render request is unavailable");
@@ -141,6 +149,7 @@ namespace TastePassport.Core
                 RenderTexture.active = previous;
                 string path = Path.Combine(folder, Pages[index % Pages.Length] + "_" + width + "x" + height + ".png");
                 File.WriteAllBytes(path, screenshot.EncodeToPNG());
+                Debug.Log("UI captured " + path);
                 Destroy(screenshot);
                 captureCamera.targetTexture = null;
                 target.Release();
@@ -149,6 +158,83 @@ namespace TastePassport.Core
                 index++;
             }
             catch (Exception error) { Finish(2, "Taste Passport UI capture failed: " + error); }
+        }
+
+        private void PrepareCardCapture(string capturePage)
+        {
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            var session = app.GetComponent<WalkableWorldSession>();
+            if (session != null && session.IsOpen)
+                throw new InvalidOperationException("Campaign capture started in a walkable world: " + capturePage);
+            string[] parts = capturePage.Split('_');
+            string state = parts[1], language = parts[2];
+            bool korean = language == "ko";
+            bool collection = state == "passport" || state == "ending";
+            bool craft = state == "activity" || state == "reward";
+            var profile = collection || (korean && (craft || state == "target" || state == "dialogue"))
+                ? CreateFestivalCaptureProfile(collection)
+                : new PlayerProfile { created = true, playerName = "Nhung", avatarIndex = 1 };
+            profile.language = language;
+            if (craft && !korean)
+            {
+                foreach (string mission in new[] { LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id })
+                    ProgressService.Record(profile, mission, 300, 3);
+            }
+            typeof(PassportApp).GetField("profile", hidden).SetValue(app, profile);
+            typeof(PassportApp).GetField("koreanBackdrop", hidden).SetValue(app, korean);
+            if (state == "target" || state == "dialogue")
+            {
+                string worldId = korean ? "jeonju" : "hoian";
+                string targetId = korean ? "bkim" : "nhung";
+                WorldInteractableDefinition targetDefinition = null;
+                foreach (var candidate in WorldCatalog.Get(worldId).Interactables)
+                    if (candidate.Id == targetId) { targetDefinition = candidate; break; }
+                if (targetDefinition == null) throw new InvalidOperationException("Missing capture target " + targetId);
+                if (state == "target")
+                    typeof(PassportApp).GetMethod("OpenTargetCard", hidden).Invoke(app, new object[] { worldId, targetDefinition });
+                else
+                    typeof(PassportApp).GetMethod("OpenStoryCard", hidden).Invoke(app, new object[] { worldId, targetId });
+            }
+            else if (state == "activity")
+                typeof(PassportApp).GetMethod(korean ? "StartHanjiCraft" : "StartLanternCraft", hidden).Invoke(app, null);
+            else
+            {
+                string page = state == "journey" ? "Map" : state == "passport" ? "Passport" : "FinaleResult";
+                if (state == "reward")
+                {
+                    bool recorded = korean ? InventoryService.RecordHanjiCraft(profile, "fan", "indigo", "flower")
+                        : InventoryService.RecordLanternCraft(profile, "round", "red");
+                    if (!recorded) throw new InvalidOperationException("Could not seed crafted reward " + capturePage);
+                    typeof(PassportApp).GetField(korean ? "hanjiResultItemId" : "lanternResultItemId", hidden)
+                        .SetValue(app, korean ? InventoryService.GetLatestCraftedHanji(profile) : InventoryService.GetCraftedLantern(profile));
+                    var store = (ProfileStore)typeof(PassportApp).GetField("store", hidden).GetValue(app);
+                    if (!store.TrySave(profile)) throw new InvalidOperationException("Could not save capture reward");
+                    page = korean ? "HanjiResult" : "LanternResult";
+                }
+                navigate.Invoke(app, new[] { Enum.Parse(pageType, page) });
+            }
+            VerifyCardCapture(capturePage);
+        }
+
+        private void VerifyCardCapture(string capturePage)
+        {
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            string[] parts = capturePage.Split('_');
+            string state = parts[1];
+            bool korean = parts[2] == "ko";
+            string expected = state == "journey" ? "Map" : state == "target" ? "StoryTarget" :
+                state == "dialogue" ? "StoryCard" : state == "activity" ? (korean ? "HanjiCraft" : "LanternCraft") :
+                state == "reward" ? (korean ? "HanjiResult" : "LanternResult") : state == "passport" ? "Passport" : "FinaleResult";
+            var session = app.GetComponent<WalkableWorldSession>();
+            var profile = (PlayerProfile)typeof(PassportApp).GetField("profile", hidden).GetValue(app);
+            var safe = (RectTransform)typeof(PassportApp).GetField("safeRoot", hidden).GetValue(app);
+            if ((session != null && session.IsOpen) || !safe.gameObject.activeInHierarchy || profile.language != parts[2] ||
+                typeof(PassportApp).GetField("page", hidden).GetValue(app).ToString() != expected)
+                throw new InvalidOperationException("Campaign capture is not on its visible localized 2D page: " + capturePage);
+            bool hasCopy = false;
+            foreach (var label in safe.GetComponentsInChildren<Text>())
+                if (label.isActiveAndEnabled && !string.IsNullOrWhiteSpace(label.text)) hasCopy = true;
+            if (!hasCopy) throw new InvalidOperationException("Blank campaign capture: " + capturePage);
         }
 
         private static PlayerProfile CreateFestivalCaptureProfile(bool completed)

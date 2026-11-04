@@ -107,9 +107,35 @@ namespace TastePassport.EditorTools
                     }
                 }
                 Require(owner.GetComponent<WalkableWorldSession>() == null, "card UI created a world session");
-                Debug.Log("Dấu Xứ card adventure UI smoke PASS: VI/KO, portraits, one primary action, 64-unit controls and 720x1280 safe area");
+                CheckCardCaptureCoverage();
+                Debug.Log("Dấu Xứ card adventure UI smoke PASS: VI/KO, portraits, one primary action, 64-unit controls, safe area and 28 generated card captures");
             }
             finally { UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root); }
+        }
+
+        private static void CheckCardCaptureCoverage()
+        {
+            // Catch a missing state/language/size in the actual capture output, not the driver's page list.
+            string requested = Environment.GetEnvironmentVariable("TP_UI_CAPTURE_FOLDER");
+            string folder = string.IsNullOrWhiteSpace(requested)
+                ? Path.Combine(Directory.GetCurrentDirectory(), "Logs", "UiPreview") : Path.GetFullPath(requested);
+            var failures = new System.Collections.Generic.List<string>();
+            foreach (string state in new[] { "journey", "target", "dialogue", "activity", "reward", "passport", "ending" })
+            foreach (string language in new[] { "vi", "ko" })
+            foreach (var size in new[] { new Vector2Int(720, 1280), new Vector2Int(1080, 2400) })
+            {
+                string name = "Card_" + state + "_" + language + "_" + size.x + "x" + size.y + ".png";
+                string path = Path.Combine(folder, name);
+                if (!File.Exists(path)) { failures.Add("missing " + name); continue; }
+                var image = new Texture2D(2, 2);
+                try
+                {
+                    if (!image.LoadImage(File.ReadAllBytes(path)) || image.width != size.x || image.height != size.y)
+                        failures.Add("invalid PNG or dimensions: " + name);
+                }
+                finally { UnityEngine.Object.DestroyImmediate(image); }
+            }
+            Require(failures.Count == 0, "Card capture coverage failed in " + folder + ": " + string.Join("; ", failures));
         }
 
         private static void CheckCampaignCardCopy(PassportApp app, Transform safe, string language,
