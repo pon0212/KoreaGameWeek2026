@@ -33,6 +33,7 @@ namespace TastePassport.Core
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Attach()
         {
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TP_UI_CAPTURE"))) return;
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TP_SMOKE_PROFILE"))) return;
             var target = FindAnyObjectByType<PassportApp>();
             if (target != null) target.gameObject.AddComponent<TastePassportSmokeDriver>();

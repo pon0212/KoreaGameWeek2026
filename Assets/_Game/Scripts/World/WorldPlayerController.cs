@@ -10,6 +10,7 @@ namespace TastePassport.World
         private const float Speed = 3.2f;
         private const float CollisionInset = 0.28f;
         private const float CameraFollowTime = 0.18f;
+        private const float TownCameraClearance = 10f;
 
         private Rigidbody2D body;
         private Camera followCamera;
@@ -61,7 +62,10 @@ namespace TastePassport.World
                 // A restrained isometric angle gives the generated town visible side faces while
                 // preserving the existing XY movement plane and orthographic coordinate scale.
                 followCamera.transform.rotation = Quaternion.Euler(6f, -8f, 0f);
-                followCamera.transform.position = new Vector3(body.position.x, -0.15f, followCamera.transform.position.z);
+                // The runtime town uses real depth around z=0. Keep its meshes behind the
+                // camera-facing world-space HUD, whose plane sits just beyond the near clip.
+                float cameraDepth = Mathf.Min(followCamera.transform.position.z, -TownCameraClearance);
+                followCamera.transform.position = new Vector3(body.position.x, -0.15f, cameraDepth);
             }
         }
 

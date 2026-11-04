@@ -31,7 +31,9 @@ namespace TastePassport.UI
             // Expand the reference area on tall/wide displays, never crop its 720 x 1280 layout.
             float referenceScale = Mathf.Min(camera.pixelWidth / 720f, camera.pixelHeight / 1280f);
             var logicalSize = new Vector2(camera.pixelWidth / referenceScale, camera.pixelHeight / referenceScale);
-            float distance = camera.nearClipPlane + Mathf.Min(1f, (camera.farClipPlane - camera.nearClipPlane) * .5f);
+            // Runtime-generated town geometry sits just beyond the camera near plane. Keep the
+            // camera-facing UI in front of that geometry so roofs and façades cannot cover it.
+            float distance = camera.nearClipPlane + Mathf.Min(0.02f, (camera.farClipPlane - camera.nearClipPlane) * .5f);
             Vector3 bottom = camera.ViewportToWorldPoint(new Vector3(.5f, 0f, distance));
             Vector3 top = camera.ViewportToWorldPoint(new Vector3(.5f, 1f, distance));
             float worldScale = Vector3.Distance(bottom, top) / logicalSize.y;

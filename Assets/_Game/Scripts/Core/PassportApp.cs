@@ -142,7 +142,7 @@ namespace TastePassport.Core
 
         private void Update()
         {
-            if (Screen.safeArea != lastSafeArea) UpdateSafeArea();
+            if (GetSafeAreaRect() != lastSafeArea) UpdateSafeArea();
             if (page == Page.RecipeGame && recipeRun != null && !recipeRun.Complete)
             {
                 int remaining = Mathf.Max(0, Mathf.CeilToInt(recipeDeadline - Time.time));
@@ -157,7 +157,7 @@ namespace TastePassport.Core
             if (canvas == null || safeRoot == null || !safeRoot.gameObject.activeSelf) return;
             var mainCamera = Camera.main;
             if (mainCamera != null && WorldSpaceCanvasFitter.Configure(canvas, mainCamera) &&
-                (Screen.safeArea != lastSafeArea || mainCamera.pixelRect != lastCameraViewport))
+                (GetSafeAreaRect() != lastSafeArea || GetViewportRect() != lastCameraViewport))
                 UpdateSafeArea();
         }
 
@@ -201,10 +201,9 @@ namespace TastePassport.Core
         private void UpdateSafeArea()
         {
             if (safeRoot == null || Screen.width <= 0 || Screen.height <= 0) return;
-            Rect area = Screen.safeArea;
+            Rect area = GetSafeAreaRect();
             lastSafeArea = area;
-            Rect viewport = canvas != null && canvas.worldCamera != null
-                ? canvas.worldCamera.pixelRect : new Rect(0, 0, Screen.width, Screen.height);
+            Rect viewport = GetViewportRect();
             if (viewport.width <= 0f || viewport.height <= 0f) return;
             lastCameraViewport = viewport;
             safeRoot.anchorMin = new Vector2(Mathf.Clamp01((area.xMin - viewport.xMin) / viewport.width),
@@ -213,6 +212,21 @@ namespace TastePassport.Core
                 Mathf.Clamp01((area.yMax - viewport.yMin) / viewport.height));
             safeRoot.offsetMin = Vector2.zero;
             safeRoot.offsetMax = Vector2.zero;
+        }
+
+        private Rect GetSafeAreaRect()
+        {
+            var target = canvas != null && canvas.worldCamera != null ? canvas.worldCamera.targetTexture : null;
+            // RenderTexture captures use their own portrait viewport, not the Editor window's safe area.
+            return target != null ? new Rect(0, 0, target.width, target.height) : Screen.safeArea;
+        }
+
+        private Rect GetViewportRect()
+        {
+            var camera = canvas != null ? canvas.worldCamera : null;
+            var target = camera != null ? camera.targetTexture : null;
+            if (target != null) return new Rect(0, 0, target.width, target.height);
+            return camera != null ? camera.pixelRect : new Rect(0, 0, Screen.width, Screen.height);
         }
 
         private void Navigate(Page target)

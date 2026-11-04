@@ -858,6 +858,145 @@ namespace TastePassport.EditorTools
         }
 
         [MenuItem("Tools/Taste Passport/Validate Walkable World Session")]
+        [MenuItem("Tools/Taste Passport/Validate World Canvas Depth")]
+        public static void RunWorldCanvasDepthChecks()
+        {
+            GameObject cameraObject = null;
+            GameObject canvasObject = null;
+            RenderTexture target = null;
+            try
+            {
+                cameraObject = new GameObject("World Canvas Depth Smoke Camera");
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.orthographic = true;
+                camera.orthographicSize = 6.4f;
+                camera.nearClipPlane = 0.3f;
+                camera.farClipPlane = 100f;
+                camera.transform.position = Vector3.zero;
+                camera.transform.rotation = Quaternion.Euler(6f, -8f, 0f);
+
+                canvasObject = new GameObject("World Canvas Depth Smoke", typeof(RectTransform), typeof(Canvas),
+                    typeof(CanvasScaler), typeof(GraphicRaycaster));
+                var canvas = canvasObject.GetComponent<Canvas>();
+                var sizes = new[] { new Vector2Int(720, 1280), new Vector2Int(1080, 2400) };
+                foreach (Vector2Int size in sizes)
+                {
+                    target = new RenderTexture(size.x, size.y, 16, RenderTextureFormat.ARGB32);
+                    target.Create();
+                    camera.targetTexture = target;
+                    Require(WorldSpaceCanvasFitter.Configure(canvas, camera),
+                        "world-space UI could not fit portrait viewport " + size.x + "x" + size.y);
+
+                    float depth = Vector3.Dot(canvas.transform.position - camera.transform.position, camera.transform.forward);
+                    Require(depth > camera.nearClipPlane && depth <= camera.nearClipPlane + 0.05f,
+                        "world-space UI sits behind town geometry on " + size.x + "x" + size.y +
+                        "; camera-space depth was " + depth.ToString("F3") + " units after the camera");
+                    Require(canvas.renderMode == RenderMode.WorldSpace && canvas.worldCamera == camera,
+                        "portrait UI lost its world-space camera binding on " + size.x + "x" + size.y);
+
+                    camera.targetTexture = null;
+                    target.Release();
+                    UnityEngine.Object.DestroyImmediate(target);
+                    target = null;
+                }
+
+                Debug.Log("Dấu Xứ world canvas depth smoke PASS: town-safe UI depth and fitted world-space camera at 720x1280 and 1080x2400");
+            }
+            catch (Exception error)
+            {
+                Debug.LogError("Dấu Xứ world canvas depth smoke FAIL: " + error);
+                throw;
+            }
+            finally
+            {
+                if (target != null)
+                {
+                    if (cameraObject != null) cameraObject.GetComponent<Camera>().targetTexture = null;
+                    target.Release();
+                    UnityEngine.Object.DestroyImmediate(target);
+                }
+                if (canvasObject != null) UnityEngine.Object.DestroyImmediate(canvasObject);
+                if (cameraObject != null) UnityEngine.Object.DestroyImmediate(cameraObject);
+            }
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate World UI Town Clearance")]
+        public static void RunWorldUiTownClearanceChecks()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "taste_passport_canvas_clearance_" + Guid.NewGuid().ToString("N") + ".json");
+            GameObject cameraObject = null;
+            GameObject sessionObject = null;
+            WalkableWorldSession session = null;
+            try
+            {
+                cameraObject = new GameObject("World UI Town Clearance Camera");
+                cameraObject.tag = "MainCamera";
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.orthographic = true;
+                camera.orthographicSize = 5f;
+                camera.nearClipPlane = 0.3f;
+                camera.farClipPlane = 100f;
+                camera.transform.position = Vector3.zero;
+                camera.transform.rotation = Quaternion.identity;
+
+                var profile = new PlayerProfile
+                {
+                    playerName = "Bảo",
+                    created = true,
+                    language = "vi",
+                    lastWorldId = "hoian",
+                    lastWorldX = WorldCatalog.Get("hoian").SpawnPoint.x,
+                    lastWorldY = WorldCatalog.Get("hoian").SpawnPoint.y
+                };
+                var store = new ProfileStore(path);
+                sessionObject = new GameObject("World UI Town Clearance Session");
+                session = sessionObject.AddComponent<WalkableWorldSession>();
+                session.Open("hoian", profile, store, null);
+
+                var canvas = (Canvas)typeof(WalkableWorldSession)
+                    .GetField("worldHudCanvas", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(session);
+                var runtimeRoot = (GameObject)typeof(WalkableWorldSession)
+                    .GetField("runtimeRoot", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(session);
+                float canvasDepth = Vector3.Dot(canvas.transform.position - camera.transform.position, camera.transform.forward);
+                string occludingMesh = null;
+                foreach (var renderer in runtimeRoot.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
+                    Bounds bounds = renderer.bounds;
+                    Vector3 forward = camera.transform.forward;
+                    float centerDepth = Vector3.Dot(bounds.center - camera.transform.position, forward);
+                    float radius = Mathf.Abs(forward.x) * bounds.extents.x + Mathf.Abs(forward.y) * bounds.extents.y + Mathf.Abs(forward.z) * bounds.extents.z;
+                    float nearestDepth = centerDepth - radius;
+                    float farthestDepth = centerDepth + radius;
+                    if (farthestDepth >= camera.nearClipPlane && nearestDepth < canvasDepth)
+                    {
+                        occludingMesh = renderer.name + " at " + nearestDepth.ToString("F3") + ".." + farthestDepth.ToString("F3");
+                        break;
+                    }
+                }
+
+                Require(string.IsNullOrEmpty(occludingMesh),
+                    "walkable town geometry crosses the world HUD plane at " + canvasDepth.ToString("F3") + " units: " + occludingMesh);
+                session.Close();
+                Require(camera.transform.position == Vector3.zero,
+                    "closing the world did not restore the camera after its town-safe offset");
+                Debug.Log("Dấu Xứ world UI town clearance smoke PASS: no town mesh can occlude the fitted HUD, camera restores on close");
+            }
+            catch (Exception error)
+            {
+                Debug.LogError("Dấu Xứ world UI town clearance smoke FAIL: " + error);
+                throw;
+            }
+            finally
+            {
+                if (session != null && session.IsOpen) session.Close();
+                if (sessionObject != null) UnityEngine.Object.DestroyImmediate(sessionObject);
+                if (cameraObject != null) UnityEngine.Object.DestroyImmediate(cameraObject);
+                foreach (string file in new[] { path, path + ".bak", path + ".tmp", path + ".old" })
+                    if (File.Exists(file)) File.Delete(file);
+            }
+        }
+
         public static void RunWorldSessionChecks()
         {
             string path = Path.Combine(Path.GetTempPath(), "taste_passport_session_smoke_" + Guid.NewGuid().ToString("N") + ".json");
