@@ -22,6 +22,7 @@ namespace TastePassport.EditorTools
         [MenuItem("Tools/Taste Passport/Validate Card Adventure UI")]
         public static void RunCardAdventureUiChecks()
         {
+            RunCardNameGlyphChecks();
             const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
             Type type = typeof(PassportApp);
             Require(type.GetMethod("DrawStoryTarget", hidden) != null, "2D target card renderer is missing");
@@ -112,6 +113,85 @@ namespace TastePassport.EditorTools
                 Debug.Log("Dấu Xứ card adventure UI smoke PASS: VI/KO, portraits, one primary action, 64-unit controls, safe area, 28 generated card captures and four ending action viewports");
             }
             finally { UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root); }
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Card Name Glyphs")]
+        public static void RunCardNameGlyphChecks()
+        {
+            // Fixed-height destination titles and friend captions used to have text but no drawable glyphs.
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            var owner = new GameObject("Card name glyph fixture");
+            var root = new GameObject("Card name layout canvas", typeof(RectTransform), typeof(Canvas));
+            var failures = new System.Collections.Generic.List<string>();
+            try
+            {
+                var app = owner.AddComponent<PassportApp>();
+                root.GetComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+                foreach (var pixels in new[] { new Vector2Int(720, 1280), new Vector2Int(1080, 2400) })
+                foreach (string language in new[] { "vi", "ko" })
+                {
+                    float scale = Mathf.Sqrt(pixels.x / 720f * (pixels.y / 1280f));
+                    float width = pixels.x / scale;
+                    ((RectTransform)root.transform).sizeDelta = new Vector2(width, pixels.y / scale);
+                    typeof(PassportApp).GetField("profile", hidden).SetValue(app,
+                        new PlayerProfile { language = language, playerName = "Traveler", created = true });
+                    var content = new GameObject("Fitted card page", typeof(RectTransform), typeof(VerticalLayoutGroup),
+                        typeof(ContentSizeFitter)).GetComponent<RectTransform>();
+                    content.SetParent(root.transform, false); content.sizeDelta = new Vector2(width - 72, 1280);
+                    var layout = content.GetComponent<VerticalLayoutGroup>();
+                    layout.childControlWidth = true; layout.childControlHeight = true;
+                    layout.childForceExpandWidth = true; layout.childForceExpandHeight = false;
+                    content.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+                    typeof(PassportApp).GetMethod("DrawMap", hidden).Invoke(app, new object[] { content });
+                    typeof(PassportApp).GetMethod("DrawFinaleResult", hidden).Invoke(app, new object[] { content });
+                    Canvas.ForceUpdateCanvases();
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+                    string context = language + "/" + pixels.x + "x" + pixels.y;
+                    foreach (string surface in new[] { "Hoi An destination surface", "Jeonju destination surface" })
+                        CheckNameGlyphs(content.Find(surface).GetComponentInChildren<Text>(), context, failures);
+                    int friends = 0;
+                    foreach (var rect in content.GetComponentsInChildren<RectTransform>())
+                    {
+                        if (!rect.name.StartsWith("Festival friend - ", StringComparison.Ordinal)) continue;
+                        CheckNameGlyphs(rect.GetComponentInChildren<Text>(), context, failures);
+                        friends++;
+                    }
+                    Require(friends == 4, context + ": ending must contain all four named friends");
+                    UnityEngine.Object.DestroyImmediate(content.gameObject);
+                }
+                Require(failures.Count == 0, "Card name glyphs clipped: " + string.Join("; ", failures));
+                Debug.Log("Card name glyph smoke PASS: all destination and four friend names draw complete glyphs inside their actual VI/KO rectangles at 720x1280 and 1080x2400");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root); }
+        }
+
+        private static void CheckNameGlyphs(Text label, string context, System.Collections.Generic.List<string> failures)
+        {
+            var generator = new TextGenerator();
+            generator.Populate(label.text, label.GetGenerationSettings(label.rectTransform.rect.size));
+            int expected = 0, drawn = 0;
+            foreach (char character in label.text) if (!char.IsWhiteSpace(character)) expected++;
+            bool contained = true;
+            var bounds = label.rectTransform.rect;
+            var vertices = generator.verts;
+            for (int i = 0; i + 3 < vertices.Count; i += 4)
+            {
+                Vector2 min = vertices[i].position, max = min;
+                for (int j = 1; j < 4; j++)
+                {
+                    min = Vector2.Min(min, vertices[i + j].position);
+                    max = Vector2.Max(max, vertices[i + j].position);
+                }
+                if ((max.x - min.x) * (max.y - min.y) < .01f) continue;
+                drawn++;
+                min /= label.pixelsPerUnit; max /= label.pixelsPerUnit;
+                if (min.x < bounds.xMin - 1 || max.x > bounds.xMax + 1 ||
+                    min.y < bounds.yMin - 1 || max.y > bounds.yMax + 1) contained = false;
+            }
+            string detail = context + "/" + label.text + ": glyphs=" + drawn + "/" + expected +
+                ", rect=" + bounds.size + ", font=" + label.fontSize + ", preferredHeight=" + label.preferredHeight;
+            Debug.Log("Card name glyphs " + detail);
+            if (expected == 0 || drawn != expected || !contained) failures.Add(detail + ", contained=" + contained);
         }
 
         private static void CheckCardCaptureCoverage()

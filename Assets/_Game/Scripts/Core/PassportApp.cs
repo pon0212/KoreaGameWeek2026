@@ -1355,7 +1355,8 @@ namespace TastePassport.Core
                 28, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
             var hoian = JourneyCard(parent);
             hoian.name = "Hoi An destination surface";
-            Label(hoian, T("hoian"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            // The 38pt display face needs a 55-unit line box plus room for descenders.
+            Label(hoian, T("hoian"), 38, 64, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             CollectionCopy(hoian, T("hoian_desc"), 26, Muted, TextAnchor.MiddleCenter);
             DestinationProgress(hoian, LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id);
             CompactButton(hoian, T(showHoiAnActivities ? "journey_hide_activities" : "journey_show_activities"), Paper,
@@ -1375,7 +1376,7 @@ namespace TastePassport.Core
             HoiAnVisuals.DecorateLocationCard(hoian);
             var jeonju = JourneyCard(parent);
             jeonju.name = "Jeonju destination surface";
-            Label(jeonju, T("jeonju"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            Label(jeonju, T("jeonju"), 38, 64, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             CollectionCopy(jeonju, T("jeonju_desc"), 26, Muted, TextAnchor.MiddleCenter);
             DestinationProgress(jeonju, LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id);
             bool jeonjuUnlocked = IsJeonjuUnlocked(profile);
@@ -1962,7 +1963,7 @@ namespace TastePassport.Core
             friendsGroup.alpha = 0f;
             CollectionCopy(friendsCard, T("festival_friends_title"), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var guests = NewRect("Festival returning friends", friendsCard);
-            SetHeight(guests, 148);
+            // The row inherits the tallest measured caption, including wrapped Korean names.
             AddHorizontal(guests);
             AddFestivalFriend(guests, "character_nhung", "Art/Characters/Nhung");
             AddFestivalFriend(guests, "character_gabo", "Art/Characters/GaBo");
@@ -1986,7 +1987,6 @@ namespace TastePassport.Core
             var size = friend.gameObject.AddComponent<LayoutElement>();
             size.preferredWidth = 130;
             size.minWidth = 100;
-            size.preferredHeight = 144;
             var layout = friend.gameObject.AddComponent<VerticalLayoutGroup>();
             layout.spacing = 4;
             layout.childAlignment = TextAnchor.MiddleCenter;
@@ -2000,7 +2000,9 @@ namespace TastePassport.Core
             image.sprite = Resources.Load<Sprite>(spritePath);
             image.preserveAspect = true;
             image.raycastTarget = false;
-            Label(friend, T(nameKey), 22, 34, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var caption = CollectionCopy(friend, T(nameKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            // One line measures 37 units; wrapped VI/KO names measure 75 at phone widths.
+            caption.GetComponent<LayoutElement>().minHeight = 44;
         }
 
         private IEnumerator RevealFestivalEnding(CanvasGroup festival, CanvasGroup friends, CanvasGroup ending)
