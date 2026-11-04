@@ -36,11 +36,15 @@ namespace TastePassport.EditorTools
                 var safe = new GameObject("720x1280 safe area", typeof(RectTransform)).GetComponent<RectTransform>();
                 safe.SetParent(root.transform, false);
                 safe.sizeDelta = new Vector2(720, 1280);
+                var copyFailures = new System.Collections.Generic.List<string>();
+                foreach (string language in new[] { "vi", "ko" })
+                    CheckCampaignCardCopy(app, safe, language, copyFailures);
+                Require(copyFailures.Count == 0, "Campaign card copy failed: " + string.Join("; ", copyFailures));
                 foreach (string language in new[] { "vi", "ko" })
                 {
                     var profile = new PlayerProfile { language = language, playerName = "Traveler", created = true };
                     type.GetField("profile", hidden).SetValue(app, profile);
-                    foreach (string key in new[] { "card_continue", "card_ask_more", "card_open_target", "card_location_hint", "card_next_hint" })
+                    foreach (string key in new[] { "card_continue", "card_ask_more", "card_open_target", "card_location_hint", "card_next_hint", "card_craft_hint" })
                         Require(GameText.Get(language, key) != key && GameText.Get("vi", key) != GameText.Get("ko", key),
                             "Missing paired card copy: " + language + "/" + key);
                     var mapContent = new GameObject("Journey card copy", typeof(RectTransform)).GetComponent<RectTransform>();
@@ -106,6 +110,49 @@ namespace TastePassport.EditorTools
                 Debug.Log("Dấu Xứ card adventure UI smoke PASS: VI/KO, portraits, one primary action, 64-unit controls and 720x1280 safe area");
             }
             finally { UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root); }
+        }
+
+        private static void CheckCampaignCardCopy(PassportApp app, Transform safe, string language,
+            System.Collections.Generic.List<string> failures)
+        {
+            // Catch proximity instructions on direct craft CTAs and a reward hint that skips the journey step.
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            Type type = typeof(PassportApp);
+            var profile = new PlayerProfile { language = language, created = true, playerName = "Traveler" };
+            foreach (string id in new[] { "hoian-architecture", "hoian-cao-lau", "hoian-culture",
+                "jeonju-architecture", "jeonju-bibimbap", "jeonju-culture" })
+                ProgressService.Record(profile, id, 100, 3);
+            type.GetField("profile", hidden).SetValue(app, profile);
+            foreach (string craft in new[] { "lantern", "hanji" })
+            {
+                if (craft == "hanji") StoryProgressService.AddImprint(profile, "lantern-display-ready");
+                Require(MapObjectiveService.GetCurrent(profile, true).Action ==
+                    (craft == "lantern" ? MapObjectiveAction.LanternCraft : MapObjectiveAction.HanjiCraft),
+                    "craft copy fixture did not select " + craft);
+                var content = new GameObject("Craft journey copy", typeof(RectTransform));
+                content.transform.SetParent(safe, false);
+                type.GetMethod("DrawMap", hidden).Invoke(app, new object[] { content.transform });
+                var objective = content.transform.Find("Next objective surface");
+                bool tap = false, proximity = false;
+                foreach (var text in objective.GetComponentsInChildren<Text>())
+                {
+                    if (text.text == GameText.Get(language, "card_craft_hint") && text.text != "card_craft_hint") tap = true;
+                    if (text.text == GameText.Get(language, "world_hint_craft_" + craft)) proximity = true;
+                }
+                if (!tap || proximity) failures.Add(language + "/" + craft + ": direct craft CTA still has proximity guidance");
+                UnityEngine.Object.DestroyImmediate(content);
+            }
+            var reward = new GameObject("Lantern reward copy", typeof(RectTransform));
+            reward.transform.SetParent(safe, false);
+            type.GetMethod("DrawLanternResult", hidden).Invoke(app, new object[] { reward.transform });
+            string hint = GameText.Get(language, "activity_lantern_next");
+            bool accurateHint = hint.Contains(language == "vi" ? "hành trình" : "여정") &&
+                hint.Contains(language == "vi" ? "mục tiêu trưng bày" : "전시 목표");
+            bool rendered = false;
+            foreach (var text in reward.GetComponentsInChildren<Text>()) if (text.text == hint) rendered = true;
+            if (!rendered || !accurateHint)
+                failures.Add(language + "/lantern-result: Continue copy omits journey return and display objective selection");
+            UnityEngine.Object.DestroyImmediate(reward);
         }
 
         [MenuItem("Tools/Taste Passport/Validate Card Adventure")]

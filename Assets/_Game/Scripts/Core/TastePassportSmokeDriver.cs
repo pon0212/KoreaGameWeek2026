@@ -504,6 +504,9 @@ namespace TastePassport.Core
                         break;
                     case 59:
                         RequireCardOnly("lantern reward");
+                        if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "map_next_step")) ||
+                            !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "world_objective_see_lantern")))
+                            throw new InvalidOperationException("Lantern Continue did not return to the journey's display objective");
                         Click(GameText.Get("vi", "map_do_next"));
                         stage = 60;
                         break;

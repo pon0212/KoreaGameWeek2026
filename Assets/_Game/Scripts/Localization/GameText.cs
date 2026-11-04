@@ -8,6 +8,7 @@ namespace TastePassport.Localization
         {
             {"card_continue", "Tiếp tục"},
             {"card_next_hint", "Chạm nút bên dưới để mở thẻ câu chuyện tiếp theo."},
+            {"card_craft_hint", "Chạm nút bên dưới để bắt đầu hoạt động thủ công."},
             {"card_ask_more", "Hỏi thêm"},
             {"card_open_target", "Mở câu chuyện"},
             {"card_location_hint", "Chạm vào thẻ để gặp gỡ và khám phá câu chuyện nơi đây."},
@@ -46,7 +47,7 @@ namespace TastePassport.Localization
             {"activity_result_completed", "{name}, bạn đã hoàn thành: {place}."},
             {"activity_result_hint", "Con dấu và phần thưởng đã được lưu. Mở hộ chiếu để xem dấu ấn của bạn."},
             {"activity_coins_earned", "Xu nhận được"},
-            {"activity_lantern_next", "Chạm Tiếp tục để mở thẻ trưng bày chiếc đèn của bạn."},
+            {"activity_lantern_next", "Chạm Tiếp tục để về hành trình, rồi chọn mục tiêu trưng bày đèn."},
             {"activity_hanji_next", "Mở hành trang để xem thành phẩm, hoặc về bản đồ để trở lại Jeonju."},
             {"activity_finale_result_hint", "Ngày hội và hành trình chính đã hoàn thành. Bạn có thể trở lại hai vùng đất để khám phá tiếp."},
 
@@ -403,6 +404,7 @@ namespace TastePassport.Localization
         {
             {"card_continue", "계속하기"},
             {"card_next_hint", "아래 버튼을 눌러 다음 이야기 카드를 열어보세요."},
+            {"card_craft_hint", "아래 버튼을 눌러 공예 활동을 시작하세요."},
             {"card_ask_more", "더 물어보기"},
             {"card_open_target", "이야기 열기"},
             {"card_location_hint", "카드를 눌러 사람들을 만나고 이곳의 이야기를 알아보세요."},
@@ -441,7 +443,7 @@ namespace TastePassport.Localization
             {"activity_result_completed", "{name}, {place} 활동을 완료했어요."},
             {"activity_result_hint", "도장과 보상을 저장했어요. 여권을 열어 나의 발자취를 확인하세요."},
             {"activity_coins_earned", "받은 코인"},
-            {"activity_lantern_next", "계속하기를 눌러 직접 만든 등불의 전시 카드를 열어보세요."},
+            {"activity_lantern_next", "계속하기를 눌러 여정으로 돌아간 뒤, 등불 전시 목표를 선택하세요."},
             {"activity_hanji_next", "소지품에서 완성품을 확인하거나 지도로 돌아가 전주를 방문하세요."},
             {"activity_finale_result_hint", "축제와 주요 여정을 완료했어요. 두 지역으로 돌아가 탐험을 계속할 수 있어요."},
 

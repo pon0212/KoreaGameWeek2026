@@ -1344,8 +1344,9 @@ namespace TastePassport.Core
             var titleSize = objectiveTitle.GetComponent<LayoutElement>();
             titleSize.minHeight = -1;
             titleSize.preferredHeight = -1;
-            CollectionCopy(objectiveCard, T(nextObjective.Action == MapObjectiveAction.StoryCardTarget
-                ? "card_next_hint" : nextObjective.DescriptionKey), 26, Muted, TextAnchor.MiddleCenter);
+            string objectiveHint = nextObjective.Action == MapObjectiveAction.LanternCraft || nextObjective.Action == MapObjectiveAction.HanjiCraft
+                ? "card_craft_hint" : nextObjective.Action == MapObjectiveAction.StoryCardTarget ? "card_next_hint" : nextObjective.DescriptionKey;
+            CollectionCopy(objectiveCard, T(objectiveHint), 26, Muted, TextAnchor.MiddleCenter);
             StoryPrimary(objectiveCard, T(profile.mainStoryCompleted ? "view_ending" : nextObjective.ActionLabelKey),
                 profile.mainStoryCompleted ? () => Navigate(Page.FinaleResult) : () => RunMapObjective(nextObjective));
             CollectionCopy(parent, T("journey_destinations") + " · " + T("journey_progress") + " " +
