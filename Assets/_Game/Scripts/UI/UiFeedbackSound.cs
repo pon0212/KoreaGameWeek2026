@@ -21,8 +21,10 @@ namespace TastePassport.UI
         {
             if (PlayerPrefs.GetInt("tp_sound", 1) != 1 || string.IsNullOrWhiteSpace(text)) return;
 #if UNITY_ANDROID && !UNITY_EDITOR
+            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
             using (var bridge = new AndroidJavaClass("com.tastepassport.tts.TastePassportTts"))
-                bridge.CallStatic("speak", language == "ko" ? "ko-KR" : "vi-VN", text);
+                bridge.CallStatic("speak", activity, language == "ko" ? "ko-KR" : "vi-VN", text);
 #else
             Debug.Log("Taste Passport narration is available in Android builds; requested language: " + language);
 #endif

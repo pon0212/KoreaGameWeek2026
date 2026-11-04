@@ -1,9 +1,9 @@
 package com.tastepassport.tts;
 
+import android.content.Context;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import java.util.Locale;
-import com.unity3d.player.UnityPlayer;
 
 public final class TastePassportTts {
     private static TextToSpeech engine;
@@ -13,12 +13,12 @@ public final class TastePassportTts {
 
     private TastePassportTts() { }
 
-    public static synchronized void speak(String languageTag, String text) {
-        if (text == null || text.trim().isEmpty()) return;
+    public static synchronized void speak(Context context, String languageTag, String text) {
+        if (context == null || text == null || text.trim().isEmpty()) return;
         queuedTag = languageTag == null ? "vi-VN" : languageTag;
         queuedText = text;
         if (engine == null) {
-            engine = new TextToSpeech(UnityPlayer.currentActivity.getApplicationContext(), status -> {
+            engine = new TextToSpeech(context.getApplicationContext(), status -> {
                 synchronized (TastePassportTts.class) {
                     ready = status == TextToSpeech.SUCCESS;
                     if (ready) {
