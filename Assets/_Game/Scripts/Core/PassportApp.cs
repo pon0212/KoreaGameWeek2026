@@ -18,12 +18,12 @@ namespace TastePassport.Core
         private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards }
         private static readonly Color Cream = GameUiTheme.Cream;
         private static readonly Color Lantern = GameUiTheme.Lantern;
-        private static readonly Color Jade = GameUiTheme.Jade;
-        private static readonly Color Ink = GameUiTheme.Ink;
-        private static readonly Color Paper = GameUiTheme.Paper;
+        private static readonly Color Jade = GameUiTheme.Primary;
+        private static readonly Color Ink = GameUiTheme.TextPrimary;
+        private static readonly Color Paper = GameUiTheme.Surface;
         private static readonly Color Vermilion = GameUiTheme.Vermilion;
         private static readonly Color Border = GameUiTheme.Border;
-        private static readonly Color Muted = GameUiTheme.Muted;
+        private static readonly Color Muted = GameUiTheme.TextSecondary;
         private readonly Color[] avatarColors = { Lantern, Jade, Vermilion };
         private static Sprite roundedSprite;
         private static Sprite circleSprite;
@@ -173,7 +173,7 @@ namespace TastePassport.Core
             var scaler = canvas.GetComponent<CanvasScaler>();
             if (scaler == null) scaler = canvas.gameObject.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(720, 1280);
+            scaler.referenceResolution = GameUiTheme.ReferenceResolution;
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
             scaler.dynamicPixelsPerUnit = 1f;
@@ -2741,19 +2741,19 @@ namespace TastePassport.Core
         }
         private RectTransform Card(Transform parent, float height)
         {
-            var card = Panel("Card", parent, Paper).rectTransform;
+            var card = Panel("Card", parent, GameUiTheme.Surface).rectTransform;
             SetHeight(card, height);
             // A shallow physical offset and soft edge lift each paper surface above its stage.
             card.localPosition = new Vector3(0f, 0f, -3f);
             var shadow = card.gameObject.AddComponent<Shadow>();
-            shadow.effectColor = new Color(Ink.r, Ink.g, Ink.b, .24f);
-            shadow.effectDistance = new Vector2(0f, -8f);
+            shadow.effectColor = GameUiTheme.PaperShadow;
+            shadow.effectDistance = new Vector2(0f, -3f);
             var border = card.gameObject.AddComponent<Outline>();
             border.effectColor = Border;
-            border.effectDistance = new Vector2(2, -2);
+            border.effectDistance = new Vector2(1, -1);
             var layout = card.gameObject.AddComponent<VerticalLayoutGroup>();
-            layout.padding = new RectOffset(24, 24, 18, 18);
-            layout.spacing = 6;
+            layout.padding = new RectOffset(GameUiTheme.SpaceLarge, GameUiTheme.SpaceLarge, GameUiTheme.CardPaddingVertical, GameUiTheme.CardPaddingVertical);
+            layout.spacing = GameUiTheme.SpaceSmall;
             layout.childAlignment = TextAnchor.MiddleCenter;
             layout.childControlWidth = true;
             layout.childControlHeight = true;
@@ -2771,7 +2771,7 @@ namespace TastePassport.Core
             label.text = value;
             // The narrowest secondary labels used to render at 22-23 reference
             // pixels, which became hard to read in a phone-width Game view.
-            int readableSize = Mathf.Max(26, height >= 55f && size < 32 ? size + 2 : size);
+            int readableSize = Mathf.Max(GameUiTheme.MinimumBodyFontSize, height >= 55f && size < 32 ? size + 2 : size);
             label.fontSize = readableSize;
             label.fontStyle = classic && displayFont != font ? FontStyle.Normal : style;
             label.color = color;
@@ -2808,19 +2808,24 @@ namespace TastePassport.Core
         private GameObject Button(Transform parent, string text, Color background, Action action, Color? foreground = null)
         {
             var rect = Panel("Button " + text, parent, background).rectTransform;
-            SetHeight(rect, 92);
+            SetHeight(rect, GameUiTheme.ButtonHeight);
             rect.GetComponent<Image>().raycastTarget = true;
             var shadow = rect.gameObject.AddComponent<Shadow>();
             shadow.effectColor = new Color(0.26f, 0.21f, 0.17f, 0.2f);
             shadow.effectDistance = new Vector2(0, -3);
             var button = rect.gameObject.AddComponent<UnityEngine.UI.Button>();
             var colors = button.colors;
-            colors.highlightedColor = Color.Lerp(background, Color.white, 0.18f);
-            colors.pressedColor = Color.Lerp(background, Ink, 0.15f);
+            colors.highlightedColor = Color.Lerp(Color.white, GameUiTheme.Secondary, .12f);
+            colors.pressedColor = Color.Lerp(Color.white, GameUiTheme.Ink, .12f);
+            colors.selectedColor = colors.highlightedColor;
+            colors.disabledColor = GameUiTheme.Disabled;
             button.colors = colors;
             button.onClick.AddListener(() => { feedbackSound?.PlayTap(); action(); });
             var label = Label(rect, text, 29, 90, foreground ?? (background == Lantern || background == Paper ? Ink : Color.white), TextAnchor.MiddleCenter, FontStyle.Bold);
             Stretch(label.rectTransform);
+            label.rectTransform.offsetMin = new Vector2(GameUiTheme.SpaceMedium, 0f);
+            label.rectTransform.offsetMax = new Vector2(-GameUiTheme.SpaceMedium, 0f);
+            rect.gameObject.AddComponent<GameUiButtonMotion>();
             return rect.gameObject;
         }
         private InputField Input(Transform parent, string value, string hint)

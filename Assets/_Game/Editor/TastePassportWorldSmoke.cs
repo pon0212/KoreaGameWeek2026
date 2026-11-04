@@ -17,6 +17,72 @@ namespace TastePassport.EditorTools
 {
     public static class TastePassportWorldSmoke
     {
+        [MenuItem("Tools/Taste Passport/Validate Shared UI")]
+        public static void RunSharedUiChecks()
+        {
+            var root = new GameObject("Shared UI smoke", typeof(RectTransform), typeof(Canvas));
+            var owner = new GameObject("UI builder smoke");
+            owner.SetActive(false); // Exercise builders without loading a player profile or audio.
+            try
+            {
+                root.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+                var panel = new GameObject("Reference safe area", typeof(RectTransform)).GetComponent<RectTransform>();
+                panel.SetParent(root.transform, false);
+                panel.sizeDelta = new Vector2(720f, 1280f);
+                var app = owner.AddComponent<PassportApp>();
+                var appButton = (GameObject)typeof(PassportApp).GetMethod("Button", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(app, new object[] { panel, "Tiếp tục hành trình · 여행 계속하기", GameUiTheme.Jade, (Action)(() => { }), null });
+                var appRect = appButton.GetComponent<RectTransform>();
+                appRect.sizeDelta = new Vector2(640f, appRect.GetComponent<LayoutElement>().preferredHeight);
+                var session = owner.AddComponent<WalkableWorldSession>();
+                int clicks = 0;
+                var worldButton = (Button)typeof(WalkableWorldSession).GetMethod("CreateButton", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(session, new object[] { panel, "Smoke world button", "Nhung · 이야기", new Vector2(.5f, .5f),
+                        new Vector2(.5f, .5f), new Vector2(0f, -180f), new Vector2(280f, 32f),
+                        (Action)(() => clicks++), GameUiTheme.Paper, GameUiTheme.Ink, 26 });
+                Canvas.ForceUpdateCanvases();
+                foreach (var button in new[] { appButton.GetComponent<Button>(), worldButton })
+                {
+                    var rect = button.GetComponent<RectTransform>();
+                    Require(rect.rect.width >= 64f && rect.rect.height >= 64f, "shared button builder permits a touch target below 64 units");
+                    var corners = new Vector3[4];
+                    rect.GetWorldCorners(corners);
+                    foreach (var corner in corners)
+                    {
+                        Vector2 screen = RectTransformUtility.WorldToScreenPoint(null, corner);
+                        Require(screen.x >= 0f && screen.x <= Screen.width && screen.y >= 0f && screen.y <= Screen.height,
+                            "shared control extends outside screen-space bounds");
+                    }
+                    var motionType = Type.GetType("TastePassport.UI.GameUiButtonMotion, Assembly-CSharp");
+                    Require(motionType != null && button.GetComponent(motionType) != null, "shared button has no visual-state motion");
+                    var motion = button.GetComponent(motionType);
+                    // ExecuteMethod runs outside play mode, so initialize the runtime lifecycle explicitly.
+                    motionType.GetMethod("Awake", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, null);
+                    var pointer = new PointerEventData(null) { button = PointerEventData.InputButton.Left };
+                    ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerDownHandler);
+                    motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { .2f });
+                    Require(button.GetComponentInChildren<Text>().transform.localScale.x < 1f, "press does not produce restrained visual response");
+                    ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerUpHandler);
+                    ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerEnterHandler);
+                    motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { .2f });
+                    Require(button.GetComponentInChildren<Text>().transform.localScale.x > 1f, "highlight does not produce visual response");
+                    button.interactable = false;
+                    motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { .2f });
+                    Require(button.GetComponentInChildren<Text>().transform.localScale == Vector3.one, "disabled button retains motion state");
+                    Require(rect.localScale == Vector3.one, "button motion changes its touch surface");
+                    button.interactable = true;
+                }
+                worldButton.onClick.Invoke();
+                Require(clicks == 1, "button motion replaced the existing click action");
+                Debug.Log("Dấu Xứ shared UI smoke PASS: minimum targets, screen bounds, press/highlight/disabled response, stable hit surface, and click preservation");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Phase Four")]
         public static void RunPhaseFourChecks()
         {
@@ -152,6 +218,7 @@ namespace TastePassport.EditorTools
         [MenuItem("Tools/Taste Passport/Validate Phase Three")]
         public static void RunPhaseThreeChecks()
         {
+            RunSharedUiChecks();
             RunProfileAndStoryChecks();
             RunWorldBoundsChecks();
             RunCharacterSpriteChecks();
@@ -1116,7 +1183,7 @@ namespace TastePassport.EditorTools
                 Require(store.TrySave(profile), "could not seed a Jeonju world-session profile");
                 session.Open("jeonju", profile, store, () => closeCount++);
                 Require(session.InteractionButtonLabel == "Tương tác · Ga Bo (가보)", "Jeonju interaction prompt did not name Ga Bo");
-                session.SetPlayerPosition(WorldCatalog.Get("jeonju").Interactables[1].Position);
+                session.SetPlayerPosition(FindTarget(WorldCatalog.Get("jeonju"), "hanok").Position);
                 Require(session.InteractionButtonLabel == "Tương tác · Làng Hanok", "Jeonju landmark prompt did not name the Hanok village");
                 session.Close();
                 Require(closeCount == 4, "Jeonju world session did not close exactly once");

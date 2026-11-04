@@ -15,9 +15,9 @@ namespace TastePassport.World
     public sealed class WalkableWorldSession : MonoBehaviour
     {
         private const float CharacterVisualScale = 0.22f;
-        private static readonly Color Ink = GameUiTheme.Ink;
-        private static readonly Color Jade = GameUiTheme.Jade;
-        private static readonly Color Paper = GameUiTheme.Paper;
+        private static readonly Color Ink = GameUiTheme.TextPrimary;
+        private static readonly Color Jade = GameUiTheme.Primary;
+        private static readonly Color Paper = GameUiTheme.Surface;
 
         private readonly List<WorldInteractable> targets = new List<WorldInteractable>();
         private PlayerProfile profile;
@@ -469,7 +469,7 @@ namespace TastePassport.World
             canvas.sortingOrder = 100;
             var scaler = canvasObject.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(720f, 1280f);
+            scaler.referenceResolution = GameUiTheme.ReferenceResolution;
             scaler.matchWidthOrHeight = 0.5f;
 
             RectTransform canvasRect = canvasObject.GetComponent<RectTransform>();
@@ -909,16 +909,21 @@ namespace TastePassport.World
             rect.pivot = new Vector2(anchorMin.x == anchorMax.x ? anchorMin.x : 0.5f,
                 anchorMin.y == anchorMax.y ? anchorMin.y : 0.5f);
             rect.anchoredPosition = anchoredPosition;
+            // Stretch anchors already contribute width/height; fixed axes need a full touch target.
+            if (Mathf.Approximately(anchorMin.x, anchorMax.x)) size.x = Mathf.Max(GameUiTheme.MinimumTapTarget, size.x);
+            if (Mathf.Approximately(anchorMin.y, anchorMax.y)) size.y = Mathf.Max(GameUiTheme.MinimumTapTarget, size.y);
             rect.sizeDelta = size;
             var button = buttonObject.AddComponent<Button>();
             button.targetGraphic = buttonObject.GetComponent<Image>();
             var colors = button.colors;
-            colors.highlightedColor = GameUiTheme.Cream;
-            colors.pressedColor = GameUiTheme.Border;
-            colors.disabledColor = new Color(1f, 1f, 1f, 0.55f);
+            colors.highlightedColor = Color.Lerp(Color.white, GameUiTheme.Secondary, .12f);
+            colors.pressedColor = Color.Lerp(Color.white, GameUiTheme.Ink, .12f);
+            colors.selectedColor = colors.highlightedColor;
+            colors.disabledColor = GameUiTheme.Disabled;
             button.colors = colors;
             button.onClick.AddListener(() => clicked?.Invoke());
             CreateText("Label", buttonObject.transform, Vector2.zero, Vector2.one, label, fontSize, foreground, TextAnchor.MiddleCenter, FontStyle.Bold);
+            buttonObject.AddComponent<GameUiButtonMotion>();
             return button;
         }
 
