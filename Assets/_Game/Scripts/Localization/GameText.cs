@@ -6,6 +6,11 @@ namespace TastePassport.Localization
     {
         private static readonly Dictionary<string, string> Vi = new Dictionary<string, string>
         {
+            {"card_continue", "Tiếp tục"},
+            {"card_next_hint", "Chạm nút bên dưới để mở thẻ câu chuyện tiếp theo."},
+            {"card_ask_more", "Hỏi thêm"},
+            {"card_open_target", "Mở câu chuyện"},
+            {"card_location_hint", "Chạm vào thẻ để gặp gỡ và khám phá câu chuyện nơi đây."},
             {"activity_ready", "Trước khi bắt đầu"},
             {"activity_explore_intro", "Tìm ba mảnh ở các địa điểm, rồi ghép thành bưu thiếp để nhận con dấu."},
             {"activity_search_phase", "1. Tìm mảnh bưu thiếp"},
@@ -41,7 +46,7 @@ namespace TastePassport.Localization
             {"activity_result_completed", "{name}, bạn đã hoàn thành: {place}."},
             {"activity_result_hint", "Con dấu và phần thưởng đã được lưu. Mở hộ chiếu để xem dấu ấn của bạn."},
             {"activity_coins_earned", "Xu nhận được"},
-            {"activity_lantern_next", "Trở lại Hội An để tìm chiếc đèn của bạn tại điểm trưng bày."},
+            {"activity_lantern_next", "Chạm Tiếp tục để mở thẻ trưng bày chiếc đèn của bạn."},
             {"activity_hanji_next", "Mở hành trang để xem thành phẩm, hoặc về bản đồ để trở lại Jeonju."},
             {"activity_finale_result_hint", "Ngày hội và hành trình chính đã hoàn thành. Bạn có thể trở lại hai vùng đất để khám phá tiếp."},
 
@@ -396,6 +401,11 @@ namespace TastePassport.Localization
 
         private static readonly Dictionary<string, string> Ko = new Dictionary<string, string>
         {
+            {"card_continue", "계속하기"},
+            {"card_next_hint", "아래 버튼을 눌러 다음 이야기 카드를 열어보세요."},
+            {"card_ask_more", "더 물어보기"},
+            {"card_open_target", "이야기 열기"},
+            {"card_location_hint", "카드를 눌러 사람들을 만나고 이곳의 이야기를 알아보세요."},
             {"activity_ready", "시작하기 전에"},
             {"activity_explore_intro", "장소를 살펴 조각 세 개를 찾고 엽서를 완성해 도장을 받으세요."},
             {"activity_search_phase", "1. 엽서 조각 찾기"},
@@ -431,7 +441,7 @@ namespace TastePassport.Localization
             {"activity_result_completed", "{name}, {place} 활동을 완료했어요."},
             {"activity_result_hint", "도장과 보상을 저장했어요. 여권을 열어 나의 발자취를 확인하세요."},
             {"activity_coins_earned", "받은 코인"},
-            {"activity_lantern_next", "호이안으로 돌아가 전시된 나의 등불을 찾아보세요."},
+            {"activity_lantern_next", "계속하기를 눌러 직접 만든 등불의 전시 카드를 열어보세요."},
             {"activity_hanji_next", "소지품에서 완성품을 확인하거나 지도로 돌아가 전주를 방문하세요."},
             {"activity_finale_result_hint", "축제와 주요 여정을 완료했어요. 두 지역으로 돌아가 탐험을 계속할 수 있어요."},
 

@@ -19,6 +19,95 @@ namespace TastePassport.EditorTools
 {
     public static class TastePassportWorldSmoke
     {
+        [MenuItem("Tools/Taste Passport/Validate Card Adventure UI")]
+        public static void RunCardAdventureUiChecks()
+        {
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            Type type = typeof(PassportApp);
+            Require(type.GetMethod("DrawStoryTarget", hidden) != null, "2D target card renderer is missing");
+            Require(type.GetMethod("DrawStoryCard", hidden) != null, "2D dialogue card renderer is missing");
+            var owner = new GameObject("Card UI builder");
+            owner.SetActive(false);
+            var root = new GameObject("Card UI reference", typeof(RectTransform), typeof(Canvas));
+            try
+            {
+                root.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+                var app = owner.AddComponent<PassportApp>();
+                var safe = new GameObject("720x1280 safe area", typeof(RectTransform)).GetComponent<RectTransform>();
+                safe.SetParent(root.transform, false);
+                safe.sizeDelta = new Vector2(720, 1280);
+                foreach (string language in new[] { "vi", "ko" })
+                {
+                    var profile = new PlayerProfile { language = language, playerName = "Traveler", created = true };
+                    type.GetField("profile", hidden).SetValue(app, profile);
+                    foreach (string key in new[] { "card_continue", "card_ask_more", "card_open_target", "card_location_hint", "card_next_hint" })
+                        Require(GameText.Get(language, key) != key && GameText.Get("vi", key) != GameText.Get("ko", key),
+                            "Missing paired card copy: " + language + "/" + key);
+                    var mapContent = new GameObject("Journey card copy", typeof(RectTransform)).GetComponent<RectTransform>();
+                    mapContent.SetParent(safe, false);
+                    type.GetMethod("DrawMap", hidden).Invoke(app, new object[] { mapContent });
+                    bool touchHint = false;
+                    foreach (var label in mapContent.GetComponentsInChildren<Text>())
+                    {
+                        if (label.text == GameText.Get(language, "card_next_hint")) touchHint = true;
+                        Require(label.text != GameText.Get(language, "world_hint_find_nhung"),
+                            language + ": journey still instructs the player to walk to Nhung");
+                    }
+                    Require(touchHint, language + ": journey has no touch-card guidance");
+                    UnityEngine.Object.DestroyImmediate(mapContent.gameObject);
+                    foreach (string worldId in new[] { "hoian", "jeonju" })
+                    foreach (var target in WorldCatalog.Get(worldId).Interactables)
+                    {
+                        type.GetField("storyWorldId", hidden).SetValue(app, worldId);
+                        type.GetField("storyTarget", hidden).SetValue(app, target);
+                        type.GetField("storyCardInteraction", hidden).SetValue(app,
+                            new WorldInteractionResult(target, target.FirstDialogueKey, true, true));
+                        foreach (string renderer in new[] { "DrawStoryTarget", "DrawStoryCard" })
+                        {
+                            var content = new GameObject("Card content", typeof(RectTransform), typeof(VerticalLayoutGroup)).GetComponent<RectTransform>();
+                            content.SetParent(safe, false);
+                            content.anchorMin = Vector2.zero; content.anchorMax = Vector2.one;
+                            content.offsetMin = new Vector2(36, 40); content.offsetMax = new Vector2(-36, -40);
+                            var layout = content.GetComponent<VerticalLayoutGroup>();
+                            layout.spacing = 18; layout.childControlWidth = true; layout.childForceExpandWidth = true;
+                            layout.childControlHeight = true; layout.childForceExpandHeight = false;
+                            type.GetMethod(renderer, hidden).Invoke(app, new object[] { content });
+                            Canvas.ForceUpdateCanvases();
+                            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+                            int primary = 0;
+                            foreach (var button in content.GetComponentsInChildren<Button>())
+                            {
+                                if (button.GetComponent<Image>().color == GameUiTheme.Primary) primary++;
+                                var rect = button.GetComponent<RectTransform>();
+                                Require(rect.rect.width >= 64 && rect.rect.height >= 64,
+                                    language + ": card touch target below 64: " + button.name + " " + rect.rect.size);
+                                var corners = new Vector3[4]; rect.GetWorldCorners(corners);
+                                foreach (var corner in corners)
+                                    Require(safe.rect.Contains((Vector2)safe.InverseTransformPoint(corner)),
+                                        language + ": card action outside safe area: " + button.name);
+                            }
+                            Require(primary == 1, language + ": card must have one primary action");
+                            if (target.IsNpc)
+                            {
+                                bool portrait = false;
+                                foreach (var image in content.GetComponentsInChildren<Image>())
+                                    if (image.name == "Story portrait" && image.sprite != null && image.gameObject.activeInHierarchy) portrait = true;
+                                Require(portrait, language + ": NPC portrait is missing");
+                            }
+                            bool named = false;
+                            foreach (var label in content.GetComponentsInChildren<Text>())
+                                if (label.text == GameText.Get(language, target.NameKey)) named = true;
+                            Require(named, language + ": target name is missing");
+                            UnityEngine.Object.DestroyImmediate(content.gameObject);
+                        }
+                    }
+                }
+                Require(owner.GetComponent<WalkableWorldSession>() == null, "card UI created a world session");
+                Debug.Log("Dấu Xứ card adventure UI smoke PASS: VI/KO, portraits, one primary action, 64-unit controls and 720x1280 safe area");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root); }
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Card Adventure")]
         public static void RunCardAdventureChecks()
         {

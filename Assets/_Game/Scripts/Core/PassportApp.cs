@@ -15,7 +15,7 @@ namespace TastePassport.Core
 {
     public sealed class PassportApp : MonoBehaviour
     {
-        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards, StoryCard }
+        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards, StoryCard, StoryTarget }
         private static readonly Color Cream = GameUiTheme.Cream;
         private static readonly Color Lantern = GameUiTheme.Lantern;
         private static readonly Color Jade = GameUiTheme.Primary;
@@ -68,6 +68,9 @@ namespace TastePassport.Core
         private Coroutine finaleReveal;
         private WalkableWorldSession worldSession;
         private WorldInteractionResult storyCardInteraction;
+        private WorldInteractableDefinition storyTarget;
+        private string storyWorldId = "hoian";
+        private bool storyAskMore;
         private LanternCraftRun lanternCraftRun;
         private string selectedLanternMaterialId;
         private string lanternResultItemId;
@@ -344,6 +347,8 @@ namespace TastePassport.Core
                 case Page.Passport: DrawPassport(content); break;
                 case Page.Postcard: DrawPostcard(content); break;
                 case Page.Map: DrawMap(content); break;
+                case Page.StoryTarget: DrawStoryTarget(content); break;
+                case Page.StoryCard: DrawStoryCard(content); break;
                 case Page.Wardrobe: DrawWardrobe(content); break;
                 case Page.Settings: DrawSettings(content); break;
                 case Page.Dialogue: DrawDialogue(content); break;
@@ -532,10 +537,7 @@ namespace TastePassport.Core
                     Navigate(Page.Language);
                     return;
                 }
-                string lastWorld = profile.lastWorldId;
-                if (lastWorld == "hoian" || (lastWorld == "jeonju" && IsJeonjuUnlocked(profile)))
-                    OpenWorld(lastWorld);
-                else Navigate(Page.Map);
+                Navigate(Page.Map);
             });
             var row = NewRect("Menu secondary navigation", parent);
             SetHeight(row, 84);
@@ -648,7 +650,7 @@ namespace TastePassport.Core
                 Navigate(profileEditReturnPage);
                 return;
             }
-            OpenWorld("hoian");
+            Navigate(Page.Map);
         }
 
         private void CollectionHeader(Transform parent, string titleKey, string hintKey, string status = null)
@@ -948,7 +950,7 @@ namespace TastePassport.Core
             if (InventoryService.HasCultureCard(profile, InventoryService.LanternCardId))
                 CollectionCopy(earned, T("culture_cards") + ": " + T("culture_lantern_title"), 26, Ink, TextAnchor.MiddleCenter);
             CollectionCopy(parent, T("activity_lantern_next"), 26, Muted, TextAnchor.MiddleCenter);
-            Button(parent, T("continue_free_exploration"), Jade, () => OpenWorld("hoian"));
+            Button(parent, T("card_continue"), Jade, () => Navigate(Page.Map));
             CompactButton(parent, T("inventory"), Paper, () => Navigate(Page.Inventory), Ink);
             CompactButton(parent, T("culture_cards"), Paper, () => Navigate(Page.CultureCards), Ink);
             CompactButton(parent, T("craft_again"), Paper, StartLanternCraft, Ink);
@@ -1342,8 +1344,10 @@ namespace TastePassport.Core
             var titleSize = objectiveTitle.GetComponent<LayoutElement>();
             titleSize.minHeight = -1;
             titleSize.preferredHeight = -1;
-            CollectionCopy(objectiveCard, T(nextObjective.DescriptionKey), 26, Muted, TextAnchor.MiddleCenter);
-            Button(objectiveCard, T(nextObjective.ActionLabelKey), Jade, () => RunMapObjective(nextObjective));
+            CollectionCopy(objectiveCard, T(nextObjective.Action == MapObjectiveAction.StoryCardTarget
+                ? "card_next_hint" : nextObjective.DescriptionKey), 26, Muted, TextAnchor.MiddleCenter);
+            StoryPrimary(objectiveCard, T(profile.mainStoryCompleted ? "view_ending" : nextObjective.ActionLabelKey),
+                profile.mainStoryCompleted ? () => Navigate(Page.FinaleResult) : () => RunMapObjective(nextObjective));
             CollectionCopy(parent, T("journey_destinations") + " · " + T("journey_progress") + " " +
                 JourneyStampCount(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
                     LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id) + "/6",
@@ -1359,7 +1363,8 @@ namespace TastePassport.Core
             {
                 Artwork(hoian, TravelArtworkKind.VietnamJourney, 150);
                 Label(hoian, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-                CompactButton(hoian, T("explore_hoian"), Paper, () => OpenWorld("hoian"), Ink);
+                DrawLocationTargets(hoian, "hoian");
+                if (profile.mainStoryCompleted) CompactButton(hoian, T("explore_hoian"), Paper, () => OpenWorld("hoian"), Ink);
                 CompactButton(hoian, MissionLabel("journey_hoian_architecture", LevelCatalog.HoiAn.Id), Paper, () => StartLevel(LevelCatalog.HoiAn), Ink);
                 CompactButton(hoian, T("lantern_craft_map"), Paper, StartLanternCraft, Ink);
                 Label(hoian, T("journey_food_exchange"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
@@ -1380,9 +1385,9 @@ namespace TastePassport.Core
             {
                 Artwork(jeonju, TravelArtworkKind.KoreaJourney, 150);
                 Label(jeonju, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-                CompactButton(jeonju, T("explore_jeonju") + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
-                    jeonjuUnlocked ? () => OpenWorld("jeonju") : () => Toast(T("jeonju_not_unlocked")), Ink)
-                    .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
+                DrawLocationTargets(jeonju, "jeonju");
+                if (profile.mainStoryCompleted)
+                    CompactButton(jeonju, T("explore_jeonju"), Paper, () => OpenWorld("jeonju"), Ink);
                 JourneyMissionButton(jeonju, "journey_jeonju_architecture", LevelCatalog.Jeonju.Id, MatchCatalog.HoiAn.Id, "hoian_exchange", () => StartLevel(LevelCatalog.Jeonju));
                 CompactButton(jeonju, T("hanji_craft_map") + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
                     jeonjuUnlocked ? StartHanjiCraft : () => Toast(T("jeonju_not_unlocked")), Ink)
@@ -1448,6 +1453,75 @@ namespace TastePassport.Core
             }
         }
 
+        private GameObject StoryPrimary(Transform parent, string label, Action action)
+        {
+            return Button(parent, label, Jade, action);
+        }
+
+        private void DrawLocationTargets(Transform parent, string worldId)
+        {
+            CollectionCopy(parent, T("card_location_hint"), 26, Muted, TextAnchor.MiddleCenter);
+            foreach (var definition in WorldCatalog.Get(worldId).Interactables)
+            {
+                var target = definition;
+                bool available = (worldId != "jeonju" || IsJeonjuUnlocked(profile)) &&
+                    (string.IsNullOrEmpty(target.RequiredImprintId) || StoryProgressService.HasImprint(profile, target.RequiredImprintId));
+                CompactButton(parent, T(target.NameKey) + (available ? "" : " · " + T("locked")), available ? Paper : Border,
+                    () => OpenTargetCard(worldId, target), Ink).GetComponent<UnityEngine.UI.Button>().interactable = available;
+            }
+        }
+
+        private void OpenTargetCard(string worldId, WorldInteractableDefinition target)
+        {
+            if (target == null || (worldId == "jeonju" && !IsJeonjuUnlocked(profile)) ||
+                (!string.IsNullOrEmpty(target.RequiredImprintId) && !StoryProgressService.HasImprint(profile, target.RequiredImprintId))) return;
+            storyWorldId = worldId;
+            storyTarget = target;
+            koreanBackdrop = worldId == "jeonju";
+            Navigate(Page.StoryTarget);
+        }
+
+        private void StoryPortrait(Transform parent, WorldInteractableDefinition target)
+        {
+            var portrait = NewRect("Story portrait", parent);
+            SetHeight(portrait, target.IsNpc ? 210 : 170);
+            var image = portrait.gameObject.AddComponent<Image>();
+            image.sprite = Resources.Load<Sprite>(target.SpriteResourcePath ?? WorldCatalog.Get(storyWorldId).BackgroundResourcePath);
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+        }
+
+        private void DrawStoryTarget(Transform parent)
+        {
+            if (storyTarget == null) return;
+            var card = JourneyCard(parent);
+            card.name = "Story target surface";
+            StoryPortrait(card, storyTarget);
+            CollectionCopy(card, T(storyTarget.NameKey), 36, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T("card_location_hint"), 26, Muted, TextAnchor.MiddleCenter);
+            StoryPrimary(card, T("card_open_target"), () => OpenStoryCard(storyWorldId, storyTarget.Id));
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+        }
+
+        private void DrawStoryCard(Transform parent)
+        {
+            if (storyCardInteraction == null) return;
+            var target = storyCardInteraction.Target;
+            var card = JourneyCard(parent);
+            card.name = "Story dialogue surface";
+            StoryPortrait(card, target);
+            CollectionCopy(card, T(target.NameKey), 34, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (target.SpeakerKey != target.NameKey)
+                CollectionCopy(card, T(target.SpeakerKey), 24, Jade, TextAnchor.MiddleCenter);
+            CollectionCopy(card, T(storyAskMore ? target.OptionalDialogueKey : storyCardInteraction.DialogueKey), 27, Ink);
+            bool activity = !string.IsNullOrEmpty(target.ActivityId);
+            StoryPrimary(card, activity ? T(target.ActivityId == "lantern-craft" ? "lantern_craft_map" : "hanji_craft_map") : T("card_continue"),
+                activity ? () => HandleWorldActivity(target.ActivityId) : () => Navigate(Page.Map));
+            if (!string.IsNullOrEmpty(target.OptionalDialogueKey) && !storyAskMore)
+                CompactButton(card, T("card_ask_more"), Paper, () => { storyAskMore = true; Show(); }, Ink);
+            CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+        }
+
         private void OpenStoryCard(string worldId, string targetId)
         {
             if (profile == null || store == null || string.IsNullOrEmpty(targetId)) return;
@@ -1469,6 +1543,9 @@ namespace TastePassport.Core
             WorldInteractionResult interaction = WorldInteractionService.Interact(candidate, target);
             if (interaction == null || !TryPersistCandidate(candidate)) return;
             storyCardInteraction = interaction;
+            storyTarget = target;
+            storyWorldId = worldId;
+            storyAskMore = false;
             koreanBackdrop = worldId == "jeonju";
             Navigate(Page.StoryCard);
         }
