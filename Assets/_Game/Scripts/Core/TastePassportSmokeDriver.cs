@@ -2,6 +2,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
+using System.Reflection;
 using TastePassport.Gameplay;
 using TastePassport.Localization;
 using TastePassport.Save;
@@ -18,7 +20,7 @@ namespace TastePassport.Core
     public sealed class TastePassportSmokeDriver : MonoBehaviour
     {
         private static readonly string[] Ids = { LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id, LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id };
-        private static readonly string[] MapLabels = { "Hội An", "Cao Lầu", "Vị khách phương xa", "Jeonju", "Bibimbap", "Hành trình giao lưu" };
+        private static readonly string[] MapLabels = { GameText.Get("vi", "journey_hoian_architecture"), "Cao Lầu", "Vị khách phương xa", GameText.Get("vi", "journey_jeonju_architecture"), "Bibimbap", "Hành trình giao lưu" };
         private PassportApp app;
         private string testPath;
         private int stage, mission, searchIndex, pieceIndex, recipeStep;
@@ -37,6 +39,16 @@ namespace TastePassport.Core
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TP_SMOKE_PROFILE"))) return;
             var target = FindAnyObjectByType<PassportApp>();
             if (target != null) target.gameObject.AddComponent<TastePassportSmokeDriver>();
+        }
+
+        // Focused runtime entrypoint; uses the same real screen builders and save store as the full smoke.
+        public static void RunMenuMapChecks()
+        {
+            Environment.SetEnvironmentVariable("TP_SMOKE_MENU_MAP", "1");
+            string path = Path.Combine(Path.GetTempPath(), "taste_passport_menu_map_" + Guid.NewGuid().ToString("N") + ".json");
+            Environment.SetEnvironmentVariable("TP_SMOKE_PROFILE", path);
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/_Game/Scenes/TastePassport_MVP.unity");
+            EditorApplication.isPlaying = true;
         }
 
         private void Awake()
@@ -69,6 +81,13 @@ namespace TastePassport.Core
                 switch (stage)
                 {
                     case 0:
+                        VerifyMenuMapScreens();
+                        if (Environment.GetEnvironmentVariable("TP_SMOKE_MENU_MAP") == "1")
+                        {
+                            Environment.SetEnvironmentVariable("TP_SMOKE_MENU_MAP", null);
+                            Finish(0, "Dấu Xứ menu/map smoke PASS: single CTA, saved continuation, profile, objective, locked routes, and localized settings");
+                            return;
+                        }
                         if (new ProfileStore(testPath).Load().language != "vi")
                             throw new InvalidDataException("A fresh profile did not default to Vietnamese");
                         if (GameText.Get("vi", "title") != "DẤU XỨ VIỆT HÀN" ||
@@ -84,7 +103,7 @@ namespace TastePassport.Core
                         if (input == null) throw new InvalidOperationException("Name input missing; buttons=" + string.Join(",", app.GetComponentsInChildren<Button>(true).Select(b => b.name)));
                         input.text = "Smoke Player";
                         Click("Mây"); stage = 3; break;
-                    case 3: Click("Tạo nhà thám hiểm"); stage = 4; break;
+                    case 3: Click(GameText.Get("vi", "journey_enter_hoian")); stage = 4; break;
                     case 4:
                         var profile = new ProfileStore(testPath).Load();
                         if (!profile.created || profile.playerName != "Smoke Player" || profile.avatarIndex != 1)
@@ -123,6 +142,7 @@ namespace TastePassport.Core
                         journalButton.onClick.Invoke();
                         StartTouchMovementCheck(); break;
                     case 5:
+                        ExpandMapActivities();
                         if (mission == 0 && !hoianWorldChecked)
                         {
                             CheckWorldEntry("hoian", "explore_hoian", "prologue_nhung_first", "nhung-intro-seen", () => hoianWorldChecked = true);
@@ -135,7 +155,7 @@ namespace TastePassport.Core
                         }
                         Click(MapLabels[mission]); stage = 6; break;
                     case 6:
-                        Click("Bắt đầu khám phá");
+                        Click(GameText.Get("vi", mission == 0 || mission == 3 ? "mission_start" : mission == 1 || mission == 4 ? "activity_start_recipe" : "activity_start_match"));
                         stage = mission == 0 || mission == 3 ? 7 : mission == 1 || mission == 4 ? 10 : 11;
                         break;
                     case 7:
@@ -209,10 +229,10 @@ namespace TastePassport.Core
                     case 15:
                         if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "postcard_1_story")))
                             throw new InvalidOperationException("Postcard back is missing story text");
-                        Click("Hộ chiếu của bạn");
+                        Click(GameText.Get("vi", "nav_back_passport"));
                         stage = 16;
                         break;
-                    case 16: Click("Quay lại"); stage = 17; break;
+                    case 16: Click(GameText.Get("vi", "nav_back_menu")); stage = 17; break;
                     case 17:
                         Click("Cài đặt");
                         if (app.GetComponentsInChildren<Slider>(true).Length != 3)
@@ -225,7 +245,7 @@ namespace TastePassport.Core
                     case 18: Click("한국어"); stage = 19; break;
                     case 19:
                         var translated = new ProfileStore(testPath).Load();
-                        if (translated.language != "ko" || Find("뒤로") == null ||
+                        if (translated.language != "ko" || Find(GameText.Get("ko", "nav_back_previous")) == null ||
                             app.GetComponentsInChildren<Slider>(true).Length != 3)
                             throw new InvalidDataException("Korean switch was not saved or rendered");
                         foreach (string key in new[] { "settings_music_volume", "settings_sfx_volume", "settings_ambience_volume" })
@@ -234,19 +254,18 @@ namespace TastePassport.Core
                         Click("Tiếng Việt"); stage = 20;
                         break;
                     case 20:
-                        if (new ProfileStore(testPath).Load().language != "vi" || Find("Quay lại") == null ||
+                        if (new ProfileStore(testPath).Load().language != "vi" || Find(GameText.Get("vi", "nav_back_previous")) == null ||
                             app.GetComponentsInChildren<Slider>(true).Length != 3)
                             throw new InvalidDataException("Vietnamese switch was not saved or rendered in settings");
                         foreach (string key in new[] { "settings_music_volume", "settings_sfx_volume", "settings_ambience_volume" })
                             if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", key)))
                                 throw new InvalidOperationException("A Vietnamese audio control label is missing after switching back: " + key);
-                        Click("Quay lại"); stage = 21;
+                        Click(GameText.Get("vi", "nav_back_previous")); stage = 21;
                         break;
                     case 21:
                         if (Find("Tiếp tục hành trình") == null)
                             throw new InvalidOperationException("The menu did not reopen after settings");
-                        if (Find(GameText.Get("vi", "edit_profile")) == null)
-                            throw new InvalidOperationException("The main menu did not provide direct character editing");
+                        Click(GameText.Get("vi", "nav_passport"));
                         Click(GameText.Get("vi", "edit_profile")); stage = 61;
                         break;
                     case 22:
@@ -295,7 +314,7 @@ namespace TastePassport.Core
                             !app.GetComponentsInChildren<Text>().Any(t => t.text.Contains(GameText.Get("vi", "culture_chuacau_title"))) ||
                             !app.GetComponentsInChildren<Text>().Any(t => t.text.Contains(GameText.Get("vi", "culture_caolau_title"))))
                             throw new InvalidDataException("A discovered Chùa Cầu, Cao Lầu, or lantern cultural card is missing");
-                        Click(GameText.Get("vi", "passport")); stage = 29;
+                        Click(GameText.Get("vi", "nav_back_passport")); stage = 29;
                         break;
                     case 29:
                         Click(GameText.Get("vi", "open_map")); stage = 30;
@@ -351,12 +370,13 @@ namespace TastePassport.Core
                         break;
                     case 39:
                         VerifyJeonjuCultureCards();
-                        Click(GameText.Get("vi", "passport")); stage = 40;
+                        Click(GameText.Get("vi", "nav_back_passport")); stage = 40;
                         break;
                     case 40:
                         Click(GameText.Get("vi", "open_map")); stage = 41;
                         break;
                     case 41:
+                        ExpandMapActivities();
                         if (Find(GameText.Get("vi", "finale_start")) == null)
                             throw new InvalidOperationException("The festival did not unlock after the Hanji craft was completed");
                         Click(GameText.Get("vi", "explore_jeonju")); stage = 42;
@@ -364,10 +384,14 @@ namespace TastePassport.Core
                     case 42:
                         var jeonjuSession = app.GetComponent<WalkableWorldSession>();
                         GameObject hanjiDisplay = GameObject.Find("World Target - hanji-display");
+                        var hanjiProduct = GameObject.Find("Hanji Product Display")?.transform;
+                        var bookmark = hanjiProduct == null ? null : hanjiProduct.Find("Hanji Bookmark");
+                        var bookmarkMesh = bookmark == null ? null : bookmark.GetComponent<MeshRenderer>();
                         if (jeonjuSession == null || !jeonjuSession.IsOpen || hanjiDisplay == null ||
-                            hanjiDisplay.GetComponent<SpriteRenderer>()?.sprite != Resources.Load<Sprite>("Art/Props/HanjiBookmark") ||
-                            hanjiDisplay.GetComponent<SpriteRenderer>().color == Color.white)
-                            throw new InvalidDataException("The saved Hanji product was not restored in Jeonju's world display");
+                            bookmarkMesh == null || !bookmark.gameObject.activeInHierarchy || !bookmarkMesh.enabled ||
+                            Vector4.Distance(bookmarkMesh.sharedMaterial.color, new Color(.24f, .56f, .42f)) > .01f ||
+                            hanjiProduct.Find("Hanji Fan").gameObject.activeSelf || hanjiProduct.Find("Hanji Flower").gameObject.activeSelf)
+                            throw new InvalidDataException("The saved bookmark shape/jade color was not restored in Jeonju's 3D Hanji display");
 
                         var bkim = WorldCatalog.Get("jeonju").Interactables.First(i => i.Id == "bkim");
                         jeonjuSession.SetPlayerPosition(bkim.Position);
@@ -475,6 +499,7 @@ namespace TastePassport.Core
                         Click(GameText.Get("vi", "continue_free_exploration")); stage = 49;
                         break;
                     case 49:
+                        ExpandMapActivities();
                         if (!app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "main_story_completed")) ||
                             !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "world_objective_free_explore")) ||
                             Find(GameText.Get("vi", "view_ending")) == null ||
@@ -642,11 +667,12 @@ namespace TastePassport.Core
                         var editorInput = app.GetComponentInChildren<InputField>();
                         if (editorInput == null || editorInput.text != "Smoke Player" ||
                             !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "edit_profile")))
-                            throw new InvalidOperationException("The main-menu character editor did not preload the existing profile");
+                            throw new InvalidOperationException("The collection character editor did not preload the existing profile");
                         Click(GameText.Get("vi", "save_profile"));
                         stage = 62;
                         break;
                     case 62:
+                        Click(GameText.Get("vi", "nav_back_menu"));
                         var editedProfile = new ProfileStore(testPath).Load();
                         if (!editedProfile.created || editedProfile.playerName != "Smoke Player" || editedProfile.avatarIndex != 1 ||
                             !editedProfile.storyFlags.Contains("tutorial-nhung-reached") || Find("Tiếp tục hành trình") == null)
@@ -656,6 +682,111 @@ namespace TastePassport.Core
                 }
             }
             catch (Exception error) { Finish(2, "Taste Passport smoke FAIL: " + error); }
+        }
+
+        private void ExpandMapActivities()
+        {
+            foreach (string destination in new[] { "Hoi An destination surface", "Jeonju destination surface" })
+            {
+                var surface = app.GetComponentsInChildren<Transform>().FirstOrDefault(t => t.name == destination);
+                var toggle = surface == null ? null : surface.GetComponentsInChildren<Button>().FirstOrDefault(b =>
+                    b.name == "Button " + GameText.Get("vi", "journey_show_activities"));
+                if (toggle != null) toggle.onClick.Invoke();
+            }
+        }
+
+        private void VerifyMenuMapScreens()
+        {
+            var failures = new List<string>();
+            Action<bool, string> check = (passed, message) => { if (!passed) failures.Add(message); };
+            var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+            Action reload = () => typeof(PassportApp).GetMethod("InitializeApp", flags).Invoke(app, null);
+            Action<string> navigate = target =>
+            {
+                var method = typeof(PassportApp).GetMethod("Navigate", flags);
+                method.Invoke(app, new[] { Enum.Parse(method.GetParameters()[0].ParameterType, target) });
+            };
+            foreach (string language in new[] { "vi", "ko" })
+            {
+                var fresh = new PlayerProfile { language = language };
+                if (!new ProfileStore(testPath).TrySave(fresh)) throw new IOException("Could not save menu fixture");
+                reload();
+                var freshButtons = app.GetComponentsInChildren<Button>();
+                check(freshButtons.Length == 3, language + ": fresh menu must expose only Start, Settings, Language");
+                check(freshButtons.Count(b => b.name == "Button " + GameText.Get(language, "start")) == 1 &&
+                    Find(GameText.Get(language, "continue")) == null && Find(GameText.Get(language, "nav_passport")) == null,
+                    language + ": fresh menu has an invalid continuation or collection action");
+                check(app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get(language, "title")) &&
+                    app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get(language, "subtitle")), language + ": localized title/subtitle missing");
+                Click(GameText.Get(language, "start"));
+                Click(GameText.Get(language, "journey_to_profile"));
+                var input = app.GetComponentInChildren<InputField>();
+                check(input != null && input.characterLimit == 20, language + ": profile name validation changed");
+                var avatars = app.GetComponentsInChildren<Transform>().FirstOrDefault(t => t.name == "Avatar choices");
+                check(avatars != null && avatars.GetComponentsInChildren<Button>().Length == 3 &&
+                    avatars.GetComponentsInChildren<Image>().Count(i => i.name == "Face") == 3, language + ": three illustrated avatars missing");
+                check(Find(GameText.Get(language, "journey_enter_hoian")) != null, language + ": profile entry action missing");
+                Click(GameText.Get(language, "back"));
+                check(Find(GameText.Get(language, "journey_to_profile")) != null, language + ": profile back did not return to language");
+
+                var saved = new PlayerProfile { created = true, playerName = "Saved traveler", language = language, lastWorldId = "jeonju" };
+                if (!new ProfileStore(testPath).TrySave(saved)) throw new IOException("Could not save continuation fixture");
+                reload();
+                var savedButtons = app.GetComponentsInChildren<Button>();
+                check(savedButtons.Length == 4 && Find(GameText.Get(language, "continue")) != null &&
+                    Find(GameText.Get(language, "start")) == null && Find(GameText.Get(language, "nav_passport")) != null,
+                    language + ": saved menu must expose Continue, Collection, Settings, Language");
+                Click(GameText.Get(language, "continue"));
+                var firstAction = app.GetComponentsInChildren<Button>().FirstOrDefault();
+                check(firstAction != null && firstAction.name == "Button " + GameText.Get(language, "map_do_next"),
+                    language + ": current objective must be the first actionable waypoint");
+                var content = app.GetComponentsInChildren<Transform>().First(t => t.name == "Content");
+                check(content.GetChild(0).GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get(language, "map_next_step")),
+                    language + ": current objective must lead the map before other cards");
+                check(Find(GameText.Get(language, "explore_hoian")) == null && Find(GameText.Get(language, "explore_jeonju")) == null,
+                    language + ": optional activities must be collapsed initially");
+                var jeonju = app.GetComponentsInChildren<Transform>().First(t => t.name == "Jeonju destination surface");
+                check(jeonju.GetComponentsInChildren<Text>().Any(t => t.text.Contains(GameText.Get(language, "journey_jeonju_requirement"))),
+                    language + ": locked Jeonju prerequisite missing");
+                jeonju.GetComponentInChildren<Button>().onClick.Invoke();
+                jeonju = app.GetComponentsInChildren<Transform>().First(t => t.name == "Jeonju destination surface");
+                var lockedRoutes = jeonju.GetComponentsInChildren<Button>().Where(b => b.name.Contains(GameText.Get(language, "locked"))).ToArray();
+                check(lockedRoutes.Length >= 4 && lockedRoutes.All(b => !b.interactable), language + ": locked Jeonju routes must be visibly disabled");
+                navigate("Menu");
+                Click(GameText.Get(language, "settings"));
+                var sliders = app.GetComponentsInChildren<Slider>();
+                check(sliders.Length == 3, language + ": settings must retain three independent audio sliders");
+                Click(GameText.Get(language, "nav_back_previous"));
+                check(Find(GameText.Get(language, "continue")) != null, language + ": settings return did not restore menu");
+
+                // A locked saved world must fall back to the map; a usable saved world must reopen it.
+                saved.lastWorldId = "jeonju";
+                new ProfileStore(testPath).TrySave(saved);
+                reload();
+                Click(GameText.Get(language, "continue"));
+                check(app.GetComponent<WalkableWorldSession>() == null || !app.GetComponent<WalkableWorldSession>().IsOpen,
+                    language + ": Continue entered locked Jeonju");
+                saved.lastWorldId = "hoian";
+                new ProfileStore(testPath).TrySave(saved);
+                reload();
+                Click(GameText.Get(language, "continue"));
+                var session = app.GetComponent<WalkableWorldSession>();
+                check(session != null && session.IsOpen, language + ": Continue did not reopen saved Hội An");
+                session?.Close();
+                // Execute the actual objective rather than only checking its label.
+                Click(GameText.Get(language, "map_do_next"));
+                check(session != null && session.IsOpen, language + ": map waypoint did not open its world");
+                session?.Close();
+                saved.created = true;
+                saved.playerName = " ";
+                new ProfileStore(testPath).TrySave(saved);
+                reload();
+                check(Find(GameText.Get(language, "start")) != null && Find(GameText.Get(language, "continue")) == null,
+                    language + ": normalized invalid profile exposed Continue");
+            }
+            new ProfileStore(testPath).TrySave(new PlayerProfile());
+            reload();
+            if (failures.Count > 0) throw new InvalidOperationException("Menu/map contracts failed: " + string.Join("; ", failures));
         }
 
         private Button Find(string label) => app.GetComponentsInChildren<Button>().FirstOrDefault(b => b.name.StartsWith("Button " + label, StringComparison.Ordinal));
@@ -753,6 +884,7 @@ namespace TastePassport.Core
                 }
             }
             session.Close();
+            ExpandMapActivities();
             if (Find(MapLabels[mission]) == null)
                 throw new InvalidOperationException("Closing " + worldId + " did not return to the map");
             passed();
