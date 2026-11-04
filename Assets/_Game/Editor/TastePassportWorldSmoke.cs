@@ -19,6 +19,59 @@ namespace TastePassport.EditorTools
 {
     public static class TastePassportWorldSmoke
     {
+        [MenuItem("Tools/Taste Passport/Validate Card Interactions")]
+        public static void RunCardInteractionChecks()
+        {
+            // Catch missing rewards, repeat mutations, chapter advancement, and bypassed prerequisites.
+            Type service = typeof(WorldInteractable).Assembly.GetType("TastePassport.World.WorldInteractionService");
+            Require(service != null, "shared WorldInteractionService is missing");
+            MethodInfo interact = service.GetMethod("Interact", BindingFlags.Public | BindingFlags.Static,
+                null, new[] { typeof(PlayerProfile), typeof(WorldInteractableDefinition) }, null);
+            Require(interact != null && interact.ReturnType == typeof(WorldInteractionResult),
+                "shared interaction contract is missing");
+            Func<PlayerProfile, WorldInteractableDefinition, WorldInteractionResult> run = (profile, target) =>
+                (WorldInteractionResult)interact.Invoke(null, new object[] { profile, target });
+
+            var profile = new PlayerProfile();
+            WorldInteractableDefinition nhung = FindTarget(WorldCatalog.Get("hoian"), "nhung");
+            Require(run(null, nhung) == null && run(profile, null) == null,
+                "invalid interactions must not return a result");
+            WorldInteractionResult first = run(profile, nhung);
+            Require(first != null && first.Target == nhung && first.DialogueKey == "prologue_nhung_first" &&
+                    first.IsFirstVisit && first.StateChanged && profile.chapterIndex == 2 &&
+                    StoryProgressService.HasFlag(profile, "nhung-intro-seen") &&
+                    StoryProgressService.HasImprint(profile, "dau-xu-book-discovered"),
+                "Nhung's first shared interaction lost its dialogue, book, or chapter advancement");
+            WorldInteractionResult repeat = run(profile, nhung);
+            Require(repeat != null && repeat.DialogueKey == "nhung_repeat" && !repeat.IsFirstVisit &&
+                    !repeat.StateChanged && profile.storyFlags.Count == 1 && profile.worldImprints.Count == 1,
+                "Nhung's repeat shared interaction duplicated progress or lost repeat dialogue");
+
+            WorldInteractableDefinition hanok = FindTarget(WorldCatalog.Get("jeonju"), "hanok");
+            WorldInteractionResult landmark = run(profile, hanok);
+            WorldInteractionResult landmarkRepeat = run(profile, hanok);
+            Require(landmark != null && landmark.DialogueKey == "hanok_discovery_first" && landmark.StateChanged &&
+                    landmarkRepeat != null && landmarkRepeat.DialogueKey == "hanok_discovery_repeat" &&
+                    !landmarkRepeat.StateChanged && profile.culturalCards.Count == 1 &&
+                    InventoryService.HasCultureCard(profile, InventoryService.HanokCardId) &&
+                    StoryProgressService.HasImprint(profile, "stamp-hanok"),
+                "Hanok shared discovery did not award its culture card and imprint exactly once");
+
+            var displayProfile = new PlayerProfile();
+            WorldInteractableDefinition display = FindTarget(WorldCatalog.Get("jeonju"), "hanji-display");
+            Require(run(displayProfile, display) == null && displayProfile.storyFlags.Count == 0 &&
+                    displayProfile.worldImprints.Count == 0 && displayProfile.culturalCards.Count == 0 &&
+                    displayProfile.chapterIndex == 1,
+                "Hanji display interaction bypassed its prerequisite or mutated blocked progress");
+            StoryProgressService.AddImprint(displayProfile, "hanji-display-ready");
+            WorldInteractionResult unlocked = run(displayProfile, display);
+            Require(unlocked != null && unlocked.DialogueKey == "hanji_display_first" && unlocked.IsFirstVisit &&
+                    unlocked.StateChanged && StoryProgressService.HasFlag(displayProfile, "hanji-display-seen") &&
+                    StoryProgressService.HasImprint(displayProfile, "hanji-display-visited"),
+                "Hanji display did not unlock after its prerequisite imprint");
+            Debug.Log("Dấu Xứ card interaction smoke PASS: shared first/repeat dialogue, chapter, rewards, and prerequisite gate");
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Shared UI")]
         public static void RunSharedUiChecks()
         {
