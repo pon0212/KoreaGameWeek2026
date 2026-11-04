@@ -596,7 +596,7 @@ namespace TastePassport.World
                 touchStick.GetComponent<RectTransform>().sizeDelta = Vector2.one * stickSize;
             }
             if (dialogueCardRect != null)
-                dialogueCardRect.sizeDelta = new Vector2(Mathf.Min(680f, available.x * 0.92f), Mathf.Min(740f, available.y * 0.94f));
+                dialogueCardRect.sizeDelta = new Vector2(Mathf.Min(680f, available.x * 0.92f), Mathf.Min(620f, available.y * 0.94f));
             if (journalCardRect != null)
                 journalCardRect.sizeDelta = new Vector2(Mathf.Min(640f, available.x * 0.92f), Mathf.Min(580f, available.y * 0.80f));
             if (controlsCardRect != null)

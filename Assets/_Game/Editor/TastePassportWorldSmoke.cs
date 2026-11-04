@@ -1058,6 +1058,9 @@ namespace TastePassport.EditorTools
                     PressWorldKey(session, keyboard, Key.E);
                     Require(session.CurrentDialogueText.Contains("DẤU XỨ"),
                         "E did not open NPC dialogue");
+                    var dialogueCard = FindWorldUi<RectTransform>(canvas, "Conversation Card");
+                    Require(dialogueCard.rect.height <= 640f,
+                        "portrait dialogue panel still hides too much of the walkable world");
                     Require(FindWorldUi<Image>(canvas, "Dialogue Portrait").gameObject.activeInHierarchy,
                         "NPC conversation lost its portrait");
                     RequireWorldButtonsFit(canvas, safe);
