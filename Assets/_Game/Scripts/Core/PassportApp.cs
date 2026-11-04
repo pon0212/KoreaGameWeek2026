@@ -681,19 +681,22 @@ namespace TastePassport.Core
             book.GetComponent<Image>().color = Jade;
             book.GetComponent<VerticalLayoutGroup>().padding = new RectOffset(12, 12, 12, 12);
             var spread = NewRect("Open book spread", book);
-            AddHorizontal(spread);
-            var spreadLayout = spread.GetComponent<HorizontalLayoutGroup>();
-            spreadLayout.spacing = 10;
-            spreadLayout.childForceExpandHeight = true;
+            SetHeight(spread, 320f);
             var identity = JourneyCard(spread);
             identity.name = "Passport left leaf";
-            identity.localRotation = Quaternion.Euler(0f, -3f, 0f);
+            identity.anchorMin = Vector2.zero;
+            identity.anchorMax = new Vector2(.5f, 1f);
+            identity.offsetMin = Vector2.zero;
+            identity.offsetMax = new Vector2(-5f, 0f);
             Artwork(identity, TravelArtworkKind.Passport, 144);
             CollectionCopy(identity, profile.playerName, 32, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             CollectionCopy(identity, T("avatar_" + profile.avatarIndex), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var greeting = JourneyCard(spread);
             greeting.name = "Passport right leaf";
-            greeting.localRotation = Quaternion.Euler(0f, 3f, 0f);
+            greeting.anchorMin = new Vector2(.5f, 0f);
+            greeting.anchorMax = Vector2.one;
+            greeting.offsetMin = new Vector2(5f, 0f);
+            greeting.offsetMax = Vector2.zero;
             CollectionCopy(greeting, T("passport_intro"), 26, Muted, TextAnchor.MiddleCenter);
             Rule(greeting);
             CollectionCopy(greeting, T("coins") + ": " + profile.coins + " ◆", 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
@@ -2748,8 +2751,7 @@ namespace TastePassport.Core
         {
             var card = Panel("Card", parent, GameUiTheme.Surface).rectTransform;
             SetHeight(card, height);
-            // A shallow physical offset and soft edge lift each paper surface above its stage.
-            card.localPosition = new Vector3(0f, 0f, -3f);
+            // Use the Canvas plane for every nested paper surface; UI shadows provide its depth cue.
             var shadow = card.gameObject.AddComponent<Shadow>();
             shadow.effectColor = GameUiTheme.PaperShadow;
             shadow.effectDistance = new Vector2(0f, -3f);

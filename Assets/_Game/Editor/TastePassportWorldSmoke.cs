@@ -11,6 +11,8 @@ using TastePassport.World;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.UI;
 
 namespace TastePassport.EditorTools
@@ -400,20 +402,14 @@ namespace TastePassport.EditorTools
                 Require(InventoryService.RecordHanjiCraft(saved, "fan", "indigo", "flower") && store.TrySave(saved),
                     "completed Hanji craft could not be saved before display");
                 session.Open("jeonju", store.Load(), store, null);
-                GameObject display = GameObject.Find("World Target - hanji-display");
-                Require(display != null && display.GetComponent<SpriteRenderer>() != null &&
-                        display.GetComponent<SpriteRenderer>().sprite == Resources.Load<Sprite>("Art/Props/HanjiFan") &&
-                        display.GetComponent<SpriteRenderer>().color != Color.white,
-                    "saved Hanji product did not appear as a styled Jeonju display after reload");
+                RequireHanjiDisplay(session, "fan", new Color(0.31f, 0.40f, 0.69f));
                 session.Close();
 
                 var secondSaved = store.Load();
                 Require(InventoryService.RecordHanjiCraft(secondSaved, "bookmark", "vermilion", "cloud") && store.TrySave(secondSaved),
                     "second Hanji shape could not be saved for the Jeonju display");
                 session.Open("jeonju", store.Load(), store, null);
-                display = GameObject.Find("World Target - hanji-display");
-                Require(display != null && display.GetComponent<SpriteRenderer>().sprite == Resources.Load<Sprite>("Art/Props/HanjiBookmark"),
-                    "Jeonju display did not update to the latest crafted Hanji shape");
+                RequireHanjiDisplay(session, "bookmark", new Color(0.77f, 0.28f, 0.22f));
                 session.Close();
                 var reloaded = store.Load();
                 Require(reloaded.inventoryItems.Contains("crafted-hanji-fan-indigo-flower") &&
@@ -431,6 +427,26 @@ namespace TastePassport.EditorTools
                     if (File.Exists(file)) File.Delete(file);
             }
             Debug.Log("Dấu Xứ Hanji craft smoke PASS: validated choices, cut/fold/decorate order, product save, and Jeonju display reload");
+        }
+
+        private static void RequireHanjiDisplay(WalkableWorldSession session, string expectedShape, Color expectedColor)
+        {
+            var town = GetWorldField<WorldDioramaBuilder>(session, "townDiorama");
+            Transform display = town != null ? town.transform.Find("Hanji Product Display") : null;
+            Transform fan = display != null ? display.Find("Hanji Fan") : null;
+            Transform bookmark = display != null ? display.Find("Hanji Bookmark") : null;
+            Transform flower = display != null ? display.Find("Hanji Flower") : null;
+            Transform activeShape = expectedShape == "fan" ? fan : expectedShape == "bookmark" ? bookmark : flower;
+            var renderer = activeShape != null ? activeShape.GetComponent<MeshRenderer>() : null;
+            Require(display != null && fan != null && bookmark != null && flower != null &&
+                    fan.gameObject.activeSelf == (expectedShape == "fan") &&
+                    bookmark.gameObject.activeSelf == (expectedShape == "bookmark") &&
+                    flower.gameObject.activeSelf == (expectedShape == "flower") && renderer != null && renderer.sharedMaterial != null,
+                "saved Hanji product did not select the matching 3D Jeonju display shape: " + expectedShape);
+            Color actual = renderer.sharedMaterial.color;
+            Require(Mathf.Abs(actual.r - expectedColor.r) < 0.02f && Mathf.Abs(actual.g - expectedColor.g) < 0.02f &&
+                    Mathf.Abs(actual.b - expectedColor.b) < 0.02f,
+                "saved Hanji product did not apply its crafted color to the 3D display: " + expectedShape + " got " + actual);
         }
 
         [MenuItem("Tools/Taste Passport/Validate Hanji Sprites")]
@@ -935,6 +951,217 @@ namespace TastePassport.EditorTools
             return material;
         }
 
+        [MenuItem("Tools/Taste Passport/Validate World HUD")]
+        public static void RunWorldHudChecks()
+        {
+            // Catch oversized surfaces, hidden shortcut routes, stale NPC prompts and lost pointer capture.
+            string path = Path.Combine(Path.GetTempPath(), "taste_passport_hud_" + Guid.NewGuid().ToString("N") + ".json");
+            var owner = new GameObject("World HUD smoke");
+            var cameraObject = new GameObject("World HUD smoke camera", typeof(Camera));
+            cameraObject.tag = "MainCamera";
+            var camera = cameraObject.GetComponent<Camera>();
+            var session = owner.AddComponent<WalkableWorldSession>();
+            var originalInputSettings = InputSystem.settings;
+            var backupInputSettings = UnityEngine.Object.Instantiate(originalInputSettings);
+            var smokeInputSettings = UnityEngine.Object.Instantiate(originalInputSettings);
+            InputSystem.settings = smokeInputSettings;
+            // Editor-only updates don't maintain player frame-edge key state. Exercise real player updates.
+            smokeInputSettings.SetInternalFeatureFlag("RUN_PLAYER_UPDATES_IN_EDIT_MODE", true);
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            try
+            {
+                foreach (string language in new[] { "vi", "ko" })
+                {
+                    int passportRequests = 0;
+                    string requestedActivity = null;
+                    var profile = new PlayerProfile { created = true, language = language };
+                    var store = new ProfileStore(path);
+                    session.Open("hoian", profile, store, () => { }, activity => requestedActivity = activity, () => passportRequests++);
+                    var canvas = GetWorldField<Canvas>(session, "worldHudCanvas");
+                    var safe = canvas.transform.Find("World Safe Area").GetComponent<RectTransform>();
+                    RequireWorldButtonsFit(canvas, safe);
+                    canvas.GetComponent<RectTransform>().sizeDelta = new Vector2(720f, 1280f);
+                    InvokeWorldMethod(session, "LayoutOverlayCards");
+                    Canvas.ForceUpdateCanvases();
+                    var objective = FindWorldUi<RectTransform>(canvas, "World Objective Card");
+                    Require(objective.rect.height <= 128f, "world objective surface still crowds the 3D viewport");
+                    Require(objective.GetComponentsInChildren<Text>().Length == 2,
+                        "HUD must show only destination and one current objective");
+                    Require(session.CurrentObjectiveKey == "world_objective_find_nhung", "fresh world skips its first objective");
+                    var guide = FindWorldUi<RectTransform>(canvas, "Controls Guide Card");
+                    Require(guide.rect.height <= 400f, "first-visit help is not a short contextual step card");
+                    var guideCopy = FindWorldUi<Text>(canvas, "World Controls Guide Copy");
+                    Require(guideCopy.text.Length < 240 && guideCopy.text.Split('\n').Length <= 3,
+                        "help still presents the full control manual at first visit");
+                    Require(FindWorldUi<Image>(canvas, "World Controls Guide").color.a <= .2f &&
+                            FindWorldUi<Image>(canvas, "World Quest Journal Panel").color.a <= .2f,
+                        "help/journal obscure the world behind them");
+                    FindWorldUi<Button>(canvas, "Close World Controls Guide").onClick.Invoke();
+                    Require(StoryProgressService.HasFlag(store.Load(), "world-controls-guide-seen"),
+                        "dismissing contextual help did not persist its seen state");
+                    var navigation = FindWorldUi<RectTransform>(canvas, "World Navigation");
+                    Require(navigation.GetComponentsInChildren<Button>().Length == 3,
+                        "world navigation still has a four-wide action strip");
+                    var action = FindWorldUi<Button>(canvas, "World Interaction");
+                    session.SetPlayerPosition(new Vector2(-6f, -1.8f));
+                    Require(!action.interactable && !action.GetComponentInChildren<Text>().text.Contains("Nhung"),
+                        "out-of-range action retains an NPC name");
+                    session.SetPlayerPosition(FindTarget(WorldCatalog.Get("hoian"), "nhung").Position);
+                    Require(action.interactable && action.GetComponentInChildren<Text>().text.Contains("Nhung"),
+                        "in-range action does not name its available NPC");
+                    RequireWorldButtonsFit(canvas, safe);
+                    Vector2 originalMin = safe.anchorMin;
+                    Vector2 originalMax = safe.anchorMax;
+                    safe.anchorMin = new Vector2(.16f, .04f);
+                    safe.anchorMax = new Vector2(.84f, .96f);
+                    InvokeWorldMethod(session, "LayoutOverlayCards");
+                    RequireWorldButtonsFit(canvas, safe);
+                    safe.anchorMin = originalMin;
+                    safe.anchorMax = originalMax;
+                    InvokeWorldMethod(session, "LayoutOverlayCards");
+                    var stick = GetWorldField<WorldTouchStick>(session, "touchStick");
+                    var stickRect = stick.GetComponent<RectTransform>();
+                    var actionRect = action.GetComponent<RectTransform>();
+                    Require(stickRect.anchoredPosition.x + stickRect.rect.width <
+                            safe.rect.width + actionRect.anchoredPosition.x - actionRect.rect.width,
+                        "lower-right action overlaps the touch stick");
+                    var pointer = new PointerEventData(EventSystem.current) { pointerId = 11,
+                        position = RectTransformUtility.WorldToScreenPoint(camera,
+                            stickRect.TransformPoint(stickRect.rect.center + Vector2.right * 30f)),
+                        pointerPressRaycast = new RaycastResult { module = canvas.GetComponent<GraphicRaycaster>() } };
+                    stick.OnPointerDown(pointer);
+                    var player = GetWorldField<WorldPlayerController>(session, "player");
+                    Require(GetWorldField<Vector2>(player, "touchInput").sqrMagnitude > 0f, "touch stick did not feed movement");
+                    PressWorldKey(session, keyboard, Key.H);
+                    Require(guide.gameObject.activeInHierarchy && stick.gameObject.activeInHierarchy,
+                        "help shortcut failed or deactivated an in-flight touch pointer");
+                    Require(!GetWorldField<bool>(player, "movementEnabled") &&
+                            GetWorldField<Vector2>(player, "touchInput") == Vector2.zero,
+                        "help does not suspend movement and reset the active direction");
+                    stick.OnPointerUp(pointer);
+                    Require(GetWorldField<int>(stick, "activePointerId") == int.MinValue,
+                        "hidden stick lost PointerUp capture");
+                    PressWorldKey(session, keyboard, Key.E);
+                    PressWorldKey(session, keyboard, Key.J);
+                    Require(FindWorldUi<RectTransform>(canvas, "Quest Journal Card").gameObject.activeInHierarchy,
+                        "J did not open the journal");
+                    Require(FindWorldUi<Text>(canvas, "World Quest Journal Current").text ==
+                            GameText.Get(language, session.CurrentObjectiveKey), "journal omits the current objective");
+                    Require(FindWorldUi<Text>(canvas, "World Quest Journal Progress").text.Contains("0"),
+                        "journal omits collection progress");
+                    RequireWorldButtonsFit(canvas, safe);
+                    FindWorldUi<Button>(canvas, "World Passport").onClick.Invoke();
+                    Require(passportRequests == 1, "journal book action lost the passport callback");
+                    PressWorldKey(session, keyboard, Key.Escape);
+                    PressWorldKey(session, keyboard, Key.P);
+                    Require(passportRequests == 2, "P lost the passport callback");
+                    PressWorldKey(session, keyboard, Key.E);
+                    Require(session.CurrentDialogueText.Contains("DẤU XỨ"),
+                        "E did not open NPC dialogue");
+                    Require(FindWorldUi<Image>(canvas, "Dialogue Portrait").gameObject.activeInHierarchy,
+                        "NPC conversation lost its portrait");
+                    RequireWorldButtonsFit(canvas, safe);
+                    var dialogueObjective = FindWorldUi<Text>(canvas, "Dialogue Objective");
+                    Require(dialogueObjective.text.Contains(GameText.Get(language, session.CurrentObjectiveKey)),
+                        "dialogue omits the updated current objective");
+                    Require(session.CurrentObjectiveKey == "world_objective_find_lan" &&
+                            StoryProgressService.HasFlag(store.Load(), "nhung-intro-seen"),
+                        "NPC dialogue does not persist story progress and advance the objective");
+                    PressWorldKey(session, keyboard, Key.Space);
+                    Require(GetWorldField<bool>(player, "movementEnabled"), "closing dialogue does not restore movement");
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.D));
+                    InputSystem.Update();
+                    InvokeWorldMethod(player, "Update");
+                    Vector2 movement = GetWorldField<Vector2>(player, "keyboardInput");
+                    Require(movement.x > .7f && movement.y > .7f && movement.magnitude <= 1.001f,
+                        "WASD movement route lost normalized diagonal input");
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                    InputSystem.Update();
+                    session.SetPlayerPosition(FindTarget(WorldCatalog.Get("hoian"), "chuacau").Position);
+                    PressWorldKey(session, keyboard, Key.E);
+                    Require(!FindWorldUi<Image>(canvas, "Dialogue Portrait").gameObject.activeInHierarchy &&
+                            !FindWorldUi<Button>(canvas, "Dialogue Listen").gameObject.activeInHierarchy &&
+                            !FindWorldUi<Button>(canvas, "Dialogue Activity").gameObject.activeInHierarchy &&
+                            !FindWorldUi<Button>(canvas, "Dialogue Ask More").gameObject.activeInHierarchy,
+                        "landmark discovery shows unavailable NPC actions");
+                    PressWorldKey(session, keyboard, Key.E);
+                    session.SetPlayerPosition(FindTarget(WorldCatalog.Get("hoian"), "lan").Position);
+                    PressWorldKey(session, keyboard, Key.E);
+                    int marksBeforeOptional = profile.worldImprints.Count;
+                    PressWorldKey(session, keyboard, Key.Q);
+                    Require(session.CurrentDialogueText == GameText.Get(language, "lan_optional") &&
+                            profile.worldImprints.Count == marksBeforeOptional,
+                        "Q optional conversation failed or mutated progress");
+                    RequireWorldButtonsFit(canvas, safe);
+                    PressWorldKey(session, keyboard, Key.E);
+                    Require(session.IsOpen && requestedActivity == null, "E unexpectedly starts the available activity");
+                    PressWorldKey(session, keyboard, Key.F);
+                    Require(!session.IsOpen && requestedActivity == "lantern-craft", "F lost the current activity route");
+                    session.Open("hoian", profile, store, () => { });
+                    Require(!FindWorldUi<RectTransform>(GetWorldField<Canvas>(session, "worldHudCanvas"), "Controls Guide Card").gameObject.activeInHierarchy,
+                        "seen guide returns after closing and reopening the world");
+                    session.Close();
+                }
+                Debug.Log("Dấu Xứ world HUD smoke PASS: compact objective/help, VI/KO contextual prompts, targets/safe area, journal/progress/passport, NPC portrait, keyboard routes, touch capture, and reopen");
+            }
+            finally
+            {
+                if (session.IsOpen) session.Close();
+                InputSystem.RemoveDevice(keyboard);
+                // The setter destroys automatically created, unsaved settings. Preserve an independent backup.
+                InputSystem.settings = originalInputSettings != null ? originalInputSettings : backupInputSettings;
+                if (originalInputSettings != null) UnityEngine.Object.DestroyImmediate(backupInputSettings);
+                if (smokeInputSettings != null) UnityEngine.Object.DestroyImmediate(smokeInputSettings);
+                UnityEngine.Object.DestroyImmediate(owner);
+                UnityEngine.Object.DestroyImmediate(cameraObject);
+                foreach (string file in new[] { path, path + ".bak", path + ".tmp", path + ".old" })
+                    if (File.Exists(file)) File.Delete(file);
+            }
+        }
+
+        private static T FindWorldUi<T>(Canvas canvas, string name) where T : Component
+        {
+            foreach (T component in canvas.GetComponentsInChildren<T>(true))
+                if (component.name == name) return component;
+            throw new InvalidOperationException("Missing world UI: " + name);
+        }
+
+        private static T GetWorldField<T>(object target, string name) =>
+            (T)target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
+
+        private static void InvokeWorldMethod(object target, string name) =>
+            target.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(target, null);
+
+        private static void PressWorldKey(WalkableWorldSession session, Keyboard keyboard, Key key)
+        {
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(key));
+            InputSystem.Update();
+            Require(Keyboard.current == keyboard && keyboard[key].wasPressedThisFrame,
+                "smoke keyboard event was not delivered: " + key + "; pressed=" + keyboard[key].isPressed);
+            InvokeWorldMethod(session, "Update");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+        }
+
+        private static void RequireWorldButtonsFit(Canvas canvas, RectTransform safe)
+        {
+            Canvas.ForceUpdateCanvases();
+            foreach (Button button in canvas.GetComponentsInChildren<Button>())
+            {
+                var rect = button.GetComponent<RectTransform>();
+                Require(rect.rect.width >= 64f && rect.rect.height >= 64f, "undersized world target: " + button.name);
+                var corners = new Vector3[4];
+                rect.GetWorldCorners(corners);
+                foreach (Vector3 corner in corners)
+                {
+                    Vector3 point = safe.InverseTransformPoint(corner);
+                    Require(point.x >= safe.rect.xMin - .1f && point.x <= safe.rect.xMax + .1f &&
+                            point.y >= safe.rect.yMin - .1f && point.y <= safe.rect.yMax + .1f,
+                        "world button leaves the safe area: " + button.name);
+                }
+            }
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Walkable World Session")]
         [MenuItem("Tools/Taste Passport/Validate World Canvas Depth")]
         public static void RunWorldCanvasDepthChecks()
@@ -966,9 +1193,15 @@ namespace TastePassport.EditorTools
                         "world-space UI could not fit portrait viewport " + size.x + "x" + size.y);
 
                     float depth = Vector3.Dot(canvas.transform.position - camera.transform.position, camera.transform.forward);
-                    Require(depth > camera.nearClipPlane && depth <= camera.nearClipPlane + 0.05f,
-                        "world-space UI sits behind town geometry on " + size.x + "x" + size.y +
-                        "; camera-space depth was " + depth.ToString("F3") + " units after the camera");
+                    float paperCardDepth = Vector3.Dot(
+                        canvas.transform.TransformPoint(Vector3.zero) - camera.transform.position,
+                        camera.transform.forward);
+                    Require(paperCardDepth > camera.nearClipPlane + 0.015f,
+                        "world-space paper UI crosses the camera near plane on " + size.x + "x" + size.y +
+                        "; UI depth was " + paperCardDepth.ToString("F3") + " units after the camera");
+                    Require(depth < camera.nearClipPlane + 0.15f,
+                        "world-space UI sits too far from the camera on " + size.x + "x" + size.y +
+                        "; town meshes could occlude it at " + depth.ToString("F3") + " units after the camera");
                     Require(canvas.renderMode == RenderMode.WorldSpace && canvas.worldCamera == camera,
                         "portrait UI lost its world-space camera binding on " + size.x + "x" + size.y);
 

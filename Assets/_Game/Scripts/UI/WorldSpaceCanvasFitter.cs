@@ -31,12 +31,9 @@ namespace TastePassport.UI
             // Expand the reference area on tall/wide displays, never crop its 720 x 1280 layout.
             float referenceScale = Mathf.Min(camera.pixelWidth / 720f, camera.pixelHeight / 1280f);
             var logicalSize = new Vector2(camera.pixelWidth / referenceScale, camera.pixelHeight / referenceScale);
-            // Runtime-generated town geometry sits just beyond the camera near plane. Keep the
-            // camera-facing UI in front of that geometry so roofs and façades cannot cover it.
-            float distance = camera.nearClipPlane + Mathf.Min(0.02f, (camera.farClipPlane - camera.nearClipPlane) * .5f);
-            Vector3 bottom = camera.ViewportToWorldPoint(new Vector3(.5f, 0f, distance));
-            Vector3 top = camera.ViewportToWorldPoint(new Vector3(.5f, 1f, distance));
-            float worldScale = Vector3.Distance(bottom, top) / logicalSize.y;
+            // Keep the fitted Canvas just beyond the near plane and in front of town geometry.
+            float distance = camera.nearClipPlane + Mathf.Min(0.02f, (camera.farClipPlane - camera.nearClipPlane) * 0.5f);
+            float worldScale = MeasureWorldScale(camera, logicalSize.y, distance);
 
             canvas.renderMode = RenderMode.WorldSpace;
             canvas.worldCamera = camera;
@@ -46,6 +43,13 @@ namespace TastePassport.UI
             rect.SetPositionAndRotation(camera.ViewportToWorldPoint(new Vector3(.5f, .5f, distance)), camera.transform.rotation);
             rect.localScale = new Vector3(worldScale / parentScale.x, worldScale / parentScale.y, worldScale / parentScale.z);
             return true;
+        }
+
+        private static float MeasureWorldScale(Camera camera, float logicalHeight, float distance)
+        {
+            Vector3 bottom = camera.ViewportToWorldPoint(new Vector3(.5f, 0f, distance));
+            Vector3 top = camera.ViewportToWorldPoint(new Vector3(.5f, 1f, distance));
+            return Vector3.Distance(bottom, top) / logicalHeight;
         }
     }
 }

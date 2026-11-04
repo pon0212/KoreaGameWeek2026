@@ -655,7 +655,13 @@ namespace TastePassport.Core
                             !new ProfileStore(testPath).Load().storyFlags.Contains("lantern-display-seen") ||
                             passportObjective == null || passportObjective.text != GameText.Get("vi", "world_objective_view_passport"))
                             throw new InvalidOperationException("The crafted lantern did not become a saved world display or advance the tutorial");
-                        GameObject.Find("World Passport")?.GetComponent<Button>()?.onClick.Invoke();
+                        // Follow the visible journey-book route after closing the discovery card.
+                        GameObject.Find("Dialogue Continue")?.GetComponent<Button>()?.onClick.Invoke();
+                        GameObject.Find("World Quest Journal")?.GetComponent<Button>()?.onClick.Invoke();
+                        var worldPassportButton = GameObject.Find("World Passport")?.GetComponent<Button>();
+                        if (worldPassportButton == null || !worldPassportButton.interactable)
+                            throw new InvalidOperationException("The journey book did not offer an available passport action");
+                        worldPassportButton.onClick.Invoke();
                         var passportProfile = new ProfileStore(testPath).Load();
                         if (!passportProfile.storyFlags.Contains("tutorial-passport-viewed") ||
                             !app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get("vi", "passport")))

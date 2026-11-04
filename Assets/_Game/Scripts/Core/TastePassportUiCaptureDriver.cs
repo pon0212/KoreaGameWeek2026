@@ -220,6 +220,63 @@ namespace TastePassport.Core
                 (safeRoot.anchorMax - Vector2.one).sqrMagnitude > 0.0001f)
                 throw new InvalidOperationException("The " + page + " page does not fill the portrait render texture safe area: " +
                     safeRoot.anchorMin + ".." + safeRoot.anchorMax + " for " + captureCamera.targetTexture.width + "x" + captureCamera.targetTexture.height);
+            if (page == "Passport")
+            {
+                Canvas.ForceUpdateCanvases();
+                RectTransform spread = FindCaptureRect("Open book spread");
+                RectTransform leftLeaf = FindCaptureRect("Passport left leaf");
+                RectTransform rightLeaf = FindCaptureRect("Passport right leaf");
+                var bookLayout = spread.parent.GetComponent<VerticalLayoutGroup>();
+                float expectedSpreadWidth = ((RectTransform)spread.parent).rect.width - bookLayout.padding.horizontal;
+                float spreadDepth = Vector3.Dot(spread.position - captureCamera.transform.position, captureCamera.transform.forward);
+                float projectedBookWidth = GetProjectedWidth(leftLeaf, rightLeaf);
+                float nearestPageDepth = GetNearestCameraDepth(leftLeaf, rightLeaf);
+                if (spread.rect.width < expectedSpreadWidth * 0.95f ||
+                    leftLeaf.rect.width < expectedSpreadWidth * 0.4f || rightLeaf.rect.width < expectedSpreadWidth * 0.4f ||
+                    spreadDepth <= captureCamera.nearClipPlane + 0.015f || projectedBookWidth < expectedSpreadWidth * 0.85f ||
+                    nearestPageDepth <= captureCamera.nearClipPlane + 0.015f)
+                    throw new InvalidOperationException("The Passport book spread is clipped or too narrow for the fitted width: spread=" +
+                        spread.rect.width.ToString("F1") + ", left=" + leftLeaf.rect.width.ToString("F1") +
+                        ", right=" + rightLeaf.rect.width.ToString("F1") + ", projected=" + projectedBookWidth.ToString("F1") +
+                        ", expected=" + expectedSpreadWidth.ToString("F1") + ", depth=" + spreadDepth.ToString("F3") +
+                        ", nearestPage=" + nearestPageDepth.ToString("F3"));
+                Debug.Log("UI passport book layout: spread=" + spread.rect.width.ToString("F1") +
+                    ", left=" + leftLeaf.rect.width.ToString("F1") + ", right=" + rightLeaf.rect.width.ToString("F1") +
+                    ", projected=" + projectedBookWidth.ToString("F1") + ", expected=" + expectedSpreadWidth.ToString("F1") +
+                    ", depth=" + spreadDepth.ToString("F3") + ", nearestPage=" + nearestPageDepth.ToString("F3") +
+                    ", scale=" + spread.lossyScale);
+            }
+        }
+
+        private RectTransform FindCaptureRect(string name)
+        {
+            foreach (var rect in app.GetComponentsInChildren<RectTransform>(true))
+                if (rect.name == name) return rect;
+            throw new InvalidOperationException("Missing capture layout element: " + name);
+        }
+
+        private float GetProjectedWidth(RectTransform left, RectTransform right)
+        {
+            var leftCorners = new Vector3[4];
+            var rightCorners = new Vector3[4];
+            left.GetWorldCorners(leftCorners);
+            right.GetWorldCorners(rightCorners);
+            float leftEdge = captureCamera.WorldToViewportPoint(leftCorners[0]).x;
+            float rightEdge = captureCamera.WorldToViewportPoint(rightCorners[2]).x;
+            return (rightEdge - leftEdge) * captureCamera.pixelWidth;
+        }
+
+        private float GetNearestCameraDepth(RectTransform left, RectTransform right)
+        {
+            float nearest = float.PositiveInfinity;
+            foreach (var rect in new[] { left, right })
+            {
+                var corners = new Vector3[4];
+                rect.GetWorldCorners(corners);
+                foreach (Vector3 corner in corners)
+                    nearest = Mathf.Min(nearest, Vector3.Dot(corner - captureCamera.transform.position, captureCamera.transform.forward));
+            }
+            return nearest;
         }
 
         private void PrepareWorldCapture(string page)
