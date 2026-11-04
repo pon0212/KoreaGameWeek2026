@@ -15,7 +15,7 @@ namespace TastePassport.Core
 {
     public sealed class PassportApp : MonoBehaviour
     {
-        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards }
+        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards, StoryCard }
         private static readonly Color Cream = GameUiTheme.Cream;
         private static readonly Color Lantern = GameUiTheme.Lantern;
         private static readonly Color Jade = GameUiTheme.Primary;
@@ -67,6 +67,7 @@ namespace TastePassport.Core
         private FestivalPreparationRun festivalRun;
         private Coroutine finaleReveal;
         private WalkableWorldSession worldSession;
+        private WorldInteractionResult storyCardInteraction;
         private LanternCraftRun lanternCraftRun;
         private string selectedLanternMaterialId;
         private string lanternResultItemId;
@@ -1432,6 +1433,7 @@ namespace TastePassport.Core
             if (objective == null) return;
             switch (objective.Action)
             {
+                case MapObjectiveAction.StoryCardTarget: OpenStoryCard(objective.WorldId, objective.TargetId); break;
                 case MapObjectiveAction.ExploreWorld: OpenWorld(objective.WorldId); break;
                 case MapObjectiveAction.OpenPassport: Navigate(Page.Passport); break;
                 case MapObjectiveAction.HoiAnArchitecture: StartLevel(LevelCatalog.HoiAn); break;
@@ -1444,6 +1446,43 @@ namespace TastePassport.Core
                 case MapObjectiveAction.HanjiCraft: StartHanjiCraft(); break;
                 case MapObjectiveAction.Festival: StartFinale(); break;
             }
+        }
+
+        private void OpenStoryCard(string worldId, string targetId)
+        {
+            if (profile == null || store == null || string.IsNullOrEmpty(targetId)) return;
+            // WorldCatalog.Get falls back to Hoi An for unknown IDs; card routes must resolve exactly.
+            WorldDefinition world = WorldCatalog.Get(worldId);
+            if (world.Id != worldId) return;
+            if (worldId == "jeonju" && !IsJeonjuUnlocked(profile))
+            {
+                Toast(T("jeonju_not_unlocked"));
+                return;
+            }
+            WorldInteractableDefinition target = null;
+            foreach (var definition in world.Interactables)
+                if (definition.Id == targetId) { target = definition; break; }
+            if (target == null) return;
+
+            var candidate = new PlayerProfile();
+            candidate.CopyFrom(profile);
+            WorldInteractionResult interaction = WorldInteractionService.Interact(candidate, target);
+            if (interaction == null || !TryPersistCandidate(candidate)) return;
+            storyCardInteraction = interaction;
+            koreanBackdrop = worldId == "jeonju";
+            Navigate(Page.StoryCard);
+        }
+
+        private bool TryPersistCandidate(PlayerProfile candidate)
+        {
+            if (!store.TrySave(candidate))
+            {
+                notice = T("save_error");
+                Show();
+                return false;
+            }
+            profile.CopyFrom(candidate);
+            return true;
         }
 
         private void OpenWorld(string worldId)

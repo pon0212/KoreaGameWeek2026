@@ -19,6 +19,111 @@ namespace TastePassport.EditorTools
 {
     public static class TastePassportWorldSmoke
     {
+        [MenuItem("Tools/Taste Passport/Validate Card Adventure")]
+        public static void RunCardAdventureChecks()
+        {
+            // Catch live-profile mutation before saving, consumed first visits, and cross-world routing.
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            Type appType = typeof(PassportApp);
+            MethodInfo open = appType.GetMethod("OpenStoryCard", hidden, null,
+                new[] { typeof(string), typeof(string) }, null);
+            Require(open != null, "PassportApp.OpenStoryCard card route is missing");
+            string folder = Path.Combine(Path.GetTempPath(), "taste_passport_cards_" + Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(folder, "profile.json");
+            var owner = new GameObject("Card adventure smoke");
+            try
+            {
+                Directory.CreateDirectory(folder);
+                var cameraObject = new GameObject("Card smoke camera", typeof(Camera));
+                cameraObject.transform.SetParent(owner.transform, false);
+                cameraObject.tag = "MainCamera";
+                var app = owner.AddComponent<PassportApp>();
+                FieldInfo profileField = appType.GetField("profile", hidden);
+                FieldInfo storeField = appType.GetField("store", hidden);
+                FieldInfo pageField = appType.GetField("page", hidden);
+                FieldInfo interactionField = appType.GetField("storyCardInteraction", hidden);
+                Require(interactionField != null, "card route has no dialogue state");
+                var profile = new PlayerProfile();
+                var store = new ProfileStore(path);
+                profileField.SetValue(app, profile);
+                storeField.SetValue(app, store);
+                appType.GetMethod("EnsureCanvas", hidden).Invoke(app, null);
+                // ExecuteMethod is in edit mode: clean test-owned views before Show's deferred runtime teardown.
+                Action clearViews = () =>
+                {
+                    var root = (RectTransform)appType.GetField("safeRoot", hidden).GetValue(app);
+                    for (int i = root.childCount - 1; i >= 0; i--)
+                        UnityEngine.Object.DestroyImmediate(root.GetChild(i).gameObject);
+                };
+                Action<string, string> route = (world, target) =>
+                {
+                    clearViews();
+                    open.Invoke(app, new object[] { world, target });
+                };
+                route("hoian", "nhung");
+                var first = (WorldInteractionResult)interactionField.GetValue(app);
+                Require(first != null && first.DialogueKey == "prologue_nhung_first" && first.IsFirstVisit &&
+                        pageField.GetValue(app).ToString() == "StoryCard" &&
+                        StoryProgressService.HasFlag(profile, "nhung-intro-seen") && profile.chapterIndex == 2 &&
+                        StoryProgressService.HasImprint(store.Load(), "dau-xu-book-discovered"),
+                    "successful card interaction did not persist first dialogue and book progress");
+                route("hoian", "nhung");
+                var repeat = (WorldInteractionResult)interactionField.GetValue(app);
+                Require(repeat.DialogueKey == "nhung_repeat" && !repeat.IsFirstVisit &&
+                        profile.storyFlags.Count == 1 && profile.worldImprints.Count == 1,
+                    "repeat card interaction lost repeat dialogue or duplicated progress");
+
+                string beforeInvalid = JsonUtility.ToJson(profile);
+                open.Invoke(app, new object[] { "hoian", "hanok" });
+                open.Invoke(app, new object[] { "invalid-world", "nhung" });
+                open.Invoke(app, new object[] { "hoian", "lantern-display" });
+                Require(JsonUtility.ToJson(profile) == beforeInvalid && interactionField.GetValue(app) == repeat,
+                    "invalid world, cross-world target, or blocked display changed card state");
+
+                var fresh = new PlayerProfile { language = "ko" };
+                profileField.SetValue(app, fresh);
+                storeField.SetValue(app, new ProfileStore(folder)); // A directory cannot be replaced by a profile file.
+                pageField.SetValue(app, Enum.Parse(pageField.FieldType, "Map"));
+                string beforeFailure = JsonUtility.ToJson(fresh);
+                clearViews();
+                appType.GetMethod("RunMapObjective", hidden).Invoke(app,
+                    new object[] { MapObjectiveService.GetCurrent(fresh, false) });
+                Require(ReferenceEquals(profileField.GetValue(app), fresh) && JsonUtility.ToJson(fresh) == beforeFailure &&
+                        JsonUtility.ToJson(store.Load()) == JsonUtility.ToJson(profile) &&
+                        interactionField.GetValue(app) == repeat && pageField.GetValue(app).ToString() == "Map",
+                    "failed card save mutated the original profile, saved profile, dialogue, or navigation");
+                bool localizedError = false;
+                foreach (var text in owner.GetComponentsInChildren<Text>(true))
+                    if (text.text == GameText.Get("ko", "save_error")) localizedError = true;
+                Require(localizedError, "failed card save did not surface the localized save error");
+
+                storeField.SetValue(app, store);
+                route("hoian", "nhung");
+                var retried = (WorldInteractionResult)interactionField.GetValue(app);
+                Require(retried.IsFirstVisit && retried.DialogueKey == "prologue_nhung_first" &&
+                        StoryProgressService.HasFlag(store.Load(), "nhung-intro-seen"),
+                    "failed save consumed the first visit instead of leaving it retryable");
+                route("hoian", "chuacau");
+                int items = fresh.inventoryItems.Count;
+                int cards = fresh.culturalCards.Count;
+                Require(cards == 1 && InventoryService.HasCultureCard(fresh, "culture-hoian-chuacau"),
+                    "landmark route did not award its culture card");
+                route("hoian", "chuacau");
+                Require(fresh.inventoryItems.Count == items && fresh.culturalCards.Count == cards &&
+                        ((WorldInteractionResult)interactionField.GetValue(app)).DialogueKey == "chuacau_discovery_repeat" &&
+                        store.Load().culturalCards.Count == cards,
+                    "repeated landmark card duplicated rewards or lost repeat dialogue");
+                Debug.Log("Dấu Xứ card adventure smoke PASS: persisted dialogue, failed-save rollback, localized error, retry, and idempotent rewards");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(owner);
+                if (Directory.Exists(folder)) Directory.Delete(folder, true);
+                foreach (string suffix in new[] { ".tmp", ".old", ".bak" })
+                    if (File.Exists(folder + suffix)) File.Delete(folder + suffix);
+            }
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Card Objectives")]
         public static void RunCardObjectiveChecks()
         {
