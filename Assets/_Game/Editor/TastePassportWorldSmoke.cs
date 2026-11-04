@@ -107,8 +107,9 @@ namespace TastePassport.EditorTools
                     }
                 }
                 Require(owner.GetComponent<WalkableWorldSession>() == null, "card UI created a world session");
+                RunCardCaptureValidationChecks();
                 CheckCardCaptureCoverage();
-                Debug.Log("Dấu Xứ card adventure UI smoke PASS: VI/KO, portraits, one primary action, 64-unit controls, safe area and 28 generated card captures");
+                Debug.Log("Dấu Xứ card adventure UI smoke PASS: VI/KO, portraits, one primary action, 64-unit controls, safe area, 28 generated card captures and four ending action viewports");
             }
             finally { UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root); }
         }
@@ -120,22 +121,116 @@ namespace TastePassport.EditorTools
             string folder = string.IsNullOrWhiteSpace(requested)
                 ? Path.Combine(Directory.GetCurrentDirectory(), "Logs", "UiPreview") : Path.GetFullPath(requested);
             var failures = new System.Collections.Generic.List<string>();
-            foreach (string state in new[] { "journey", "target", "dialogue", "activity", "reward", "passport", "ending" })
+            foreach (string state in new[] { "journey", "target", "dialogue", "activity", "reward", "passport", "ending", "ending-action" })
             foreach (string language in new[] { "vi", "ko" })
             foreach (var size in new[] { new Vector2Int(720, 1280), new Vector2Int(1080, 2400) })
             {
-                string name = "Card_" + state + "_" + language + "_" + size.x + "x" + size.y + ".png";
+                string name = "Card_" + (state == "ending-action" ? "ending_" + language + "_action" : state + "_" + language) + "_" + size.x + "x" + size.y + ".png";
                 string path = Path.Combine(folder, name);
                 if (!File.Exists(path)) { failures.Add("missing " + name); continue; }
-                var image = new Texture2D(2, 2);
-                try
-                {
-                    if (!image.LoadImage(File.ReadAllBytes(path)) || image.width != size.x || image.height != size.y)
-                        failures.Add("invalid PNG or dimensions: " + name);
-                }
-                finally { UnityEngine.Object.DestroyImmediate(image); }
+                if (!IsCardCaptureImageValid(File.ReadAllBytes(path), size)) failures.Add("invalid, blank PNG or dimensions: " + name);
             }
             Require(failures.Count == 0, "Card capture coverage failed in " + folder + ": " + string.Join("; ", failures));
+        }
+
+        private static bool IsCardCaptureImageValid(byte[] png, Vector2Int size)
+        {
+            var image = new Texture2D(2, 2);
+            try
+            {
+                if (!image.LoadImage(png) || image.width != size.x || image.height != size.y) return false;
+                var pixels = image.GetPixels32();
+                Color32 first = pixels[0];
+                int varied = 0;
+                foreach (var pixel in pixels)
+                    if (pixel.a > 16 && (Math.Abs(pixel.r - first.r) > 24 || Math.Abs(pixel.g - first.g) > 24 || Math.Abs(pixel.b - first.b) > 24)) varied++;
+                return varied > pixels.Length / 100; // Reject a solid/near-solid or fully transparent capture.
+            }
+            finally { UnityEngine.Object.DestroyImmediate(image); }
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Card Capture Rejections")]
+        public static void RunCardCaptureValidationChecks()
+        {
+            // Catch a validator accepting unrelated, transparent, culled or offscreen content and a blank PNG.
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            var owner = new GameObject("Capture validator fixture"); owner.SetActive(false);
+            var root = new GameObject("Capture viewport", typeof(RectTransform), typeof(Canvas));
+            var cameraObject = new GameObject("Capture validation camera", typeof(Camera));
+            var texture = new RenderTexture(720, 1280, 24);
+            var pixels = new Texture2D(32, 64);
+            try
+            {
+                var app = owner.AddComponent<PassportApp>();
+                var driver = owner.AddComponent<TastePassportUiCaptureDriver>();
+                var camera = cameraObject.GetComponent<Camera>();
+                camera.orthographic = true; camera.orthographicSize = 640; camera.aspect = 720f / 1280;
+                camera.transform.position = new Vector3(0, 0, -10); camera.targetTexture = texture;
+                var canvas = root.GetComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace; canvas.worldCamera = camera;
+                var safe = root.GetComponent<RectTransform>(); safe.sizeDelta = new Vector2(720, 1280);
+                typeof(PassportApp).GetField("safeRoot", hidden).SetValue(app, safe);
+                var profile = new PlayerProfile { language = "vi", created = true };
+                typeof(PassportApp).GetField("profile", hidden).SetValue(app, profile);
+                var page = typeof(PassportApp).GetField("page", hidden);
+                page.SetValue(app, Enum.Parse(page.FieldType, "Map"));
+                typeof(TastePassportUiCaptureDriver).GetField("app", hidden).SetValue(driver, app);
+                typeof(TastePassportUiCaptureDriver).GetField("captureCamera", hidden).SetValue(driver, camera);
+                var verify = typeof(TastePassportUiCaptureDriver).GetMethod("VerifyCardCapture", hidden);
+                Func<string, float, Text> label = (copy, y) =>
+                {
+                    var text = new GameObject("Capture text", typeof(RectTransform), typeof(Text)).GetComponent<Text>();
+                    text.transform.SetParent(safe, false); text.rectTransform.sizeDelta = new Vector2(600, 80);
+                    text.rectTransform.anchoredPosition = new Vector2(0, y); text.font = Resources.Load<Font>("TastePassportFont");
+                    text.fontSize = 24; text.text = copy; text.color = Color.black;
+                    return text;
+                };
+                var heading = label(GameText.Get("vi", "map"), 140);
+                var action = label(GameText.Get("vi", "map_do_next"), 0);
+                action.gameObject.AddComponent<Button>();
+                label("Unrelated stale content", -140);
+                Canvas.ForceUpdateCanvases();
+                Action validate = () => verify.Invoke(driver, new object[] { "Card_journey_vi" });
+                validate(); // A valid visible card must still be accepted.
+                var failures = new System.Collections.Generic.List<string>();
+                Action<string, Action, Action> reject = (name, mutate, restore) =>
+                {
+                    mutate(); bool rejected = false;
+                    try { validate(); }
+                    catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException) { rejected = true; }
+                    finally { restore(); }
+                    if (!rejected) failures.Add(name);
+                };
+                reject("transparent heading", () => heading.color = Color.clear, () => heading.color = Color.black);
+                reject("transparent primary", () => action.color = Color.clear, () => action.color = Color.black);
+                reject("wrong heading", () => heading.text = "Other page", () => heading.text = GameText.Get("vi", "map"));
+                reject("wrong primary", () => action.text = "Other action", () => action.text = GameText.Get("vi", "map_do_next"));
+                reject("culled heading", () => heading.canvasRenderer.cull = true, () => heading.canvasRenderer.cull = false);
+                reject("offscreen heading", () => heading.rectTransform.anchoredPosition = new Vector2(2000, 140),
+                    () => heading.rectTransform.anchoredPosition = new Vector2(0, 140));
+                var group = root.AddComponent<CanvasGroup>();
+                reject("transparent parent", () => group.alpha = 0, () => group.alpha = 1);
+                reject("blank expected content", () => { heading.text = ""; action.text = ""; },
+                    () => { heading.text = GameText.Get("vi", "map"); action.text = GameText.Get("vi", "map_do_next"); });
+                reject("wrong language", () => profile.language = "ko", () => profile.language = "vi");
+                reject("wrong page", () => page.SetValue(app, Enum.Parse(page.FieldType, "Passport")),
+                    () => page.SetValue(app, Enum.Parse(page.FieldType, "Map")));
+                var solid = new Color32[32 * 64];
+                for (int i = 0; i < solid.Length; i++) solid[i] = new Color32(248, 236, 215, 255);
+                pixels.SetPixels32(solid); pixels.Apply();
+                if (IsCardCaptureImageValid(pixels.EncodeToPNG(), new Vector2Int(32, 64))) failures.Add("uniform blank PNG");
+                for (int i = 0; i < solid.Length; i++) solid[i] = i < solid.Length / 2 ? Color.black : Color.white;
+                pixels.SetPixels32(solid); pixels.Apply();
+                Require(IsCardCaptureImageValid(pixels.EncodeToPNG(), new Vector2Int(32, 64)), "nonblank PNG fixture was rejected");
+                if (IsCardCaptureImageValid(pixels.EncodeToPNG(), new Vector2Int(32, 63))) failures.Add("wrong PNG dimensions");
+                Require(failures.Count == 0, "Card capture validator accepted invalid output: " + string.Join("; ", failures));
+                Debug.Log("Card capture negative checks PASS: transparent, wrong/blank copy, cull, viewport, language/page and uniform PNG");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(cameraObject); UnityEngine.Object.DestroyImmediate(texture);
+                UnityEngine.Object.DestroyImmediate(pixels);
+            }
         }
 
         private static void CheckCampaignCardCopy(PassportApp app, Transform safe, string language,

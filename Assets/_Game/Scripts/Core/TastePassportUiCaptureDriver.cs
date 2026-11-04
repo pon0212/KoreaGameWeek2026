@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using TastePassport.Gameplay;
+using TastePassport.Localization;
 using TastePassport.Save;
 using TastePassport.Story;
 using TastePassport.World;
@@ -33,6 +34,7 @@ namespace TastePassport.Core
             "Menu", "Map", "Passport", "Dialogue", "Explore", "RecipeGame", "Postcard", "Settings", "Finale", "FinaleResult",
             "Card_journey_vi", "Card_target_vi", "Card_dialogue_vi", "Card_activity_vi", "Card_reward_vi", "Card_passport_vi", "Card_ending_vi",
             "Card_journey_ko", "Card_target_ko", "Card_dialogue_ko", "Card_activity_ko", "Card_reward_ko", "Card_passport_ko", "Card_ending_ko",
+            "Card_ending_vi_action", "Card_ending_ko_action",
             "WorldGuide", "WorldHud", "WorldDialogue", "WorldJournal", "WorldPassport", "WorldHudKo", "WorldDialogueKo", "WorldReturn"
         };
 
@@ -92,7 +94,7 @@ namespace TastePassport.Core
             {
                 if (index == Pages.Length * 2)
                 {
-                    Finish(0, "Taste Passport UI capture PASS: " + index + " images, including 28 VI/KO campaign card states and all optional world pages, at 720x1280 and 1080x2400");
+                    Finish(0, "Taste Passport UI capture PASS: " + index + " images, including 28 VI/KO campaign card states, four ending action viewports and all optional world pages, at 720x1280 and 1080x2400");
                     return;
                 }
                 int width = index < Pages.Length ? 720 : 1080;
@@ -131,11 +133,19 @@ namespace TastePassport.Core
                     VerifyCaptureSafeArea(page);
                     if (page == "Menu" || page == "Passport" || page == "Settings") LogPageCanvasState(page);
                     prepared = true;
+                    // Let the real page fade and ending reveal complete; do not hide opacity defects by forcing alpha.
+                    if (page.StartsWith("Card_ending_", StringComparison.Ordinal)) nextFrame = Time.realtimeSinceStartup + 2.5f;
                     return;
                 }
-                foreach (var group in app.GetComponentsInChildren<CanvasGroup>(true)) group.alpha = 1f;
-                Canvas.ForceUpdateCanvases();
                 string capturePage = Pages[index % Pages.Length];
+                if (!capturePage.StartsWith("Card_", StringComparison.Ordinal))
+                    foreach (var group in app.GetComponentsInChildren<CanvasGroup>(true)) group.alpha = 1f;
+                Canvas.ForceUpdateCanvases();
+                if (capturePage.EndsWith("_action", StringComparison.Ordinal))
+                {
+                    app.GetComponentInChildren<ScrollRect>().verticalNormalizedPosition = 0f;
+                    Canvas.ForceUpdateCanvases();
+                }
                 if (capturePage.StartsWith("Card_", StringComparison.Ordinal)) VerifyCardCapture(capturePage);
                 var request = new RenderPipeline.StandardRequest { destination = target };
                 if (!RenderPipeline.SupportsRenderRequest(captureCamera, request))
@@ -213,7 +223,6 @@ namespace TastePassport.Core
                 }
                 navigate.Invoke(app, new[] { Enum.Parse(pageType, page) });
             }
-            VerifyCardCapture(capturePage);
         }
 
         private void VerifyCardCapture(string capturePage)
@@ -231,10 +240,68 @@ namespace TastePassport.Core
             if ((session != null && session.IsOpen) || !safe.gameObject.activeInHierarchy || profile.language != parts[2] ||
                 typeof(PassportApp).GetField("page", hidden).GetValue(app).ToString() != expected)
                 throw new InvalidOperationException("Campaign capture is not on its visible localized 2D page: " + capturePage);
-            bool hasCopy = false;
+            string heading = state == "journey" ? "map" : state == "target" || state == "dialogue" ? (korean ? "character_kim" : "character_nhung") :
+                state == "activity" ? (korean ? "hanji_craft_title" : "lantern_craft_title") :
+                state == "reward" ? (korean ? "hanji_result_title" : "lantern_result_title") : state == "passport" ? "passport" : "finale_reveal_title";
+            string action = state == "journey" ? "map_do_next" : state == "target" ? "card_open_target" :
+                state == "dialogue" ? (korean ? "hanji_craft_map" : "card_continue") :
+                state == "activity" ? (korean ? "hanji_color_indigo" : "frame_round") :
+                state == "reward" ? (korean ? "inventory" : "card_continue") : state == "passport" ? "open_map" : "continue_free_exploration";
+            bool actionViewport = capturePage.EndsWith("_action", StringComparison.Ordinal);
+            if (!actionViewport)
+            {
+                RequireVisibleCardCopy(safe, parts[2], heading, false, capturePage);
+                if (state == "target") RequireVisibleCardCopy(safe, parts[2], "card_location_hint", false, capturePage);
+                if (state == "dialogue") RequireVisibleCardCopy(safe, parts[2], korean ? "bkim_first" : "prologue_nhung_first", false, capturePage);
+                if (state == "ending") RequireVisibleCardCopy(safe, parts[2], "activity_finale_result_hint", false, capturePage);
+            }
+            // Ending's primary control is below the first 720x1280 viewport; its supplemental capture proves the action.
+            if (state != "ending" || actionViewport) RequireVisibleCardCopy(safe, parts[2], action, true, capturePage);
+        }
+
+        private void RequireVisibleCardCopy(RectTransform safe, string language, string key, bool action, string capturePage)
+        {
+            var profile = (PlayerProfile)typeof(PassportApp).GetField("profile", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(app);
+            string expected = GameText.Get(language, key, profile.playerName);
+            if (expected == key) throw new InvalidOperationException("Missing localized capture key " + language + "/" + key);
             foreach (var label in safe.GetComponentsInChildren<Text>())
-                if (label.isActiveAndEnabled && !string.IsNullOrWhiteSpace(label.text)) hasCopy = true;
-            if (!hasCopy) throw new InvalidOperationException("Blank campaign capture: " + capturePage);
+            {
+                if (label.text != expected || !IsCaptureGraphicVisible(label, safe)) continue;
+                if (!action) return;
+                var button = label.GetComponentInParent<Button>();
+                if (button != null && button.isActiveAndEnabled && button.IsInteractable() && button.targetGraphic != null &&
+                    IsCaptureGraphicVisible(button.targetGraphic, safe) && IsCaptureRectVisible((RectTransform)button.transform, safe)) return;
+            }
+            throw new InvalidOperationException("Missing visible localized " + (action ? "action " : "copy ") + key + " in " + capturePage);
+        }
+
+        private bool IsCaptureGraphicVisible(Graphic graphic, RectTransform safe)
+        {
+            if (!graphic.isActiveAndEnabled || graphic.canvasRenderer.cull ||
+                graphic.color.a * graphic.canvasRenderer.GetAlpha() < 0.01f || captureCamera == null ||
+                !captureCamera.isActiveAndEnabled || (captureCamera.cullingMask & (1 << graphic.gameObject.layer)) == 0) return false;
+            foreach (var group in graphic.GetComponentsInParent<CanvasGroup>()) if (group.alpha < 0.01f) return false;
+            var canvas = graphic.canvas;
+            if (canvas == null || !canvas.isActiveAndEnabled || canvas.renderMode == RenderMode.ScreenSpaceOverlay || canvas.worldCamera != captureCamera) return false;
+            return IsCaptureRectVisible(graphic.rectTransform, safe);
+        }
+
+        private bool IsCaptureRectVisible(RectTransform rect, RectTransform safe)
+        {
+            if (rect.rect.width <= 0 || rect.rect.height <= 0) return false;
+            var corners = new Vector3[4]; rect.GetWorldCorners(corners);
+            foreach (var corner in corners)
+            {
+                Vector3 projected = captureCamera.WorldToViewportPoint(corner);
+                Vector2 local = safe.InverseTransformPoint(corner);
+                if (projected.z <= captureCamera.nearClipPlane || projected.z >= captureCamera.farClipPlane ||
+                    projected.x < -0.001f || projected.x > 1.001f || projected.y < -0.001f || projected.y > 1.001f ||
+                    local.x < safe.rect.xMin - 0.5f || local.x > safe.rect.xMax + 0.5f ||
+                    local.y < safe.rect.yMin - 0.5f || local.y > safe.rect.yMax + 0.5f) return false;
+                foreach (var mask in rect.GetComponentsInParent<RectMask2D>())
+                    if (mask.isActiveAndEnabled && !mask.rectTransform.rect.Contains((Vector2)mask.rectTransform.InverseTransformPoint(corner))) return false;
+            }
+            return true;
         }
 
         private static PlayerProfile CreateFestivalCaptureProfile(bool completed)
