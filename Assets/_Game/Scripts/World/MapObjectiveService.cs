@@ -16,7 +16,8 @@ namespace TastePassport.World
         JeonjuExchange,
         LanternCraft,
         HanjiCraft,
-        Festival
+        Festival,
+        StoryCardTarget
     }
 
     public sealed class MapObjectiveDefinition
@@ -26,28 +27,30 @@ namespace TastePassport.World
         public readonly string ActionLabelKey;
         public readonly MapObjectiveAction Action;
         public readonly string WorldId;
+        public readonly string TargetId;
 
         public MapObjectiveDefinition(string titleKey, string descriptionKey, string actionLabelKey,
-            MapObjectiveAction action, string worldId = null)
+            MapObjectiveAction action, string worldId = null, string targetId = null)
         {
             TitleKey = titleKey;
             DescriptionKey = descriptionKey;
             ActionLabelKey = actionLabelKey;
             Action = action;
             WorldId = worldId;
+            TargetId = targetId;
         }
     }
 
     public static class MapObjectiveService
     {
         private static readonly MapObjectiveDefinition MeetNhung =
-            World("world_objective_find_nhung", "world_hint_find_nhung", "hoian");
+            World("world_objective_find_nhung", "world_hint_find_nhung", "hoian", "nhung");
         private static readonly MapObjectiveDefinition MeetLan =
-            World("world_objective_find_lan", "world_hint_find_lan", "hoian");
+            World("world_objective_find_lan", "world_hint_find_lan", "hoian", "lan");
         private static readonly MapObjectiveDefinition CraftLantern =
-            World("world_objective_craft_lantern", "world_hint_craft_lantern", "hoian");
+            World("world_objective_craft_lantern", "world_hint_craft_lantern", "hoian", "lan");
         private static readonly MapObjectiveDefinition SeeLantern =
-            World("world_objective_see_lantern", "world_hint_see_lantern", "hoian");
+            World("world_objective_see_lantern", "world_hint_see_lantern", "hoian", "lantern-display");
         private static readonly MapObjectiveDefinition ViewPassport =
             new MapObjectiveDefinition("world_objective_view_passport", "world_hint_view_passport",
                 "map_do_next", MapObjectiveAction.OpenPassport);
@@ -73,11 +76,18 @@ namespace TastePassport.World
             if (profile == null) return MeetNhung;
             if (profile.mainStoryCompleted) return jeonjuUnlocked ? FreeExploreJeonju : FreeExploreHoiAn;
 
-            if (!StoryProgressService.HasFlag(profile, "nhung-intro-seen")) return MeetNhung;
-            if (!StoryProgressService.HasFlag(profile, "lan-met")) return MeetLan;
-            if (!StoryProgressService.HasImprint(profile, "lantern-display-ready")) return CraftLantern;
-            if (!StoryProgressService.HasFlag(profile, "lantern-display-seen")) return SeeLantern;
-            if (!StoryProgressService.HasFlag(profile, "tutorial-passport-viewed")) return ViewPassport;
+            // Older saves can have completed Hoi An missions without the later onboarding flags.
+            bool hoiAnCompleted = ProgressService.HasStamp(profile, LevelCatalog.HoiAn.Id) &&
+                ProgressService.HasStamp(profile, RecipeCatalog.CaoLau.Id) &&
+                ProgressService.HasStamp(profile, MatchCatalog.HoiAn.Id);
+            if (!hoiAnCompleted)
+            {
+                if (!StoryProgressService.HasFlag(profile, "nhung-intro-seen")) return MeetNhung;
+                if (!StoryProgressService.HasFlag(profile, "lan-met")) return MeetLan;
+                if (!StoryProgressService.HasImprint(profile, "lantern-display-ready")) return CraftLantern;
+                if (!StoryProgressService.HasFlag(profile, "lantern-display-seen")) return SeeLantern;
+                if (!StoryProgressService.HasFlag(profile, "tutorial-passport-viewed")) return ViewPassport;
+            }
 
             if (!ProgressService.HasStamp(profile, LevelCatalog.HoiAn.Id)) return HoianMission;
             if (!ProgressService.HasStamp(profile, RecipeCatalog.CaoLau.Id)) return CaoLauMission;
@@ -92,8 +102,8 @@ namespace TastePassport.World
             return Festival;
         }
 
-        private static MapObjectiveDefinition World(string title, string description, string worldId) =>
-            new MapObjectiveDefinition(title, description, "map_do_next", MapObjectiveAction.ExploreWorld, worldId);
+        private static MapObjectiveDefinition World(string title, string description, string worldId, string targetId) =>
+            new MapObjectiveDefinition(title, description, "map_do_next", MapObjectiveAction.StoryCardTarget, worldId, targetId);
 
         private static MapObjectiveDefinition Mission(string title, MapObjectiveAction action) =>
             new MapObjectiveDefinition(title, "map_goal_mission_hint", "map_do_next", action);

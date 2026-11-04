@@ -19,6 +19,82 @@ namespace TastePassport.EditorTools
 {
     public static class TastePassportWorldSmoke
     {
+        [MenuItem("Tools/Taste Passport/Validate Card Objectives")]
+        public static void RunCardObjectiveChecks()
+        {
+            // Catch incorrect target routing, premature display/unlock, and replayed legacy onboarding.
+            FieldInfo targetId = typeof(MapObjectiveDefinition).GetField("TargetId");
+            Require(targetId != null && targetId.FieldType == typeof(string),
+                "MapObjectiveDefinition.TargetId is missing");
+            Action<PlayerProfile, string, string, string> requireCard = (profile, world, target, title) =>
+            {
+                MapObjectiveDefinition objective = MapObjectiveService.GetCurrent(profile, false);
+                Require(objective.Action.ToString() == "StoryCardTarget" && objective.WorldId == world &&
+                        (string)targetId.GetValue(objective) == target && objective.TitleKey == title &&
+                        FindTarget(WorldCatalog.Get(world), target) != null,
+                    "incorrect story card objective: " + title);
+            };
+            var fresh = new PlayerProfile();
+            requireCard(null, "hoian", "nhung", "world_objective_find_nhung");
+            requireCard(fresh, "hoian", "nhung", "world_objective_find_nhung");
+            StoryProgressService.AddFlag(fresh, "nhung-intro-seen");
+            requireCard(fresh, "hoian", "lan", "world_objective_find_lan");
+            StoryProgressService.AddFlag(fresh, "lan-met");
+            requireCard(fresh, "hoian", "lan", "world_objective_craft_lantern");
+            Require(FindTarget(WorldCatalog.Get("hoian"), "lan").ActivityId == "lantern-craft",
+                "Lan's objective cannot hand off to lantern crafting");
+            StoryProgressService.AddImprint(fresh, "lantern-display-ready");
+            requireCard(fresh, "hoian", "lantern-display", "world_objective_see_lantern");
+            StoryProgressService.AddFlag(fresh, "lantern-display-seen");
+            Require(MapObjectiveService.GetCurrent(fresh, false).Action == MapObjectiveAction.OpenPassport,
+                "lantern display skipped the passport tutorial");
+            StoryProgressService.AddFlag(fresh, "tutorial-passport-viewed");
+            Require(MapObjectiveService.GetCurrent(fresh, false).Action == MapObjectiveAction.HoiAnArchitecture,
+                "tutorial skipped Hoi An architecture");
+            ProgressService.Record(fresh, "hoian-architecture", 100, 3);
+            Require(MapObjectiveService.GetCurrent(fresh, false).Action == MapObjectiveAction.CaoLau,
+                "architecture stamp did not advance to Cao Lau");
+            ProgressService.Record(fresh, "hoian-cao-lau", 100, 3);
+            Require(MapObjectiveService.GetCurrent(fresh, false).Action == MapObjectiveAction.HoiAnExchange,
+                "Cao Lau stamp did not advance to the Hoi An exchange");
+
+            var legacy = new PlayerProfile();
+            foreach (string id in new[] { "hoian-architecture", "hoian-cao-lau", "hoian-culture" })
+                ProgressService.Record(legacy, id, 100, 3);
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.JeonjuArchitecture,
+                "existing Hoi An stamps replayed onboarding instead of advancing to Jeonju");
+            Require(MapObjectiveService.GetCurrent(legacy, false).Action != MapObjectiveAction.JeonjuArchitecture,
+                "objective bypassed the supplied Jeonju lock");
+            ProgressService.Record(legacy, "jeonju-architecture", 100, 3);
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.Bibimbap,
+                "legacy architecture stamp replayed a completed Jeonju objective");
+            ProgressService.Record(legacy, "jeonju-bibimbap", 100, 3);
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.JeonjuExchange,
+                "legacy recipe stamp replayed a completed Jeonju objective");
+            ProgressService.Record(legacy, "jeonju-culture", 100, 3);
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.LanternCraft,
+                "legacy mission stamps skipped the missing lantern craft");
+            StoryProgressService.AddImprint(legacy, "lantern-display-ready");
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.HanjiCraft,
+                "legacy lantern craft skipped the missing Hanji craft");
+            StoryProgressService.AddImprint(legacy, "hanji-display-ready");
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.Festival,
+                "six stamps and both crafts did not advance to the festival");
+            Require(legacy.storyFlags.Count == 0 && !legacy.mainStoryCompleted,
+                "objective selection mutated legacy story progress");
+
+            legacy.mainStoryCompleted = true;
+            foreach (bool unlocked in new[] { false, true })
+            {
+                MapObjectiveDefinition optional = MapObjectiveService.GetCurrent(legacy, unlocked);
+                Require(optional.Action == MapObjectiveAction.ExploreWorld &&
+                        optional.TitleKey == "world_objective_free_explore" &&
+                        optional.WorldId == (unlocked ? "jeonju" : "hoian") && targetId.GetValue(optional) == null,
+                    "completed story did not offer optional free roam with no required target");
+            }
+            Debug.Log("Dấu Xứ card objective smoke PASS: story targets, craft handoff, legacy stamps, Jeonju gate, and optional free roam");
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Card Interactions")]
         public static void RunCardInteractionChecks()
         {
