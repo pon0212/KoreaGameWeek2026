@@ -126,6 +126,7 @@ namespace TastePassport.Core
             EnsureCanvas();
             EnsureEventSystem();
             page = Page.Menu;
+            showHoiAnActivities = showJeonjuActivities = false;
             Show();
         }
 
@@ -500,40 +501,34 @@ namespace TastePassport.Core
 
         private void DrawMenu(Transform parent)
         {
-            var title = JourneyCard(parent);
-            title.name = "Menu title plaque";
-            CollectionCopy(title, T("title"), 44, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(title, T("subtitle"), 28, Muted, TextAnchor.MiddleCenter);
-            Spacer(parent, 144);
+            // Keep the title directly on the stage; one small paper surface owns the primary action.
+            Spacer(parent, GameUiTheme.SpaceLarge);
+            CollectionCopy(parent, T("title"), 44, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(parent, T("subtitle"), 26, Muted, TextAnchor.MiddleCenter);
+            CollectionCopy(parent, T("tagline"), 26, Ink, TextAnchor.MiddleCenter);
+            Spacer(parent, 208);
             var welcome = JourneyCard(parent);
             welcome.name = "Journey start surface";
             CollectionCopy(welcome, T(profile.created ? "journey_welcome_back" : "journey_first_run"), 30, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(welcome, T(profile.created ? "journey_resume_hint" : "journey_setup_hint"), 26, Muted, TextAnchor.MiddleCenter);
-            Button(welcome, profile.created ? T("continue") : T("start"), Jade, () =>
+            Button(welcome, T(profile.created ? "continue" : "start"), Jade, () =>
             {
                 if (!profile.created)
                 {
                     Navigate(Page.Language);
                     return;
                 }
-
                 string lastWorld = profile.lastWorldId;
                 if (lastWorld == "hoian" || (lastWorld == "jeonju" && IsJeonjuUnlocked(profile)))
                     OpenWorld(lastWorld);
                 else Navigate(Page.Map);
             });
-            JourneyNavigation(parent, Page.Menu);
-            var spread = JourneyCard(parent);
-            Label(spread, T("living_passport"), 26, 84, Jade, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            var destinations = NewRect("Two culture destinations", spread);
-            SetHeight(destinations, 184);
-            AddHorizontal(destinations);
-            Artwork(destinations, TravelArtworkKind.HoiAn, 184);
-            Artwork(destinations, TravelArtworkKind.Jeonju, 184);
-            AddJourneyThread(spread);
-            Label(spread, T("tagline"), 26, 92, Ink, TextAnchor.MiddleCenter);
-            NarrationButtons(parent, T("story_full"));
-            CompactButton(parent, T("language"), Paper, () => Navigate(Page.Language), Ink);
+            var row = NewRect("Menu secondary navigation", parent);
+            SetHeight(row, 84);
+            AddHorizontal(row);
+            if (profile.created)
+                CompactButton(row, T("nav_passport"), Paper, () => Navigate(Page.Passport), Ink);
+            CompactButton(row, T("settings"), Paper, () => { settingsReturnPage = Page.Menu; Navigate(Page.Settings); }, Ink);
+            CompactButton(row, T("language"), Paper, () => Navigate(Page.Language), Ink);
         }
 
         private void DrawLanguage(Transform parent)
@@ -549,13 +544,15 @@ namespace TastePassport.Core
 
         private void DrawCreate(Transform parent)
         {
-            Header(parent, editingProfile ? T("edit_profile") : T("create"));
-            Label(parent, T(editingProfile ? "journey_profile_hint" : "journey_profile_step"), 26, 92, Muted, TextAnchor.MiddleCenter);
-            Label(parent, T("name_label"), 29, 50, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-            var field = Input(parent, draftName, T("name_hint"));
+            CollectionCopy(parent, T(editingProfile ? "edit_profile" : "create"), 38, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(parent, T(editingProfile ? "journey_profile_hint" : "journey_profile_step"), 26, Muted, TextAnchor.MiddleCenter);
+            var profileStep = JourneyCard(parent);
+            profileStep.name = "Profile identity step";
+            Label(profileStep, T("name_label"), 29, 50, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var field = Input(profileStep, draftName, T("name_hint"));
             field.onValueChanged.AddListener(value => draftName = value);
-            Label(parent, T("avatar_label"), 29, 58, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-            var row = NewRect("Avatar choices", parent);
+            Label(profileStep, T("avatar_label"), 29, 58, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var row = NewRect("Avatar choices", profileStep);
             SetHeight(row, 184);
             var horizontal = row.gameObject.AddComponent<HorizontalLayoutGroup>();
             horizontal.spacing = 12;
@@ -577,7 +574,7 @@ namespace TastePassport.Core
                 caption.offsetMax = new Vector2(0, 55);
                 DrawAvatar(avatar.transform, i);
             }
-            Spacer(parent, 20);
+            Spacer(parent, GameUiTheme.SpaceSmall);
             Button(parent, T(editingProfile ? "save_profile" : "journey_enter_hoian"), Jade, CreateProfile);
             CompactButton(parent, T("back"), Paper, () =>
             {
@@ -1316,15 +1313,10 @@ namespace TastePassport.Core
 
         private void DrawMap(Transform parent)
         {
-            var heading = JourneyCard(parent);
-            heading.name = "Map travel desk";
-            CollectionCopy(heading, T("map"), 38, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(heading, T("journey_progress") + "  " + JourneyStampCount(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
-                LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id) + "/6", 26, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             MapObjectiveDefinition nextObjective = MapObjectiveService.GetCurrent(profile, IsJeonjuUnlocked(profile));
-            Spacer(parent, 64);
             var objectiveCard = JourneyCard(parent);
             objectiveCard.name = "Next objective surface";
+            CollectionCopy(objectiveCard, T("map"), 38, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             Label(objectiveCard, T("map_next_step"), 24, 42, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var objectiveTitle = Label(objectiveCard, T(nextObjective.TitleKey), 30, 86, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             // Some existing objective keys contain a full mission introduction.
@@ -1334,11 +1326,14 @@ namespace TastePassport.Core
             titleSize.preferredHeight = -1;
             CollectionCopy(objectiveCard, T(nextObjective.DescriptionKey), 26, Muted, TextAnchor.MiddleCenter);
             Button(objectiveCard, T(nextObjective.ActionLabelKey), Jade, () => RunMapObjective(nextObjective));
-            Label(parent, T("journey_destinations"), 30, 54, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            CollectionCopy(parent, T("journey_destinations") + " · " + T("journey_progress") + " " +
+                JourneyStampCount(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
+                    LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id) + "/6",
+                28, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
             var hoian = JourneyCard(parent);
             hoian.name = "Hoi An destination surface";
             Label(hoian, T("hoian"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            Label(hoian, T("hoian_desc"), 26, 42, Muted, TextAnchor.MiddleCenter);
+            CollectionCopy(hoian, T("hoian_desc"), 26, Muted, TextAnchor.MiddleCenter);
             DestinationProgress(hoian, LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id);
             CompactButton(hoian, T(showHoiAnActivities ? "journey_hide_activities" : "journey_show_activities"), Paper,
                 () => { showHoiAnActivities = !showHoiAnActivities; Show(); }, Ink);
@@ -1357,10 +1352,10 @@ namespace TastePassport.Core
             var jeonju = JourneyCard(parent);
             jeonju.name = "Jeonju destination surface";
             Label(jeonju, T("jeonju"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            Label(jeonju, T("jeonju_desc"), 26, 42, Muted, TextAnchor.MiddleCenter);
+            CollectionCopy(jeonju, T("jeonju_desc"), 26, Muted, TextAnchor.MiddleCenter);
             DestinationProgress(jeonju, LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id);
             bool jeonjuUnlocked = IsJeonjuUnlocked(profile);
-            if (!jeonjuUnlocked) Label(jeonju, T("locked") + " · " + T("journey_jeonju_requirement"), 26, 122, Muted, TextAnchor.MiddleCenter);
+            if (!jeonjuUnlocked) CollectionCopy(jeonju, T("locked") + " · " + T("journey_jeonju_requirement"), 26, Muted, TextAnchor.MiddleCenter);
             CompactButton(jeonju, T(showJeonjuActivities ? "journey_hide_activities" : "journey_show_activities"), Paper,
                 () => { showJeonjuActivities = !showJeonjuActivities; Show(); }, Ink);
             if (showJeonjuActivities)
@@ -1368,10 +1363,12 @@ namespace TastePassport.Core
                 Artwork(jeonju, TravelArtworkKind.KoreaJourney, 150);
                 Label(jeonju, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
                 CompactButton(jeonju, T("explore_jeonju") + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
-                    jeonjuUnlocked ? () => OpenWorld("jeonju") : () => Toast(T("jeonju_not_unlocked")), Ink);
+                    jeonjuUnlocked ? () => OpenWorld("jeonju") : () => Toast(T("jeonju_not_unlocked")), Ink)
+                    .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
                 JourneyMissionButton(jeonju, "journey_jeonju_architecture", LevelCatalog.Jeonju.Id, MatchCatalog.HoiAn.Id, "hoian_exchange", () => StartLevel(LevelCatalog.Jeonju));
                 CompactButton(jeonju, T("hanji_craft_map") + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
-                    jeonjuUnlocked ? StartHanjiCraft : () => Toast(T("jeonju_not_unlocked")), Ink);
+                    jeonjuUnlocked ? StartHanjiCraft : () => Toast(T("jeonju_not_unlocked")), Ink)
+                    .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
                 Label(jeonju, T("journey_food_exchange"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
                 JourneyMissionButton(jeonju, "bibimbap", RecipeCatalog.Bibimbap.Id, LevelCatalog.Jeonju.Id, "journey_jeonju_architecture", () => StartRecipe(RecipeCatalog.Bibimbap));
                 JourneyMissionButton(jeonju, "jeonju_exchange", MatchCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, "bibimbap", () => StartMatch(MatchCatalog.Jeonju));
@@ -1384,12 +1381,13 @@ namespace TastePassport.Core
             if (profile.mainStoryCompleted)
             {
                 Label(storyCard, T("main_story_complete_map"), 24, 66, Ink, TextAnchor.MiddleCenter);
-                Button(storyCard, T("view_ending"), Jade, () => Navigate(Page.FinaleResult));
+                CompactButton(storyCard, T("view_ending"), Paper, () => Navigate(Page.FinaleResult), Ink);
             }
             else if (FirstJourneyComplete())
             {
                 Label(storyCard, T("festival_ready_intro"), 26, 112, Ink, TextAnchor.MiddleCenter);
-                Button(storyCard, T("finale_start"), Vermilion, StartFinale);
+                if (nextObjective.Action != MapObjectiveAction.Festival)
+                    CompactButton(storyCard, T("finale_start"), Paper, StartFinale, Ink);
             }
             else Label(storyCard, T("finale_locked_hint"), 26, 144, Muted, TextAnchor.MiddleCenter);
         }
@@ -1615,13 +1613,19 @@ namespace TastePassport.Core
 
         private void DrawSettings(Transform parent)
         {
-            CollectionHeader(parent, "settings", "settings_intro");
+            CollectionCopy(parent, T("settings"), 38, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(parent, T("settings_intro"), 26, Muted, TextAnchor.MiddleCenter);
             var language = JourneyCard(parent);
+            language.name = "Settings language group";
             CollectionCopy(language, T("settings_language"), 29, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
             CollectionCopy(language, T("settings_language_hint"), 26, Muted);
-            Button(language, T("language_vi") + (profile.language == "vi" ? "  ✓" : ""), profile.language == "vi" ? Lantern : Paper, () => ChangeLanguage("vi"), Ink);
-            Button(language, T("language_ko") + (profile.language == "ko" ? "  ✓" : ""), profile.language == "ko" ? Lantern : Paper, () => ChangeLanguage("ko"), Ink);
+            var languages = NewRect("Settings language choices", language);
+            SetHeight(languages, GameUiTheme.ButtonHeight);
+            AddHorizontal(languages);
+            Button(languages, T("language_vi") + (profile.language == "vi" ? "  ✓" : ""), profile.language == "vi" ? Lantern : Paper, () => ChangeLanguage("vi"), Ink);
+            Button(languages, T("language_ko") + (profile.language == "ko" ? "  ✓" : ""), profile.language == "ko" ? Lantern : Paper, () => ChangeLanguage("ko"), Ink);
             var sound = JourneyCard(parent);
+            sound.name = "Settings audio group";
             CollectionCopy(sound, T("settings_sound"), 29, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
             if (audioManager == null) audioManager = GameAudioManager.For(gameObject);
             CollectionCopy(sound, T("settings_sound_state") + ": " + T(audioManager.Muted ? "off" : "on"), 26, Jade);
@@ -2257,7 +2261,8 @@ namespace TastePassport.Core
             string requirement = prerequisiteTitleKey == null ? T("unlock_previous")
                 : T("journey_requires_mission").Replace("{mission}", T(prerequisiteTitleKey));
             CompactButton(parent, unlocked ? MissionLabel(titleKey, levelId) : "○  " + T(titleKey) + " · " + T("locked"),
-                unlocked ? color : Border, unlocked ? action : () => Toast(requirement), unlocked ? foreground : Ink);
+                unlocked ? color : Border, unlocked ? action : () => Toast(requirement), unlocked ? foreground : Ink)
+                .GetComponent<UnityEngine.UI.Button>().interactable = unlocked;
             if (!unlocked && prerequisiteTitleKey != null)
                 Label(parent, requirement, 26, 88, Muted, TextAnchor.MiddleLeft);
         }
