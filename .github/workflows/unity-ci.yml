@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   validate-and-test:
-    name: Validate and compile Unity project
+    name: Validate project and run licensed Unity checks
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -58,17 +58,21 @@ jobs:
             git diff --check HEAD
           fi
 
-      - name: Require Unity license secret
+      - name: Detect Unity license secret
+        id: unity-license
         shell: bash
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         run: |
           if [[ -z "$UNITY_LICENSE" ]]; then
-            echo "Missing repository Actions secret UNITY_LICENSE. See .github/UNITY_CI.md."
-            exit 1
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "UNITY_LICENSE is not configured; static validation will pass and Unity checks will be skipped."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Cache Unity Library
+        if: steps.unity-license.outputs.available == 'true'
         uses: actions/cache@v4
         with:
           path: Library
@@ -77,6 +81,7 @@ jobs:
             Library-${{ runner.os }}-${{ hashFiles('ProjectSettings/ProjectVersion.txt', 'Packages/manifest.json') }}-
 
       - name: Run Unity EditMode tests and compile scripts
+        if: steps.unity-license.outputs.available == 'true'
         uses: game-ci/unity-test-runner@v4
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
@@ -87,6 +92,10 @@ jobs:
           checkName: Unity EditMode tests
           artifactsPath: artifacts
           coverageEnabled: false
+
+      - name: Report Unity checks skipped
+        if: steps.unity-license.outputs.available != 'true'
+        run: echo "Unity compile and EditMode tests were skipped. Add repository secret UNITY_LICENSE to enable them."
 
       - name: Upload Unity test results
         if: always()

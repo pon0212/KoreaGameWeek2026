@@ -4,7 +4,7 @@ The `Unity CI` workflow runs on pushes and pull requests targeting `main`. It ch
 
 ## One-time setup
 
-Unity needs a license on the hosted runner. In GitHub, open **Settings → Secrets and variables → Actions → New repository secret** and add:
+Unity compilation and EditMode tests need a license on the hosted runner. Without it, static project checks still run and the Unity step is reported as skipped. To enable Unity checks, open **Settings → Secrets and variables → Actions → New repository secret** and add:
 
 - Name: `UNITY_LICENSE`
 - Value: the contents of the Unity `.ulf` license file for the account/build server authorized to run CI.
