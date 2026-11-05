@@ -1,0 +1,98 @@
+name: Unity CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Assets/**"
+      - "Packages/**"
+      - "ProjectSettings/**"
+      - ".github/workflows/unity-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Assets/**"
+      - "Packages/**"
+      - "ProjectSettings/**"
+      - ".github/workflows/unity-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: unity-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-test:
+    name: Validate and compile Unity project
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Validate Unity project structure
+        shell: bash
+        run: |
+          test -f ProjectSettings/ProjectVersion.txt
+          test -f Packages/manifest.json
+          test -f Assets/_Game/Scenes/TastePassport_MVP.unity
+          test -d Assets/_Game/Scripts
+          grep -Eq '^m_EditorVersion: 6000\.6\.7f1$' ProjectSettings/ProjectVersion.txt
+          echo "Unity version: $(sed -n 's/^m_EditorVersion: //p' ProjectSettings/ProjectVersion.txt)"
+
+      - name: Check whitespace errors in changed files
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            git diff --check HEAD^ HEAD
+          else
+            git diff --check HEAD
+          fi
+
+      - name: Require Unity license secret
+        shell: bash
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          if [[ -z "$UNITY_LICENSE" ]]; then
+            echo "Missing repository Actions secret UNITY_LICENSE. See .github/UNITY_CI.md."
+            exit 1
+          fi
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-${{ runner.os }}-${{ hashFiles('ProjectSettings/ProjectVersion.txt', 'Packages/manifest.json') }}-${{ github.sha }}
+          restore-keys: |
+            Library-${{ runner.os }}-${{ hashFiles('ProjectSettings/ProjectVersion.txt', 'Packages/manifest.json') }}-
+
+      - name: Run Unity EditMode tests and compile scripts
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        with:
+          projectPath: .
+          testMode: EditMode
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Unity EditMode tests
+          artifactsPath: artifacts
+          coverageEnabled: false
+
+      - name: Upload Unity test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-test-results
+          path: artifacts
+          if-no-files-found: ignore
+          retention-days: 14
