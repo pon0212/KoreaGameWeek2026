@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using TastePassport.Gameplay;
 using TastePassport.Localization;
@@ -29,14 +30,20 @@ namespace TastePassport.Core
         private MethodInfo navigate;
         private Type pageType;
         private RenderTexture target;
-        private static readonly string[] Pages =
+        private static readonly string[] BookPages =
+        {
+            "Book_closed_vi", "Book_0_vi", "Book_1_vi", "Book_2_vi", "Book_3_vi", "Book_4_vi", "Book_5_vi",
+            "Book_closed_ko", "Book_0_ko", "Book_1_ko", "Book_2_ko", "Book_3_ko", "Book_4_ko", "Book_5_ko"
+        };
+        private static readonly string[] Pages = Environment.GetEnvironmentVariable("TP_UI_CAPTURE_BOOK_ONLY") == "1"
+            ? BookPages : BookPages.Concat(new[]
         {
             "Menu", "Map", "Passport", "Dialogue", "Explore", "RecipeGame", "Postcard", "Settings", "Finale", "FinaleResult",
             "Card_journey_vi", "Card_target_vi", "Card_dialogue_vi", "Card_activity_vi", "Card_reward_vi", "Card_passport_vi", "Card_ending_vi",
             "Card_journey_ko", "Card_target_ko", "Card_dialogue_ko", "Card_activity_ko", "Card_reward_ko", "Card_passport_ko", "Card_ending_ko",
             "Card_ending_vi_action", "Card_ending_ko_action",
             "WorldGuide", "WorldHud", "WorldDialogue", "WorldJournal", "WorldPassport", "WorldHudKo", "WorldDialogueKo", "WorldReturn"
-        };
+        }).ToArray();
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Attach()
@@ -94,7 +101,7 @@ namespace TastePassport.Core
             {
                 if (index == Pages.Length * 2)
                 {
-                    Finish(0, "Taste Passport UI capture PASS: " + index + " images, including 28 VI/KO campaign card states, four ending action viewports and all optional world pages, at 720x1280 and 1080x2400");
+                    Finish(0, "Taste Passport UI capture PASS: " + index + " images, including 14 VI/KO closed/open book states at 720x1280 and 1080x2400");
                     return;
                 }
                 int width = index < Pages.Length ? 720 : 1080;
@@ -106,7 +113,11 @@ namespace TastePassport.Core
                     captureCamera.targetTexture = target;
                     captureCanvas.worldCamera = captureCamera;
                     string page = Pages[index % Pages.Length];
-                    if (page.StartsWith("Card_", StringComparison.Ordinal))
+                    if (page.StartsWith("Book_", StringComparison.Ordinal))
+                    {
+                        PrepareBookCapture(page);
+                    }
+                    else if (page.StartsWith("Card_", StringComparison.Ordinal))
                     {
                         PrepareCardCapture(page);
                     }
@@ -147,6 +158,7 @@ namespace TastePassport.Core
                     Canvas.ForceUpdateCanvases();
                 }
                 if (capturePage.StartsWith("Card_", StringComparison.Ordinal)) VerifyCardCapture(capturePage);
+                if (capturePage.StartsWith("Book_", StringComparison.Ordinal)) VerifyBookCapture(capturePage);
                 var request = new RenderPipeline.StandardRequest { destination = target };
                 if (!RenderPipeline.SupportsRenderRequest(captureCamera, request))
                     throw new InvalidOperationException("URP render request is unavailable");
@@ -168,6 +180,62 @@ namespace TastePassport.Core
                 index++;
             }
             catch (Exception error) { Finish(2, "Taste Passport UI capture failed: " + error); }
+        }
+
+        private void PrepareBookCapture(string capturePage)
+        {
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            string[] parts = capturePage.Split('_');
+            bool closed = parts[1] == "closed";
+            int leaf = closed ? 0 : int.Parse(parts[1]);
+            var profile = (PlayerProfile)typeof(PassportApp).GetField("profile", hidden).GetValue(app);
+            profile.language = parts[2];
+            typeof(PassportApp).GetField("introPageIndex", hidden).SetValue(app, leaf);
+            typeof(PassportApp).GetField("introBookOpened", hidden).SetValue(app, !closed);
+            var pending = (Coroutine)typeof(PassportApp).GetField("bookAutoOpenRoutine", hidden).GetValue(app);
+            if (pending != null) app.StopCoroutine(pending);
+            typeof(PassportApp).GetField("bookAutoOpenRoutine", hidden).SetValue(app, null);
+            typeof(PassportApp).GetField("koreanBackdrop", hidden).SetValue(app, false);
+            navigate.Invoke(app, new[] { Enum.Parse(pageType, "IntroBook") });
+        }
+
+        private void VerifyBookCapture(string capturePage)
+        {
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            string[] parts = capturePage.Split('_');
+            bool closed = parts[1] == "closed";
+            int leaf = closed ? 0 : int.Parse(parts[1]);
+            string language = parts[2];
+            var profile = (PlayerProfile)typeof(PassportApp).GetField("profile", hidden).GetValue(app);
+            var safe = (RectTransform)typeof(PassportApp).GetField("safeRoot", hidden).GetValue(app);
+            if (!safe.gameObject.activeInHierarchy || profile.language != language ||
+                typeof(PassportApp).GetField("page", hidden).GetValue(app).ToString() != "IntroBook")
+                throw new InvalidOperationException("Opening book capture is not on its localized page: " + capturePage);
+            string title = GameText.Get(language, "intro_title_" + leaf);
+            string body = GameText.Get(language, "intro_body_" + leaf);
+            string note = GameText.Get(language, "intro_note_" + leaf);
+            if (closed)
+            {
+                if (!app.GetComponentsInChildren<Image>().Any(i => i.name == "Closed antique storybook" &&
+                    i.sprite == Resources.Load<Sprite>("Art/StorybookClosed") &&
+                    i.GetComponent<TastePassport.UI.BookSwipeTurn>() != null))
+                    throw new InvalidOperationException("Closed book sprite or tap handler missing: " + capturePage);
+                return;
+            }
+            bool foundTitle = false, foundBody = false, foundNote = false, foundLeaf = false;
+            foreach (Text label in app.GetComponentsInChildren<Text>())
+            {
+                if (label.text == title) foundTitle = true;
+                if (label.text == body) foundBody = true;
+                if (label.text == note) foundNote = true;
+            }
+            foreach (RectTransform rect in app.GetComponentsInChildren<RectTransform>())
+                if (rect.name == "Opening storybook leaf " + leaf &&
+                    rect.GetComponent<TastePassport.UI.BookSwipeTurn>() != null) foundLeaf = true;
+            if (!foundTitle || !foundBody || !foundNote || !foundLeaf ||
+                !app.GetComponentsInChildren<Image>().Any(i => i.name == "Open antique storybook" &&
+                    i.sprite == Resources.Load<Sprite>("Art/StorybookOpen")))
+                throw new InvalidOperationException("Opening book content or tappable page missing: " + capturePage);
         }
 
         private void PrepareCardCapture(string capturePage)

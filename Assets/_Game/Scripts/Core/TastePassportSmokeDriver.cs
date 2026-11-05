@@ -11,6 +11,7 @@ using TastePassport.Story;
 using TastePassport.World;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace TastePassport.Core
@@ -58,7 +59,8 @@ namespace TastePassport.Core
         {
             app = GetComponent<PassportApp>();
             testPath = Environment.GetEnvironmentVariable("TP_SMOKE_PROFILE");
-            stage = mission = searchIndex = pieceIndex = recipeStep = 0;
+            stage = -3;
+            mission = searchIndex = pieceIndex = recipeStep = 0;
             replaying = jeonjuWorldChecked = false;
             started = Time.realtimeSinceStartup;
             nextTick = started + 0.3f;
@@ -74,6 +76,29 @@ namespace TastePassport.Core
                 if (stage > 4 && stage <= 48) RequireCardOnly("campaign stage " + stage);
                 switch (stage)
                 {
+                    case -3:
+                        if (!app.GetComponentsInChildren<Image>().Any(i => i.name == "Closed antique storybook" &&
+                            i.sprite == Resources.Load<Sprite>("Art/StorybookClosed")))
+                            throw new InvalidOperationException("Closed antique book did not appear at launch");
+                        stage = -2;
+                        break;
+                    case -2:
+                        if (!(bool)typeof(PassportApp).GetField("introBookOpened", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(app) ||
+                            (bool)typeof(PassportApp).GetField("bookTurning", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(app))
+                            break;
+                        var openingLeaf = app.GetComponentsInChildren<TastePassport.UI.BookSwipeTurn>()
+                            .FirstOrDefault(turn => turn.name == "Opening storybook leaf 0");
+                        if (openingLeaf == null) throw new InvalidOperationException("Book did not automatically open to its first tappable leaf");
+                        openingLeaf.OnPointerClick(new PointerEventData(EventSystem.current));
+                        stage = -1;
+                        break;
+                    case -1:
+                        if ((bool)typeof(PassportApp).GetField("bookTurning", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(app))
+                            break;
+                        if ((int)typeof(PassportApp).GetField("introPageIndex", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(app) != 1)
+                            throw new InvalidOperationException("Tapping the book page did not turn to the next leaf");
+                        stage = 0;
+                        break;
                     case 0:
                         VerifyMenuMapScreens();
                         if (Environment.GetEnvironmentVariable("TP_SMOKE_MENU_MAP") == "1")
@@ -576,8 +601,21 @@ namespace TastePassport.Core
                 var fresh = new PlayerProfile { language = language };
                 if (!new ProfileStore(testPath).TrySave(fresh)) throw new IOException("Could not save menu fixture");
                 reload();
+                check(app.GetComponentsInChildren<Image>().Any(i => i.name == "Closed antique storybook" &&
+                    i.sprite == Resources.Load<Sprite>("Art/StorybookClosed") &&
+                    i.GetComponent<TastePassport.UI.BookSwipeTurn>() != null),
+                    language + ": tappable closed storybook is missing");
+                typeof(PassportApp).GetField("introBookOpened", flags).SetValue(app, true);
+                navigate("IntroBook");
+                check(app.GetComponentsInChildren<Text>().Any(t => t.text == GameText.Get(language, "intro_title_0")) &&
+                    app.GetComponentsInChildren<Transform>().Any(t => t.name == "Opening storybook leaf 0" &&
+                        t.GetComponent<TastePassport.UI.BookSwipeTurn>() != null),
+                    language + ": localized tappable opening leaf is missing");
+                navigate("Menu");
                 var freshButtons = app.GetComponentsInChildren<Button>();
-                check(freshButtons.Length == 3, language + ": fresh menu must expose only Start, Settings, Language");
+                check(freshButtons.Length == 4, language + ": fresh menu must expose Start, Settings, Language and book replay");
+                check(Find(GameText.Get(language, "intro_reopen")) != null,
+                    language + ": opening book cannot be reopened from the menu");
                 check(freshButtons.Count(b => b.name == "Button " + GameText.Get(language, "start")) == 1 &&
                     Find(GameText.Get(language, "continue")) == null && Find(GameText.Get(language, "nav_passport")) == null,
                     language + ": fresh menu has an invalid continuation or collection action");
@@ -597,8 +635,11 @@ namespace TastePassport.Core
                 var saved = new PlayerProfile { created = true, playerName = "Saved traveler", language = language, lastWorldId = "jeonju" };
                 if (!new ProfileStore(testPath).TrySave(saved)) throw new IOException("Could not save continuation fixture");
                 reload();
+                check(app.GetComponentsInChildren<Image>().Any(i => i.name == "Closed antique storybook"),
+                    language + ": saved profile did not open the storybook");
+                navigate("Menu");
                 var savedButtons = app.GetComponentsInChildren<Button>();
-                check(savedButtons.Length == 4 && Find(GameText.Get(language, "continue")) != null &&
+                check(savedButtons.Length == 5 && Find(GameText.Get(language, "continue")) != null &&
                     Find(GameText.Get(language, "start")) == null && Find(GameText.Get(language, "nav_passport")) != null,
                     language + ": saved menu must expose Continue, Collection, Settings, Language");
                 Click(GameText.Get(language, "continue"));
@@ -630,12 +671,14 @@ namespace TastePassport.Core
                 saved.lastWorldId = "jeonju";
                 new ProfileStore(testPath).TrySave(saved);
                 reload();
+                navigate("Menu");
                 Click(GameText.Get(language, "continue"));
                 check(app.GetComponent<WalkableWorldSession>() == null || !app.GetComponent<WalkableWorldSession>().IsOpen,
                     language + ": Continue entered locked Jeonju");
                 saved.lastWorldId = "hoian";
                 new ProfileStore(testPath).TrySave(saved);
                 reload();
+                navigate("Menu");
                 Click(GameText.Get(language, "continue"));
                 var session = app.GetComponent<WalkableWorldSession>();
                 check(session == null || !session.IsOpen, language + ": Continue must open journey without a world session");
@@ -664,11 +707,13 @@ namespace TastePassport.Core
                 saved.playerName = " ";
                 new ProfileStore(testPath).TrySave(saved);
                 reload();
+                navigate("Menu");
                 check(Find(GameText.Get(language, "start")) != null && Find(GameText.Get(language, "continue")) == null,
                     language + ": normalized invalid profile exposed Continue");
             }
             new ProfileStore(testPath).TrySave(new PlayerProfile());
             reload();
+            navigate("Menu");
             if (failures.Count > 0) throw new InvalidOperationException("Menu/map contracts failed: " + string.Join("; ", failures));
         }
 

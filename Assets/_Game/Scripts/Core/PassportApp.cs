@@ -13,9 +13,9 @@ using UnityEngine.UI;
 
 namespace TastePassport.Core
 {
-    public sealed class PassportApp : MonoBehaviour
+    public sealed partial class PassportApp : MonoBehaviour
     {
-        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards, StoryCard, StoryTarget }
+        private enum Page { IntroBook, Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards, StoryCard, StoryTarget }
         private static readonly Color Cream = GameUiTheme.Cream;
         private static readonly Color Lantern = GameUiTheme.Lantern;
         private static readonly Color Jade = GameUiTheme.Primary;
@@ -129,9 +129,12 @@ namespace TastePassport.Core
             EnsureFont();
             EnsureCanvas();
             EnsureEventSystem();
-            page = Page.Menu;
+            introPageIndex = 0;
+            introBookOpened = false;
+            page = Page.IntroBook;
             showHoiAnActivities = showJeonjuActivities = false;
             Show();
+            ScheduleBookOpening();
         }
 
         private void OnApplicationFocus(bool focused)
@@ -245,6 +248,9 @@ namespace TastePassport.Core
 
         private void Show()
         {
+            bookLeaf = null;
+            bookSurface = null;
+            bookVisual = null;
             if (postcardFlip != null && !rebuildingPostcardForFlip)
             {
                 StopCoroutine(postcardFlip);
@@ -259,7 +265,8 @@ namespace TastePassport.Core
             EnsureFont();
             WorldSpaceCanvasFitter.Configure(canvas, Camera.main);
             UpdateSafeArea();
-            if (dioramaStage == null) dioramaStage = GameUiDioramaStage.Ensure(transform);
+            bool introBookPage = page == Page.IntroBook;
+            if (!introBookPage && dioramaStage == null) dioramaStage = GameUiDioramaStage.Ensure(transform);
             dioramaStage?.SetDestination(koreanBackdrop);
             string activityDioramaId = ResolveActivityDioramaId();
             bool activityPage = !string.IsNullOrEmpty(activityDioramaId);
@@ -270,8 +277,8 @@ namespace TastePassport.Core
             }
             bool pageVisible = safeRoot.gameObject.activeSelf;
             bool useActivityDiorama = activityPage && activityDiorama != null && activityDiorama.StageTexture != null;
-            activityDiorama?.SetVisible(pageVisible && useActivityDiorama);
-            dioramaStage?.SetStageVisible(pageVisible && !useActivityDiorama);
+            activityDiorama?.SetVisible(pageVisible && useActivityDiorama && !introBookPage);
+            dioramaStage?.SetStageVisible(pageVisible && !useActivityDiorama && !introBookPage);
             var previousScroll = safeRoot.Find("Page Scroll")?.GetComponent<ScrollRect>();
             float savedScroll = resetScroll || previousScroll == null ? 1f : previousScroll.verticalNormalizedPosition;
             for (int i = safeRoot.childCount - 1; i >= 0; i--)
@@ -281,8 +288,8 @@ namespace TastePassport.Core
                 oldPage.SetActive(false);
                 Destroy(oldPage);
             }
-            Panel("Destination Background", safeRoot, Cream, true);
-            Texture backdropTexture = useActivityDiorama ? activityDiorama.StageTexture : dioramaStage?.StageTexture;
+            Panel("Destination Background", safeRoot, introBookPage ? Hex("#35271F") : Cream, true);
+            Texture backdropTexture = introBookPage ? null : useActivityDiorama ? activityDiorama.StageTexture : dioramaStage?.StageTexture;
             if (backdropTexture != null)
             {
                 var surface = NewRect("3D destination stage", safeRoot);
@@ -297,7 +304,8 @@ namespace TastePassport.Core
                 float uvHeight = Mathf.Min(1f, textureAspect / viewportAspect);
                 image.uvRect = new Rect((1f - uvWidth) * .5f, (1f - uvHeight) * .5f, uvWidth, uvHeight);
             }
-            Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, .22f), true);
+            if (!introBookPage)
+                Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, .22f), true);
             if (page == Page.Menu || page == Page.Map || page == Page.Passport || page == Page.Postcard)
             {
                 var petals = NewRect("Floating cherry blossoms", safeRoot);
@@ -312,7 +320,7 @@ namespace TastePassport.Core
             Stretch(scrollRect);
             var scroll = scrollObject.GetComponent<ScrollRect>();
             scroll.horizontal = false;
-            scroll.vertical = true;
+            scroll.vertical = !introBookPage;
             scroll.movementType = ScrollRect.MovementType.Clamped;
             var viewport = NewRect("Viewport", scrollRect);
             Stretch(viewport);
@@ -327,8 +335,8 @@ namespace TastePassport.Core
             content.offsetMin = Vector2.zero;
             content.offsetMax = Vector2.zero;
             var layout = content.gameObject.AddComponent<VerticalLayoutGroup>();
-            layout.padding = new RectOffset(36, 36, 32, 64);
-            layout.spacing = 18;
+            layout.padding = introBookPage ? new RectOffset(36, 36, 12, 12) : new RectOffset(36, 36, 32, 64);
+            layout.spacing = introBookPage ? 4 : 18;
             layout.childAlignment = TextAnchor.UpperCenter;
             layout.childControlWidth = true;
             layout.childControlHeight = true;
@@ -341,6 +349,7 @@ namespace TastePassport.Core
 
             switch (page)
             {
+                case Page.IntroBook: DrawIntroBook(content); break;
                 case Page.Menu: DrawMenu(content); break;
                 case Page.Language: DrawLanguage(content); break;
                 case Page.Create: DrawCreate(content); break;
@@ -379,7 +388,12 @@ namespace TastePassport.Core
             scroll.verticalNormalizedPosition = savedScroll;
             resetScroll = false;
             if (pageFade != null) StopCoroutine(pageFade);
-            pageFade = StartCoroutine(FadePage(fadeGroup));
+            if (page == Page.IntroBook && bookTurning)
+            {
+                fadeGroup.alpha = 1f;
+                pageFade = null;
+            }
+            else pageFade = StartCoroutine(FadePage(fadeGroup));
         }
 
         private string ResolveActivityDioramaId()
@@ -546,6 +560,7 @@ namespace TastePassport.Core
                 CompactButton(row, T("nav_passport"), Paper, () => Navigate(Page.Passport), Ink);
             CompactButton(row, T("settings"), Paper, () => { settingsReturnPage = Page.Menu; Navigate(Page.Settings); }, Ink);
             CompactButton(row, T("language"), Paper, () => Navigate(Page.Language), Ink);
+            CompactButton(parent, T("intro_reopen"), Paper, OpenIntroBook, Ink);
         }
 
         private void DrawLanguage(Transform parent)
