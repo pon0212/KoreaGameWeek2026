@@ -6,15 +6,19 @@ namespace TastePassport.Save
     [Serializable]
     public sealed class PlayerProfile
     {
-        public const int CurrentSchemaVersion = 3;
+        public const int CurrentSchemaVersion = 4;
 
         public int schemaVersion = CurrentSchemaVersion;
         public string playerName = "";
         public string language = "vi";
         public int avatarIndex;
+        public int faceStyle;
+        public int hairStyle;
+        public int bodyStyle;
+        public int accessoryStyle;
         public int coins;
         public int outfitId;
-        public List<int> ownedOutfits = new List<int> { 0, 1 };
+        public List<int> ownedOutfits = new List<int> { 0, 1, 2 };
         public bool created;
         public List<LevelProgress> levels = new List<LevelProgress>();
         public int chapterIndex = 1;
@@ -34,6 +38,10 @@ namespace TastePassport.Save
             playerName = source.playerName;
             language = source.language;
             avatarIndex = source.avatarIndex;
+            faceStyle = source.faceStyle;
+            hairStyle = source.hairStyle;
+            bodyStyle = source.bodyStyle;
+            accessoryStyle = source.accessoryStyle;
             coins = source.coins;
             outfitId = source.outfitId;
             ownedOutfits = source.ownedOutfits == null ? new List<int>() : new List<int>(source.ownedOutfits);
@@ -77,6 +85,16 @@ namespace TastePassport.Save
                 profile.lastWorldY = -1.8f;
             }
 
+            // Version 3 profiles predate the independent appearance controls.
+            // Zero is the neutral, classic look and preserves the old avatar safely.
+            if (profile.schemaVersion <= 3)
+            {
+                profile.faceStyle = 0;
+                profile.hairStyle = 0;
+                profile.bodyStyle = 0;
+                profile.accessoryStyle = 0;
+            }
+
             if (profile.storyFlags == null) profile.storyFlags = new List<string>();
             if (profile.worldImprints == null) profile.worldImprints = new List<string>();
             if (profile.inventoryItems == null) profile.inventoryItems = new List<string>();
@@ -86,6 +104,10 @@ namespace TastePassport.Save
             profile.inventoryItems = NormalizeIds(profile.inventoryItems);
             profile.culturalCards = NormalizeIds(profile.culturalCards);
             profile.chapterIndex = profile.mainStoryCompleted ? 4 : Math.Max(1, Math.Min(4, profile.chapterIndex));
+            profile.faceStyle = Math.Max(0, Math.Min(2, profile.faceStyle));
+            profile.hairStyle = Math.Max(0, Math.Min(2, profile.hairStyle));
+            profile.bodyStyle = Math.Max(0, Math.Min(2, profile.bodyStyle));
+            profile.accessoryStyle = Math.Max(0, Math.Min(2, profile.accessoryStyle));
             profile.lastWorldId = profile.lastWorldId == "jeonju" ? "jeonju" : "hoian";
             if (!IsFinite(profile.lastWorldX)) profile.lastWorldX = -5.1f;
             if (!IsFinite(profile.lastWorldY)) profile.lastWorldY = -1.8f;

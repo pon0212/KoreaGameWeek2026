@@ -6,6 +6,8 @@ namespace TastePassport.Gameplay
         public readonly string PlaceKey;
         public readonly string GuideKey;
         public readonly string[] ObjectKeys;
+        public int DifficultyTier => 0;
+        public string DifficultyTierKey => "journey_tier_familiar";
 
         public LevelDefinition(string id, string placeKey, string guideKey, string[] objectKeys)
         {

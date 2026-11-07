@@ -48,6 +48,7 @@ namespace TastePassport.Core
         private Image bookVisual;
         private Coroutine bookTurnRoutine;
         private Coroutine bookAutoOpenRoutine;
+        private bool bookEntrancePending;
 
         private void OnDisable()
         {
@@ -63,6 +64,7 @@ namespace TastePassport.Core
             introPageIndex = 0;
             introBookOpened = false;
             bookTurning = false;
+            bookEntrancePending = true;
             Navigate(Page.IntroBook);
             ScheduleBookOpening();
         }
@@ -75,7 +77,28 @@ namespace TastePassport.Core
 
         private IEnumerator OpenBookAfterPause()
         {
-            yield return new WaitForSecondsRealtime(.75f);
+            yield return null;
+            if (bookSurface != null)
+            {
+                var entrance = bookSurface.GetComponent<CanvasGroup>();
+                if (entrance == null) entrance = bookSurface.gameObject.AddComponent<CanvasGroup>();
+                bookSurface.localScale = Vector3.one * .08f;
+                entrance.alpha = 0f;
+                float elapsed = 0f;
+                const float duration = .55f;
+                while (bookSurface != null && elapsed < duration)
+                {
+                    elapsed += Time.unscaledDeltaTime;
+                    float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / duration));
+                    bookSurface.localScale = Vector3.one * Mathf.Lerp(.08f, 1f, t);
+                    entrance.alpha = t;
+                    yield return null;
+                }
+                if (bookSurface != null) bookSurface.localScale = Vector3.one;
+                if (entrance != null) entrance.alpha = 1f;
+                bookEntrancePending = false;
+            }
+            yield return new WaitForSecondsRealtime(.18f);
             bookAutoOpenRoutine = null;
             OpenClosedBook();
         }
@@ -94,6 +117,7 @@ namespace TastePassport.Core
             stageLayout.childForceExpandHeight = false;
             bookSurface = NewRect(introBookOpened ? "Open antique storybook" : "Closed antique storybook", stage);
             SetHeight(bookSurface, 880);
+            if (bookEntrancePending && !introBookOpened) bookSurface.localScale = Vector3.one * .08f;
             bookVisual = bookSurface.gameObject.AddComponent<Image>();
             bookVisual.sprite = Resources.Load<Sprite>(introBookOpened ? "Art/StorybookOpen" : "Art/StorybookClosed");
             bookVisual.type = Image.Type.Simple;
@@ -235,7 +259,7 @@ namespace TastePassport.Core
 
         private void OpenClosedBook()
         {
-            if (bookTurning || introBookOpened || page != Page.IntroBook) return;
+            if (bookTurning || bookEntrancePending || introBookOpened || page != Page.IntroBook) return;
             bookTurnRoutine = StartCoroutine(OpenBookAnimation());
         }
 

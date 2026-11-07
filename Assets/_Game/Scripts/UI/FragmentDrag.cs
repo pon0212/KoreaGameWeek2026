@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -14,6 +15,7 @@ namespace TastePassport.UI
         private CanvasGroup group;
         private Transform originalParent;
         private int originalSibling;
+        private Vector3 originalScale;
 
         private void Awake()
         {
@@ -27,7 +29,9 @@ namespace TastePassport.UI
             if (Placed) return;
             originalParent = transform.parent;
             originalSibling = transform.GetSiblingIndex();
+            originalScale = rect.localScale;
             transform.SetParent(rootCanvas.transform, true);
+            rect.localScale = originalScale * 1.06f;
             group.blocksRaycasts = false;
             OnDrag(eventData);
         }
@@ -42,10 +46,12 @@ namespace TastePassport.UI
 
         public void OnEndDrag(PointerEventData eventData)
         {
+            if (Placed) { group.blocksRaycasts = false; return; }
             group.blocksRaycasts = true;
-            if (Placed || originalParent == null) return;
+            if (originalParent == null) return;
             transform.SetParent(originalParent, false);
             transform.SetSiblingIndex(originalSibling);
+            rect.localScale = originalScale;
             originalParent = null;
         }
 
@@ -57,7 +63,48 @@ namespace TastePassport.UI
             rect.anchorMax = Vector2.one;
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
+            rect.localScale = Vector3.one;
             group.blocksRaycasts = false;
+        }
+    }
+
+    /// <summary>Completes the Bibimbap action after the player makes a deliberate mixing swipe.</summary>
+    public sealed class MixGestureHandler : MonoBehaviour, IPointerDownHandler, IDragHandler, IPointerUpHandler
+    {
+        private const float MinimumTravel = 110f;
+        private Action completed;
+        private Vector2 start;
+        private Vector2 last;
+        private float travel;
+        private bool active;
+        private bool fired;
+
+        public void Initialize(Action onCompleted) => completed = onCompleted;
+
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            if (fired) return;
+            active = true;
+            start = last = eventData.position;
+            travel = 0f;
+        }
+
+        public void OnDrag(PointerEventData eventData)
+        {
+            if (!active || fired) return;
+            travel += (eventData.position - last).magnitude;
+            last = eventData.position;
+        }
+
+        public void OnPointerUp(PointerEventData eventData)
+        {
+            if (!active || fired) return;
+            active = false;
+            float horizontal = Mathf.Abs(eventData.position.x - start.x);
+            float vertical = Mathf.Abs(eventData.position.y - start.y);
+            if (travel < MinimumTravel || horizontal < MinimumTravel || horizontal <= vertical * 1.15f) return;
+            fired = true;
+            completed?.Invoke();
         }
     }
 }

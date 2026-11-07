@@ -35,8 +35,9 @@ namespace TastePassport.Core
             "Book_closed_vi", "Book_0_vi", "Book_1_vi", "Book_2_vi", "Book_3_vi", "Book_4_vi", "Book_5_vi",
             "Book_closed_ko", "Book_0_ko", "Book_1_ko", "Book_2_ko", "Book_3_ko", "Book_4_ko", "Book_5_ko"
         };
-        private static readonly string[] Pages = Environment.GetEnvironmentVariable("TP_UI_CAPTURE_BOOK_ONLY") == "1"
-            ? BookPages : BookPages.Concat(new[]
+        private static readonly string[] MapPages = { "Map", "MapJeonju" };
+        private static readonly string[] Pages = Environment.GetEnvironmentVariable("TP_UI_CAPTURE_MAP_ONLY") == "1"
+            ? MapPages : Environment.GetEnvironmentVariable("TP_UI_CAPTURE_BOOK_ONLY") == "1" ? BookPages : BookPages.Concat(new[]
         {
             "Menu", "Map", "Passport", "Dialogue", "Explore", "RecipeGame", "Postcard", "Settings", "Finale", "FinaleResult",
             "Card_journey_vi", "Card_target_vi", "Card_dialogue_vi", "Card_activity_vi", "Card_reward_vi", "Card_passport_vi", "Card_ending_vi",
@@ -101,7 +102,10 @@ namespace TastePassport.Core
             {
                 if (index == Pages.Length * 2)
                 {
-                    Finish(0, "Taste Passport UI capture PASS: " + index + " images, including 14 VI/KO closed/open book states at 720x1280 and 1080x2400");
+                    string summary = Environment.GetEnvironmentVariable("TP_UI_CAPTURE_MAP_ONLY") == "1"
+                        ? "Taste Passport UI capture PASS: Hoi An and Jeonju map backgrounds captured at 720x1280 and 1080x2400"
+                        : "Taste Passport UI capture PASS: " + index + " images, including 14 VI/KO closed/open book states at 720x1280 and 1080x2400";
+                    Finish(0, summary);
                     return;
                 }
                 int width = index < Pages.Length ? 720 : 1080;
@@ -139,7 +143,15 @@ namespace TastePassport.Core
                             var festivalProfile = CreateFestivalCaptureProfile(page == "FinaleResult");
                             typeof(PassportApp).GetField("profile", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(app, festivalProfile);
                         }
-                        navigate.Invoke(app, new[] { Enum.Parse(pageType, page) });
+                        navigate.Invoke(app, new[] { Enum.Parse(pageType, page == "MapJeonju" ? "Map" : page) });
+                        if (page == "Map" || page == "MapJeonju")
+                        {
+                            typeof(PassportApp).GetMethod("SelectMapDestination", BindingFlags.Instance | BindingFlags.NonPublic)
+                                .Invoke(app, new object[] { page == "MapJeonju" });
+                            Canvas.ForceUpdateCanvases();
+                            var mapScroll = app.GetComponentInChildren<ScrollRect>(true);
+                            if (mapScroll != null) mapScroll.verticalNormalizedPosition = 1f;
+                        }
                     }
                     VerifyCaptureSafeArea(page);
                     if (page == "Menu" || page == "Passport" || page == "Settings") LogPageCanvasState(page);
@@ -151,10 +163,19 @@ namespace TastePassport.Core
                 string capturePage = Pages[index % Pages.Length];
                 if (!capturePage.StartsWith("Card_", StringComparison.Ordinal))
                     foreach (var group in app.GetComponentsInChildren<CanvasGroup>(true)) group.alpha = 1f;
+                if (capturePage == "Map" || capturePage == "MapJeonju")
+                {
+                    var mapScroll = app.GetComponentInChildren<ScrollRect>(true);
+                    if (mapScroll != null)
+                    {
+                        mapScroll.StopMovement();
+                        mapScroll.verticalNormalizedPosition = 1f;
+                    }
+                }
                 Canvas.ForceUpdateCanvases();
                 if (capturePage.EndsWith("_action", StringComparison.Ordinal))
                 {
-                    app.GetComponentInChildren<ScrollRect>().verticalNormalizedPosition = 0f;
+                    app.GetComponentInChildren<ScrollRect>().verticalNormalizedPosition = 1f;
                     Canvas.ForceUpdateCanvases();
                 }
                 if (capturePage.StartsWith("Card_", StringComparison.Ordinal)) VerifyCardCapture(capturePage);

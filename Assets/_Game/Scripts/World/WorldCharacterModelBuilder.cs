@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using TastePassport.Save;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -19,11 +20,23 @@ namespace TastePassport.World
         private Transform rightLeg;
         private Transform torso;
         private Vector3 rootOrigin;
+        private Vector3 torsoBaseScale;
+        private int avatarIndex;
+        private int faceStyle;
+        private int hairStyle;
+        private int bodyStyle;
+        private int accessoryStyle;
+        private int outfitId;
         private bool isPlayer;
         private bool walking;
         private float phase;
 
         public static WorldCharacterModelBuilder Create(Transform parent, string characterId, bool isPlayer)
+        {
+            return Create(parent, characterId, isPlayer, null);
+        }
+
+        public static WorldCharacterModelBuilder Create(Transform parent, string characterId, bool isPlayer, PlayerProfile playerProfile)
         {
             if (parent == null)
             {
@@ -39,7 +52,7 @@ namespace TastePassport.World
             var character = new GameObject("3D Character - " + characterId);
             character.transform.SetParent(parent, false);
             var builder = character.AddComponent<WorldCharacterModelBuilder>();
-            builder.Initialize(characterId, isPlayer);
+            builder.Initialize(characterId, isPlayer, playerProfile);
             return builder;
         }
 
@@ -54,9 +67,15 @@ namespace TastePassport.World
                 modelRoot.localScale = new Vector3(value ? -1f : 1f, 1f, 1f);
         }
 
-        private void Initialize(string characterId, bool playerCharacter)
+        private void Initialize(string characterId, bool playerCharacter, PlayerProfile playerProfile)
         {
             isPlayer = playerCharacter;
+            avatarIndex = playerCharacter && playerProfile != null ? Mathf.Clamp(playerProfile.avatarIndex, 0, 2) : 0;
+            faceStyle = playerCharacter && playerProfile != null ? Mathf.Clamp(playerProfile.faceStyle, 0, 2) : 0;
+            hairStyle = playerCharacter && playerProfile != null ? Mathf.Clamp(playerProfile.hairStyle, 0, 2) : 0;
+            bodyStyle = playerCharacter && playerProfile != null ? Mathf.Clamp(playerProfile.bodyStyle, 0, 2) : 0;
+            accessoryStyle = playerCharacter && playerProfile != null ? Mathf.Clamp(playerProfile.accessoryStyle, 0, 2) : 0;
+            outfitId = playerCharacter && playerProfile != null ? Mathf.Clamp(playerProfile.outfitId, 0, 4) : 0;
             Shader shader = FindSurfaceShader();
             if (shader == null)
             {
@@ -66,10 +85,10 @@ namespace TastePassport.World
 
             cubeMesh = OwnMesh(CreateCubeMesh());
             octahedronMesh = OwnMesh(CreateOctahedronMesh());
-            Material skin = CreateMaterial(shader, new Color(0.78f, 0.54f, 0.40f));
-            Material outfit = CreateMaterial(shader, GetOutfitColor(characterId, playerCharacter));
-            Material garment = CreateMaterial(shader, GetGarmentColor(characterId, playerCharacter));
-            Material hair = CreateMaterial(shader, new Color(0.18f, 0.14f, 0.13f));
+            Material skin = CreateMaterial(shader, GetSkinColor(characterId, playerCharacter, avatarIndex));
+            Material outfit = CreateMaterial(shader, GetOutfitColor(characterId, playerCharacter, outfitId, avatarIndex));
+            Material garment = CreateMaterial(shader, GetGarmentColor(characterId, playerCharacter, outfitId));
+            Material hair = CreateMaterial(shader, GetHairColor(characterId, playerCharacter, avatarIndex));
             Material accent = CreateMaterial(shader, playerCharacter ? new Color(0.92f, 0.69f, 0.29f) : new Color(0.83f, 0.62f, 0.34f));
             Material dark = CreateMaterial(shader, new Color(0.22f, 0.20f, 0.19f));
 
@@ -79,18 +98,52 @@ namespace TastePassport.World
 
             // All dimensions are authored at 4.2 units tall. Session parent transforms keep the
             // original sprite scale and target coordinates, so collider/save movement is untouched.
-            CreateBox(modelRoot, "Travel Coat", new Vector3(0f, 2.10f, 0f), new Vector3(1.58f, 1.62f, 0.62f), outfit);
-            CreateBox(modelRoot, "Coat Hem", new Vector3(0f, 1.36f, -0.01f), new Vector3(1.64f, 0.18f, 0.65f), garment);
+            float[] bodyWidths = { 1.58f, 1.40f, 1.78f };
+            float[] bodyHeights = { 1.62f, 1.75f, 1.68f };
+            float clothingWidth = outfitId == 1 ? .92f : outfitId == 2 ? 1.10f : 1f;
+            torsoBaseScale = new Vector3(bodyWidths[bodyStyle] * clothingWidth, bodyHeights[bodyStyle], .62f);
+            string garmentName = outfitId == 1 ? "Ao Dai Silhouette" : outfitId == 2 ? "Hanbok Silhouette" : "Travel Coat";
+            CreateBox(modelRoot, garmentName, new Vector3(0f, 2.10f, 0f), torsoBaseScale, outfit);
+            CreateBox(modelRoot, "Coat Hem", new Vector3(0f, 1.36f, -0.01f), new Vector3(bodyWidths[bodyStyle] * clothingWidth * 1.04f, .18f, .65f), garment);
             CreateBox(modelRoot, "Waist Sash", new Vector3(0f, 1.79f, -0.34f), new Vector3(1.48f, 0.16f, 0.08f), accent);
             CreateBox(modelRoot, "Collar", new Vector3(0f, 2.77f, -0.03f), new Vector3(0.60f, 0.29f, 0.66f), garment);
 
+            if (outfitId == 1)
+            {
+                CreateBox(modelRoot, "Ao Dai Front Panel", new Vector3(0f, 2.00f, -0.34f), new Vector3(.16f, 1.30f, .06f), accent);
+                CreateBox(modelRoot, "Ao Dai Collar Line", new Vector3(0f, 2.75f, -0.39f), new Vector3(.28f, .11f, .05f), garment);
+            }
+            else if (outfitId == 2)
+            {
+                CreateBox(modelRoot, "Hanbok Wrap Collar Left", new Vector3(-.13f, 2.70f, -.40f), new Vector3(.48f, .13f, .06f), garment);
+                CreateBox(modelRoot, "Hanbok Wrap Collar Right", new Vector3(.13f, 2.58f, -.42f), new Vector3(.48f, .13f, .06f), accent);
+                CreateBox(modelRoot, "Hanbok Skirt Silhouette", new Vector3(0f, 1.56f, 0f), new Vector3(bodyWidths[bodyStyle] * 1.1f, .88f, .68f), outfit);
+            }
+
             CreateSphere(modelRoot, "Neck", new Vector3(0f, 2.94f, 0f), new Vector3(0.47f, 0.47f, 0.45f), skin);
-            CreateSphere(modelRoot, "Head", new Vector3(0f, 3.43f, -0.02f), new Vector3(1.03f, 1.08f, 0.87f), skin);
-            CreateSphere(modelRoot, "Hair", new Vector3(0f, 3.79f, 0.01f), new Vector3(1.12f, 0.58f, 0.93f), hair);
-            CreateSphere(modelRoot, "Left Eye", new Vector3(-0.23f, 3.48f, -0.40f), new Vector3(0.075f, 0.10f, 0.07f), dark);
-            CreateSphere(modelRoot, "Right Eye", new Vector3(0.23f, 3.48f, -0.40f), new Vector3(0.075f, 0.10f, 0.07f), dark);
+            float[] faceWidths = { 1.03f, 1.12f, .95f };
+            float[] faceHeights = { 1.08f, 1.00f, 1.17f };
+            float[] hairHeights = { .58f, .51f, .67f };
+            float eyeSpacing = faceStyle == 1 ? .27f : faceStyle == 2 ? .20f : .23f;
+            CreateSphere(modelRoot, "Head", new Vector3(0f, 3.43f, -0.02f), new Vector3(faceWidths[faceStyle], faceHeights[faceStyle], .87f), skin);
+            CreateSphere(modelRoot, "Hair", new Vector3(0f, 3.79f, 0.01f), new Vector3(hairStyle == 1 ? 1.18f : 1.12f, hairHeights[hairStyle], .93f), hair);
+            CreateSphere(modelRoot, "Hair Fringe", new Vector3(hairStyle == 1 ? .15f : 0f, 3.60f, -.40f), new Vector3(hairStyle == 2 ? .88f : .66f, .24f, .08f), hair);
+            CreateSphere(modelRoot, "Left Eye", new Vector3(-eyeSpacing, 3.48f, -0.40f), new Vector3(0.075f, 0.10f, 0.07f), dark);
+            CreateSphere(modelRoot, "Right Eye", new Vector3(eyeSpacing, 3.48f, -0.40f), new Vector3(0.075f, 0.10f, 0.07f), dark);
             CreateSphere(modelRoot, "Nose", new Vector3(0f, 3.30f, -0.47f), new Vector3(0.12f, 0.14f, 0.10f), skin);
             CreateBox(modelRoot, "Shoulder Scarf", new Vector3(0.52f, 2.46f, -0.32f), new Vector3(0.38f, 0.32f, 0.11f), accent);
+
+            int ornamentStyle = outfitId == 3 ? 1 : outfitId == 4 ? 2 : accessoryStyle;
+            if (ornamentStyle == 1)
+            {
+                CreateSphere(modelRoot, "Hoi An Lantern Hair Ornament", new Vector3(.48f, 3.98f, -.24f), new Vector3(.20f, .27f, .15f), accent);
+                CreateBox(modelRoot, "Lantern Hair Ornament Tassel", new Vector3(.48f, 3.77f, -.25f), new Vector3(.06f, .18f, .06f), garment);
+            }
+            else if (ornamentStyle == 2)
+            {
+                CreateSphere(modelRoot, "Hanji Flower Hair Ornament", new Vector3(-.48f, 3.98f, -.24f), new Vector3(.24f, .23f, .16f), garment);
+                CreateSphere(modelRoot, "Hanji Flower Center", new Vector3(-.48f, 3.98f, -.34f), new Vector3(.09f, .09f, .07f), accent);
+            }
 
             if (playerCharacter)
                 CreateBox(modelRoot, "Traveler Satchel", new Vector3(-0.86f, 1.88f, 0.27f), new Vector3(0.42f, 0.74f, 0.27f), garment);
@@ -102,7 +155,7 @@ namespace TastePassport.World
 
             CreateBox(leftLeg, "Left Shoe", new Vector3(0f, -0.62f, -0.16f), new Vector3(0.56f, 0.23f, 0.55f), dark);
             CreateBox(rightLeg, "Right Shoe", new Vector3(0f, -0.62f, -0.16f), new Vector3(0.56f, 0.23f, 0.55f), dark);
-            torso = modelRoot.Find("Travel Coat");
+            torso = modelRoot.Find(garmentName);
         }
 
         private Transform CreateLimb(Transform parent, string name, Vector3 pivot, Material material, bool arm)
@@ -141,7 +194,7 @@ namespace TastePassport.World
                 leftArm.localRotation = Quaternion.Euler(0f, 0f, idleSway);
                 rightArm.localRotation = Quaternion.Euler(0f, 0f, -idleSway);
             }
-            if (torso != null) torso.localScale = new Vector3(1.58f, 1.62f + Mathf.Sin(phase) * 0.015f, 0.62f);
+            if (torso != null) torso.localScale = new Vector3(torsoBaseScale.x, torsoBaseScale.y + Mathf.Sin(phase) * 0.015f, torsoBaseScale.z);
         }
 
         private void CreateBox(Transform parent, string name, Vector3 position, Vector3 scale, Material material)
@@ -190,22 +243,48 @@ namespace TastePassport.World
             return shader;
         }
 
-        private static Color GetOutfitColor(string id, bool playerCharacter)
+        private static Color GetOutfitColor(string id, bool playerCharacter, int selectedOutfit, int selectedAvatar)
         {
-            if (playerCharacter) return new Color(0.20f, 0.46f, 0.56f);
+            if (playerCharacter)
+            {
+                if (selectedOutfit == 1) return new Color(0.66f, 0.25f, 0.23f);
+                if (selectedOutfit == 2 || selectedOutfit == 4) return new Color(0.20f, 0.45f, 0.49f);
+                if (selectedOutfit == 3) return new Color(0.83f, 0.47f, 0.19f);
+                Color[] travelerPalette = { new Color(0.20f, 0.46f, 0.56f), new Color(0.40f, 0.49f, 0.38f), new Color(0.57f, 0.32f, 0.39f) };
+                return travelerPalette[Mathf.Clamp(selectedAvatar, 0, travelerPalette.Length - 1)];
+            }
             if (id == "nhung") return new Color(0.63f, 0.31f, 0.25f);
             if (id == "lan") return new Color(0.24f, 0.47f, 0.57f);
             if (id == "gabo") return new Color(0.35f, 0.47f, 0.39f);
             return new Color(0.32f, 0.39f, 0.56f);
         }
 
-        private static Color GetGarmentColor(string id, bool playerCharacter)
+        private static Color GetGarmentColor(string id, bool playerCharacter, int selectedOutfit)
         {
-            if (playerCharacter) return new Color(0.69f, 0.49f, 0.29f);
+            if (playerCharacter)
+            {
+                if (selectedOutfit == 1) return new Color(0.96f, 0.86f, 0.70f);
+                if (selectedOutfit == 2 || selectedOutfit == 4) return new Color(0.89f, 0.82f, 0.70f);
+                return new Color(0.69f, 0.49f, 0.29f);
+            }
             if (id == "nhung") return new Color(0.82f, 0.66f, 0.44f);
             if (id == "lan") return new Color(0.77f, 0.56f, 0.30f);
             if (id == "gabo") return new Color(0.80f, 0.79f, 0.68f);
             return new Color(0.75f, 0.67f, 0.53f);
+        }
+
+        private static Color GetSkinColor(string id, bool playerCharacter, int selectedAvatar)
+        {
+            if (!playerCharacter) return new Color(0.78f, 0.54f, 0.40f);
+            Color[] palette = { new Color(.86f, .65f, .52f), new Color(.75f, .51f, .39f), new Color(.93f, .73f, .58f) };
+            return palette[Mathf.Clamp(selectedAvatar, 0, palette.Length - 1)];
+        }
+
+        private static Color GetHairColor(string id, bool playerCharacter, int selectedAvatar)
+        {
+            if (!playerCharacter) return new Color(0.18f, 0.14f, 0.13f);
+            Color[] palette = { new Color(.22f, .17f, .15f), new Color(.33f, .22f, .17f), new Color(.18f, .17f, .23f) };
+            return palette[Mathf.Clamp(selectedAvatar, 0, palette.Length - 1)];
         }
 
         private static Mesh CreateCubeMesh()
