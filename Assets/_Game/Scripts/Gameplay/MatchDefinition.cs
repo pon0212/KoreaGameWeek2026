@@ -8,6 +8,8 @@ namespace TastePassport.Gameplay
         public readonly string GuideKey;
         public readonly string[] RequestKeys;
         public readonly string[] AnswerKeys;
+        public int DifficultyTier => 2;
+        public string DifficultyTierKey => "journey_tier_mastery";
 
         public MatchDefinition(string id, string placeKey, string titleKey, string guideKey, string[] requestKeys, string[] answerKeys)
         {
@@ -24,12 +26,12 @@ namespace TastePassport.Gameplay
     {
         public static readonly MatchDefinition HoiAn = new MatchDefinition(
             "hoian-culture", "hoian", "hoian_exchange", "hoian_exchange_intro",
-            new[] { "request_lantern", "request_cao_lau", "request_bridge" },
-            new[] { "answer_old_town", "cao_lau", "answer_japanese_bridge" });
+            new[] { "request_lantern", "request_cao_lau", "request_bridge", "request_hoai_boat" },
+            new[] { "answer_old_town", "cao_lau", "answer_japanese_bridge", "answer_hoai_boat" });
 
         public static readonly MatchDefinition Jeonju = new MatchDefinition(
             "jeonju-culture", "jeonju", "jeonju_exchange", "jeonju_exchange_intro",
-            new[] { "request_hanok", "request_bibimbap", "request_hanbok" },
-            new[] { "answer_hanok_village", "bibimbap", "answer_hanbok" });
+            new[] { "request_hanok", "request_bibimbap", "request_hanbok", "request_nambu_market" },
+            new[] { "answer_hanok_village", "bibimbap", "answer_hanbok", "answer_nambu_market" });
     }
 }

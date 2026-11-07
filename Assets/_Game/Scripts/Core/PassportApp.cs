@@ -43,6 +43,11 @@ namespace TastePassport.Core
         private Page profileEditReturnPage = Page.Menu;
         private string draftName = "";
         private int draftAvatar;
+        private int draftFaceStyle;
+        private int draftHairStyle;
+        private int draftBodyStyle;
+        private int draftAccessoryStyle;
+        private int draftOutfit;
         private bool editingProfile;
         private string notice;
         private Rect lastSafeArea;
@@ -60,9 +65,12 @@ namespace TastePassport.Core
         private bool matchResult;
         private int postcardIndex;
         private bool postcardBack;
+        private bool helpOpen;
+        private string interactionFeedbackKey;
         private Coroutine pageFade;
         private bool resetScroll = true;
         private bool koreanBackdrop;
+        private bool selectedMapKorea;
         private bool resultCommitted;
         private FestivalPreparationRun festivalRun;
         private Coroutine finaleReveal;
@@ -119,6 +127,7 @@ namespace TastePassport.Core
 #endif
             profile = store.Load();
             MigrateWorldUnlockFromExistingProgress(profile);
+            selectedMapKorea = koreanBackdrop = profile.lastWorldId == "jeonju";
             AudioListener.volume = PlayerPrefs.GetInt("tp_sound", 1) == 1 ? 1 : 0;
             feedbackSound = GetComponent<UiFeedbackSound>();
             if (feedbackSound == null) feedbackSound = gameObject.AddComponent<UiFeedbackSound>();
@@ -131,6 +140,7 @@ namespace TastePassport.Core
             EnsureEventSystem();
             introPageIndex = 0;
             introBookOpened = false;
+            bookEntrancePending = true;
             page = Page.IntroBook;
             showHoiAnActivities = showJeonjuActivities = false;
             Show();
@@ -240,6 +250,9 @@ namespace TastePassport.Core
         private void Navigate(Page target)
         {
             notice = null;
+            helpOpen = false;
+            StoryNarration.Stop();
+            if (target == Page.Map) selectedMapKorea = koreanBackdrop;
             if (target == Page.Passport) audioManager?.PlayCue(GameSoundCue.BookOpen);
             page = target;
             resetScroll = true;
@@ -266,6 +279,7 @@ namespace TastePassport.Core
             WorldSpaceCanvasFitter.Configure(canvas, Camera.main);
             UpdateSafeArea();
             bool introBookPage = page == Page.IntroBook;
+            bool mapPage = page == Page.Map;
             if (!introBookPage && dioramaStage == null) dioramaStage = GameUiDioramaStage.Ensure(transform);
             dioramaStage?.SetDestination(koreanBackdrop);
             string activityDioramaId = ResolveActivityDioramaId();
@@ -278,7 +292,7 @@ namespace TastePassport.Core
             bool pageVisible = safeRoot.gameObject.activeSelf;
             bool useActivityDiorama = activityPage && activityDiorama != null && activityDiorama.StageTexture != null;
             activityDiorama?.SetVisible(pageVisible && useActivityDiorama && !introBookPage);
-            dioramaStage?.SetStageVisible(pageVisible && !useActivityDiorama && !introBookPage);
+            dioramaStage?.SetStageVisible(pageVisible && !useActivityDiorama && !introBookPage && !mapPage);
             var previousScroll = safeRoot.Find("Page Scroll")?.GetComponent<ScrollRect>();
             float savedScroll = resetScroll || previousScroll == null ? 1f : previousScroll.verticalNormalizedPosition;
             for (int i = safeRoot.childCount - 1; i >= 0; i--)
@@ -289,7 +303,26 @@ namespace TastePassport.Core
                 Destroy(oldPage);
             }
             Panel("Destination Background", safeRoot, introBookPage ? Hex("#35271F") : Cream, true);
-            Texture backdropTexture = introBookPage ? null : useActivityDiorama ? activityDiorama.StageTexture : dioramaStage?.StageTexture;
+            if (mapPage)
+            {
+                string artworkPath = selectedMapKorea ? "Art/LocationJeonjuBibimbap" : "Art/LocationHoiAnCaoLau";
+                Sprite artwork = Resources.Load<Sprite>(artworkPath);
+                if (artwork == null)
+                    Debug.LogWarning("Taste Passport location background is missing: Resources/" + artworkPath + ".png");
+                else
+                {
+                    var background = NewRect("Selected location background", safeRoot);
+                    Stretch(background);
+                    var picture = background.gameObject.AddComponent<Image>();
+                    picture.sprite = artwork;
+                    picture.type = Image.Type.Simple;
+                    picture.preserveAspect = false;
+                    picture.raycastTarget = false;
+                    background.gameObject.AddComponent<LocationPaintingMotion>().Initialize(selectedMapKorea);
+                    background.gameObject.AddComponent<LocationBackdropTransition>();
+                }
+            }
+            Texture backdropTexture = introBookPage || mapPage ? null : useActivityDiorama ? activityDiorama.StageTexture : dioramaStage?.StageTexture;
             if (backdropTexture != null)
             {
                 var surface = NewRect("3D destination stage", safeRoot);
@@ -305,7 +338,7 @@ namespace TastePassport.Core
                 image.uvRect = new Rect((1f - uvWidth) * .5f, (1f - uvHeight) * .5f, uvWidth, uvHeight);
             }
             if (!introBookPage)
-                Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, .22f), true);
+                Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, mapPage ? .36f : .22f), true);
             if (page == Page.Menu || page == Page.Map || page == Page.Passport || page == Page.Postcard)
             {
                 var petals = NewRect("Floating cherry blossoms", safeRoot);
@@ -335,7 +368,8 @@ namespace TastePassport.Core
             content.offsetMin = Vector2.zero;
             content.offsetMax = Vector2.zero;
             var layout = content.gameObject.AddComponent<VerticalLayoutGroup>();
-            layout.padding = introBookPage ? new RectOffset(36, 36, 12, 12) : new RectOffset(36, 36, 32, 64);
+            layout.padding = introBookPage ? new RectOffset(36, 36, 12, 12) :
+                new RectOffset(36, 36, HasContextHelp() ? 108 : 32, 64);
             layout.spacing = introBookPage ? 4 : 18;
             layout.childAlignment = TextAnchor.UpperCenter;
             layout.childControlWidth = true;
@@ -379,6 +413,11 @@ namespace TastePassport.Core
                 case Page.Inventory: DrawInventory(content); break;
                 case Page.CultureCards: DrawCultureCards(content); break;
             }
+            if (HasContextHelp())
+            {
+                BuildContextHelpButton();
+                if (helpOpen) DrawContextHelpOverlay();
+            }
             if (!string.IsNullOrEmpty(notice))
             {
                 Toast(notice);
@@ -394,6 +433,72 @@ namespace TastePassport.Core
                 pageFade = null;
             }
             else pageFade = StartCoroutine(FadePage(fadeGroup));
+        }
+
+        private bool HasContextHelp() => page != Page.IntroBook && page != Page.FinaleResult && page != Page.LanternResult && page != Page.HanjiResult;
+
+        private string ContextHelpKey()
+        {
+            switch (page)
+            {
+                case Page.Map: return "map";
+                case Page.Create:
+                case Page.Wardrobe: return "character";
+                case Page.Passport:
+                case Page.Postcard:
+                case Page.Inventory:
+                case Page.CultureCards: return "passport";
+                case Page.RecipeDialogue:
+                case Page.RecipeGame:
+                case Page.RecipeFail: return "recipe";
+                case Page.RecipeMix: return "mix";
+                case Page.MatchDialogue:
+                case Page.MatchGame: return "match";
+                case Page.Dialogue:
+                    return "dialogue";
+                case Page.Explore: return "explore";
+                case Page.Assembly: return "assembly";
+                case Page.Result: return "result";
+                case Page.Settings:
+                case Page.Language: return "settings";
+                default: return "general";
+            }
+        }
+
+        private void BuildContextHelpButton()
+        {
+            var control = Button(safeRoot, "?", Vermilion, () => { helpOpen = true; Show(); }, Color.white);
+            var rect = control.GetComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.sizeDelta = new Vector2(60f, 60f);
+            rect.anchoredPosition = new Vector2(-24f, -24f);
+            var label = control.GetComponentInChildren<Text>();
+            if (label != null) label.fontSize = 30;
+        }
+
+        private void DrawContextHelpOverlay()
+        {
+            var dimImage = Panel("Context help backdrop", safeRoot, new Color(.12f, .10f, .08f, .64f), true);
+            dimImage.raycastTarget = true;
+            var dim = dimImage.rectTransform;
+            Stretch(dim);
+            var dismiss = dim.gameObject.AddComponent<UnityEngine.UI.Button>();
+            dismiss.transition = Selectable.Transition.None;
+            dismiss.onClick.AddListener(() => { helpOpen = false; Show(); });
+
+            var sheet = Card(safeRoot, 540f);
+            sheet.name = "Context help sheet";
+            sheet.GetComponent<Image>().raycastTarget = true;
+            sheet.anchorMin = sheet.anchorMax = new Vector2(.5f, .5f);
+            sheet.pivot = new Vector2(.5f, .5f);
+            sheet.sizeDelta = new Vector2(628f, 540f);
+            sheet.SetAsLastSibling();
+            string topic = ContextHelpKey();
+            CollectionCopy(sheet, T("help_" + topic + "_title"), 35, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Rule(sheet);
+            CollectionCopy(sheet, T("help_" + topic + "_body"), 28, Ink, TextAnchor.MiddleLeft);
+            Button(sheet, T("help_close"), Jade, () => { helpOpen = false; Show(); });
         }
 
         private string ResolveActivityDioramaId()
@@ -568,8 +673,8 @@ namespace TastePassport.Core
             Header(parent, T("choose_language"));
             Label(parent, T(profile.created ? "journey_language_hint" : "journey_language_step"), 26, 92, Muted, TextAnchor.MiddleCenter);
             var languages = JourneyCard(parent);
-            Button(languages, T("language_vi") + (profile.language == "vi" ? "  ✓" : ""), profile.language == "vi" ? Lantern : Paper, () => ChangeLanguage("vi"), Ink);
-            Button(languages, T("language_ko") + (profile.language == "ko" ? "  ✓" : ""), profile.language == "ko" ? Lantern : Paper, () => ChangeLanguage("ko"), Ink);
+            Button(languages, T("language_vi") + (profile.language == "vi" ? " · " + T("selected_state") : ""), profile.language == "vi" ? Lantern : Paper, () => ChangeLanguage("vi"), Ink);
+            Button(languages, T("language_ko") + (profile.language == "ko" ? " · " + T("selected_state") : ""), profile.language == "ko" ? Lantern : Paper, () => ChangeLanguage("ko"), Ink);
             Button(parent, T(profile.created ? "open_map" : "journey_to_profile"), Jade, () => Navigate(profile.created ? Page.Map : Page.Create));
             CompactButton(parent, T("back"), Paper, () => Navigate(Page.Menu), Ink);
         }
@@ -578,6 +683,21 @@ namespace TastePassport.Core
         {
             CollectionCopy(parent, T(editingProfile ? "edit_profile" : "create"), 38, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             CollectionCopy(parent, T(editingProfile ? "journey_profile_hint" : "journey_profile_step"), 26, Muted, TextAnchor.MiddleCenter);
+
+            // Full-body traveler live preview showcase
+            var showcaseCard = JourneyCard(parent);
+            showcaseCard.name = "Full-body traveler showcase";
+            Label(showcaseCard, profile != null && profile.language == "ko" ? "전신 미리보기 · 여행자 모습" : "Xem trước toàn thân · Nhân vật du ký", 26, 44, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            int previewOutfitId = draftOutfit < 0 ? (profile == null ? 0 : profile.outfitId) : draftOutfit;
+            string outfitName = previewOutfitId == 1 ? (profile != null && profile.language == "ko" ? "베트남 전통 아오자이" : "Áo dài Việt Nam") :
+                previewOutfitId == 2 ? (profile != null && profile.language == "ko" ? "한국 전통 한복" : "Hanbok Hàn Quốc") :
+                (profile != null && profile.language == "ko" ? "현대 여행자 복장" : "Trang phục lữ hành");
+            Label(showcaseCard, outfitName, 22, 34, Vermilion, TextAnchor.MiddleCenter, FontStyle.Italic);
+            var showcaseStage = NewRect("Showcase stage", showcaseCard);
+            SetHeight(showcaseStage, 330);
+            showcaseStage.gameObject.AddComponent<CharacterPreviewBobbing>();
+            DrawFullBodyTraveler(showcaseStage, draftAvatar, previewOutfitId, draftFaceStyle, draftHairStyle, draftBodyStyle, draftAccessoryStyle);
+
             var profileStep = JourneyCard(parent);
             profileStep.name = "Profile identity step";
             Label(profileStep, T("name_label"), 29, 50, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
@@ -596,7 +716,7 @@ namespace TastePassport.Core
             for (int i = 0; i < 3; i++)
             {
                 int chosen = i;
-                var avatar = Button(row, T("avatar_" + i) + (draftAvatar == i ? " ✓" : ""), draftAvatar == i ? Lantern : Paper, () => { draftAvatar = chosen; Show(); }, Ink);
+                var avatar = Button(row, T("avatar_" + i) + (draftAvatar == i ? " · " + T("selected_state") : ""), draftAvatar == i ? Lantern : Paper, () => { draftAvatar = chosen; Show(); }, Ink);
                 SetHeight(avatar.GetComponent<RectTransform>(), 174);
                 var caption = avatar.transform.Find("Text") as RectTransform;
                 caption.anchorMin = new Vector2(0, 0);
@@ -604,8 +724,22 @@ namespace TastePassport.Core
                 caption.pivot = new Vector2(0.5f, 0);
                 caption.offsetMin = Vector2.zero;
                 caption.offsetMax = new Vector2(0, 55);
-                DrawAvatar(avatar.transform, i);
+                int previewOutfit = draftOutfit < 0 ? profile.outfitId : draftOutfit;
+                DrawAvatar(avatar.transform, i, previewOutfit, draftFaceStyle, draftHairStyle, draftBodyStyle, draftAccessoryStyle);
             }
+            AppearanceChoices(profileStep, "appearance_face", new[] { "face_0", "face_1", "face_2" }, draftFaceStyle,
+                selected => { draftFaceStyle = selected; Show(); });
+            AppearanceChoices(profileStep, "appearance_hair", new[] { "hair_0", "hair_1", "hair_2" }, draftHairStyle,
+                selected => { draftHairStyle = selected; Show(); });
+            AppearanceChoices(profileStep, "appearance_silhouette", new[] { "silhouette_0", "silhouette_1", "silhouette_2" }, draftBodyStyle,
+                selected => { draftBodyStyle = selected; Show(); });
+            AppearanceChoices(profileStep, "appearance_clothing", new[] { "outfit_traveler", "outfit_ao_dai", "outfit_hanbok" }, draftOutfit,
+                selected => { draftOutfit = selected; Show(); });
+            if (draftOutfit < 0)
+                CollectionCopy(profileStep, T("current_outfit") + ": " + T(OutfitCatalog.Get(profile.outfitId).NameKey), 24, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            AppearanceChoices(profileStep, "appearance_accessory", new[] { "accessory_0", "accessory_1", "accessory_2" }, draftAccessoryStyle,
+                selected => { draftAccessoryStyle = selected; Show(); });
+            CollectionCopy(profileStep, T("outfit_review_note"), 22, Muted, TextAnchor.MiddleCenter);
             Spacer(parent, GameUiTheme.SpaceSmall);
             Button(parent, T(editingProfile ? "save_profile" : "journey_enter_hoian"), Jade, CreateProfile);
             CompactButton(parent, T("back"), Paper, () =>
@@ -646,6 +780,11 @@ namespace TastePassport.Core
             profileEditReturnPage = returnPage;
             draftName = profile.playerName;
             draftAvatar = profile.avatarIndex;
+            draftFaceStyle = profile.faceStyle;
+            draftHairStyle = profile.hairStyle;
+            draftBodyStyle = profile.bodyStyle;
+            draftAccessoryStyle = profile.accessoryStyle;
+            draftOutfit = profile.outfitId <= 2 ? profile.outfitId : -1;
             Navigate(Page.Create);
         }
 
@@ -656,6 +795,13 @@ namespace TastePassport.Core
             var candidate = JsonUtility.FromJson<PlayerProfile>(JsonUtility.ToJson(profile));
             candidate.playerName = clean;
             candidate.avatarIndex = draftAvatar;
+            candidate.faceStyle = draftFaceStyle;
+            candidate.hairStyle = draftHairStyle;
+            candidate.bodyStyle = draftBodyStyle;
+            candidate.accessoryStyle = draftAccessoryStyle;
+            candidate.outfitId = draftOutfit < 0 ? profile.outfitId : draftOutfit;
+            if (candidate.ownedOutfits == null) candidate.ownedOutfits = new System.Collections.Generic.List<int>();
+            if (!candidate.ownedOutfits.Contains(draftOutfit)) candidate.ownedOutfits.Add(draftOutfit);
             candidate.created = true;
             if (!store.TrySave(candidate)) { notice = T("save_error"); Show(); return; }
             profile = candidate;
@@ -666,6 +812,38 @@ namespace TastePassport.Core
                 return;
             }
             Navigate(Page.Map);
+        }
+
+        private void AppearanceChoices(Transform parent, string titleKey, string[] optionKeys, int selected, Action<int> choose)
+        {
+            var section = NewRect("Appearance selector " + titleKey, parent);
+            SetHeight(section, 112f);
+            var title = Label(section, T(titleKey), 26, 38f, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var titleRect = title.rectTransform;
+            titleRect.anchorMin = new Vector2(0f, 1f);
+            titleRect.anchorMax = new Vector2(1f, 1f);
+            titleRect.pivot = new Vector2(.5f, 1f);
+            titleRect.anchoredPosition = Vector2.zero;
+            var row = NewRect("Appearance options " + titleKey, section);
+            row.anchorMin = new Vector2(0f, 0f);
+            row.anchorMax = new Vector2(1f, 1f);
+            row.offsetMin = new Vector2(0f, 0f);
+            row.offsetMax = new Vector2(0f, -40f);
+            var layout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
+            layout.spacing = 10f;
+            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+            for (int i = 0; i < optionKeys.Length; i++)
+            {
+                int option = i;
+                bool isSelected = selected == i;
+                var button = Button(row, T(optionKeys[i]) + (isSelected ? " · " + T("selected_state") : ""),
+                    isSelected ? Lantern : Paper, () => choose(option), Ink);
+                SetHeight(button.GetComponent<RectTransform>(), 70f);
+            }
         }
 
         private void CollectionHeader(Transform parent, string titleKey, string hintKey, string status = null)
@@ -717,7 +895,7 @@ namespace TastePassport.Core
             greeting.offsetMax = Vector2.zero;
             CollectionCopy(greeting, T("passport_intro"), 26, Muted, TextAnchor.MiddleCenter);
             Rule(greeting);
-            CollectionCopy(greeting, T("coins") + ": " + profile.coins + " ◆", 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(greeting, T("coins") + ": " + profile.coins, 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             var spine = Panel("Book binding", spread, Border).rectTransform;
             spine.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
             spine.anchorMin = new Vector2(.5f, 0f);
@@ -797,7 +975,7 @@ namespace TastePassport.Core
             foreach (string frameId in new[] { "round", "diamond", "hexagon" })
             {
                 string chosenFrame = frameId;
-                Button(frameRow, T("frame_" + frameId) + (lanternCraftRun.FrameId == frameId ? " ✓" : ""),
+                Button(frameRow, T("frame_" + frameId) + (lanternCraftRun.FrameId == frameId ? " · " + T("selected_state") : ""),
                     lanternCraftRun.FrameId == frameId ? Jade : Paper,
                     () => SelectLanternFrame(chosenFrame), lanternCraftRun.FrameId == frameId ? Color.white : Ink);
             }
@@ -814,7 +992,7 @@ namespace TastePassport.Core
                     string colorId = new[] { "red", "gold", "blue", "green" }[rowIndex * 2 + column];
                     string chosenColor = colorId;
                     bool isSelected = lanternCraftRun.ColorId == colorId;
-                    Button(colorRow, T("color_" + colorId) + (isSelected ? " ✓" : ""),
+                    Button(colorRow, T("color_" + colorId) + (isSelected ? " · " + T("selected_state") : ""),
                         isSelected ? ColorForLantern(colorId) : Paper,
                         () => SelectLanternColor(chosenColor), isSelected && colorId != "gold" ? Color.white : Ink);
                 }
@@ -854,7 +1032,7 @@ namespace TastePassport.Core
 
         private void AddLanternDropZone(Transform parent, string slotId, string labelKey, bool filled)
         {
-            string slotLabel = T(labelKey) + (filled ? " ✓" : "\n" + T("craft_drop_here"));
+            string slotLabel = T(labelKey) + (filled ? " · " + T("completed_state") : "\n" + T("craft_drop_here"));
             GameObject slot = Button(parent, slotLabel, filled ? new Color(0.84f, 0.91f, 0.81f) : Paper,
                 () => PlaceLanternMaterial(slotId, selectedLanternMaterialId, null, null), Ink);
             SetHeight(slot.GetComponent<RectTransform>(), 190);
@@ -1009,7 +1187,7 @@ namespace TastePassport.Core
                 {
                     string colorId = new[] { "indigo", "vermilion", "gold", "jade" }[rowIndex * 2 + column];
                     bool selected = hanjiCraftRun.PaperColorId == colorId;
-                    Button(row, T("hanji_color_" + colorId) + (selected ? " ✓" : ""),
+                    Button(row, T("hanji_color_" + colorId) + (selected ? " · " + T("selected_state") : ""),
                         selected ? ColorForHanji(colorId) : Paper,
                         () => SelectHanjiColor(colorId), selected && colorId != "gold" ? Color.white : Ink);
                 }
@@ -1024,7 +1202,7 @@ namespace TastePassport.Core
             {
                 string chosenShape = shapeId;
                 bool selected = hanjiCraftRun.ShapeId == shapeId;
-                Button(shapeRow, T("hanji_shape_" + shapeId) + (selected ? " ✓" : ""),
+                Button(shapeRow, T("hanji_shape_" + shapeId) + (selected ? " · " + T("selected_state") : ""),
                     selected ? Jade : Paper, () => SelectHanjiShape(chosenShape), selected ? Color.white : Ink);
             }
 
@@ -1037,7 +1215,7 @@ namespace TastePassport.Core
             {
                 string chosenMotif = motifId;
                 bool selected = hanjiCraftRun.MotifId == motifId;
-                Button(motifRow, T("hanji_motif_" + motifId) + (selected ? " ✓" : ""),
+                Button(motifRow, T("hanji_motif_" + motifId) + (selected ? " · " + T("selected_state") : ""),
                     selected ? Lantern : Paper, () => SelectHanjiMotif(chosenMotif), Ink);
             }
 
@@ -1063,7 +1241,7 @@ namespace TastePassport.Core
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
-        private static string StepMark(bool applied) => applied ? "  ✓" : "";
+        private string StepMark(bool applied) => applied ? " · " + T("completed_state") : "";
 
         private void SelectHanjiColor(string colorId)
         {
@@ -1283,11 +1461,11 @@ namespace TastePassport.Core
                 KoreaVisuals.Attach(right, postcardIndex == 1 ? TravelArtworkKind.Bibimbap : TravelArtworkKind.Jeonju);
                 AddJourneyThread(card);
                 CollectionCopy(card, T(definition.FrontLeftKey) + "  •  " + T(definition.FrontRightKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-                Label(card, "◆  ◆  ◆", 28, 44, Vermilion, TextAnchor.MiddleCenter);
+                Label(card, T("collection_postcard_hint"), 22, 44, Vermilion, TextAnchor.MiddleCenter);
             }
             else
             {
-                Label(card, "◆  " + T("passport"), 25, 45, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                Label(card, T("passport"), 25, 45, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
                 CollectionCopy(card, T(definition.StoryKey), 29, Ink);
                 Rule(card);
                 Label(card, T("culture_note"), 27, 54, Jade, TextAnchor.MiddleCenter, FontStyle.Bold, true);
@@ -1364,10 +1542,12 @@ namespace TastePassport.Core
             CollectionCopy(objectiveCard, T(objectiveHint), 26, Muted, TextAnchor.MiddleCenter);
             StoryPrimary(objectiveCard, T(profile.mainStoryCompleted ? "view_ending" : nextObjective.ActionLabelKey),
                 profile.mainStoryCompleted ? () => Navigate(Page.FinaleResult) : () => RunMapObjective(nextObjective));
-            CollectionCopy(parent, T("journey_destinations") + " · " + T("journey_progress") + " " +
+            var journeyProgress = JourneyCard(parent);
+            CollectionCopy(journeyProgress, T("journey_destinations") + " · " + T("journey_progress") + " " +
                 JourneyStampCount(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
                     LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id) + "/6",
                 28, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            MapLocationSwitcher(parent);
             var hoian = JourneyCard(parent);
             hoian.name = "Hoi An destination surface";
             // The 38pt display face needs a 55-unit line box plus room for descenders.
@@ -1378,13 +1558,18 @@ namespace TastePassport.Core
                 () => { showHoiAnActivities = !showHoiAnActivities; Show(); }, Ink);
             if (showHoiAnActivities)
             {
-                Artwork(hoian, TravelArtworkKind.VietnamJourney, 150);
                 Label(hoian, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
                 DrawLocationTargets(hoian, "hoian");
                 if (profile.mainStoryCompleted) CompactButton(hoian, T("explore_hoian"), Paper, () => OpenWorld("hoian"), Ink);
+                var hoianTierTag = NewRect("Mission tier tag hoian_architecture", hoian);
+                SetHeight(hoianTierTag, 26);
+                var hoianTierLabel = Label(hoianTierTag, "◆ " + T("journey_tier_familiar_short"), 20, 26, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
+                Stretch(hoianTierLabel.rectTransform);
+                hoianTierLabel.rectTransform.offsetMin = new Vector2(12, 0);
                 CompactButton(hoian, MissionLabel("journey_hoian_architecture", LevelCatalog.HoiAn.Id), Paper, () => StartLevel(LevelCatalog.HoiAn), Ink);
                 CompactButton(hoian, T("lantern_craft_map"), Paper, StartLanternCraft, Ink);
                 Label(hoian, T("journey_food_exchange"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+                Artwork(hoian, TravelArtworkKind.CaoLau, 126);
                 JourneyMissionButton(hoian, "cao_lau", RecipeCatalog.CaoLau.Id, LevelCatalog.HoiAn.Id, "journey_hoian_architecture", () => StartRecipe(RecipeCatalog.CaoLau));
                 JourneyMissionButton(hoian, "hoian_exchange", MatchCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, "cao_lau", () => StartMatch(MatchCatalog.HoiAn));
             }
@@ -1400,7 +1585,6 @@ namespace TastePassport.Core
                 () => { showJeonjuActivities = !showJeonjuActivities; Show(); }, Ink);
             if (showJeonjuActivities)
             {
-                Artwork(jeonju, TravelArtworkKind.KoreaJourney, 150);
                 Label(jeonju, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
                 DrawLocationTargets(jeonju, "jeonju");
                 if (profile.mainStoryCompleted)
@@ -1410,10 +1594,12 @@ namespace TastePassport.Core
                     jeonjuUnlocked ? StartHanjiCraft : () => Toast(T("jeonju_not_unlocked")), Ink)
                     .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
                 Label(jeonju, T("journey_food_exchange"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+                Artwork(jeonju, TravelArtworkKind.Bibimbap, 126);
                 JourneyMissionButton(jeonju, "bibimbap", RecipeCatalog.Bibimbap.Id, LevelCatalog.Jeonju.Id, "journey_jeonju_architecture", () => StartRecipe(RecipeCatalog.Bibimbap));
                 JourneyMissionButton(jeonju, "jeonju_exchange", MatchCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, "bibimbap", () => StartMatch(MatchCatalog.Jeonju));
             }
             KoreaVisuals.DecorateLocationCard(jeonju);
+            DrawJourneyTiers(parent);
             JourneyNavigation(parent, Page.Map);
             var storyCard = JourneyCard(parent);
             Label(storyCard, profile.mainStoryCompleted ? T("main_story_completed") : T("chapter_title_4"),
@@ -1432,12 +1618,58 @@ namespace TastePassport.Core
             else Label(storyCard, T("finale_locked_hint"), 26, 144, Muted, TextAnchor.MiddleCenter);
         }
 
+        private void MapLocationSwitcher(Transform parent)
+        {
+            var row = NewRect("Location destination selector", parent);
+            SetHeight(row, 86);
+            AddHorizontal(row);
+            var hoiAn = CompactButton(row, T("map_tab_hoian") + (selectedMapKorea ? "" : " · " + T("selected_state")),
+                selectedMapKorea ? Paper : Jade, () => SelectMapDestination(false), selectedMapKorea ? Ink : Color.white);
+            var jeonju = CompactButton(row, T("map_tab_jeonju") + (selectedMapKorea ? " · " + T("selected_state") : ""),
+                selectedMapKorea ? Jade : Paper, () => SelectMapDestination(true), selectedMapKorea ? Color.white : Ink);
+            foreach (var button in new[] { hoiAn, jeonju })
+            {
+                var layout = button.GetComponent<LayoutElement>();
+                if (layout != null) layout.flexibleWidth = 1f;
+            }
+        }
+
+        private void SelectMapDestination(bool korean)
+        {
+            selectedMapKorea = korean;
+            koreanBackdrop = korean;
+            audioManager?.SetEnvironment(korean);
+            Show();
+        }
+
         private int JourneyStampCount(params string[] missionIds)
         {
             int count = 0;
             foreach (string id in missionIds)
                 if (ProgressService.HasStamp(profile, id)) count++;
             return count;
+        }
+
+        private void DrawJourneyTiers(Transform parent)
+        {
+            var intro = JourneyCard(parent);
+            CollectionCopy(intro, T("journey_tiers") + " · " + T("journey_tier_unlock_note"), 23, Ink,
+                TextAnchor.MiddleCenter, FontStyle.Bold);
+            var row = NewRect("Journey tier progress", parent);
+            SetHeight(row, 84);
+            AddHorizontal(row);
+            JourneyTierPill(row, "journey_tier_familiar_short", JourneyStampCount(LevelCatalog.HoiAn.Id, LevelCatalog.Jeonju.Id));
+            JourneyTierPill(row, "journey_tier_challenge_short", JourneyStampCount(RecipeCatalog.CaoLau.Id, RecipeCatalog.Bibimbap.Id));
+            JourneyTierPill(row, "journey_tier_mastery_short", JourneyStampCount(MatchCatalog.HoiAn.Id, MatchCatalog.Jeonju.Id));
+        }
+
+        private void JourneyTierPill(Transform parent, string titleKey, int completed)
+        {
+            var tile = Panel("Journey tier " + titleKey, parent, completed == 2 ? new Color(.91f,.96f,.92f) : Paper).rectTransform;
+            SetHeight(tile, 84);
+            var label = Label(tile, T(titleKey) + "\n" + completed + "/2", 22, 84,
+                completed == 2 ? Jade : Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Stretch(label.rectTransform);
         }
 
         private void DestinationProgress(Transform parent, params string[] missionIds)
@@ -1447,6 +1679,17 @@ namespace TastePassport.Core
 
         private void JourneyMissionButton(Transform parent, string titleKey, string missionId, string prerequisiteId, string prerequisiteTitleKey, Action action)
         {
+            int tier = missionId.Contains("cao_lau") || missionId.Contains("bibimbap") ? 2
+                : missionId.Contains("exchange") ? 3 : 1;
+            string tierKey = tier == 1 ? "journey_tier_familiar_short"
+                : tier == 2 ? "journey_tier_challenge_short" : "journey_tier_mastery_short";
+            var badgeRow = NewRect("Mission tier tag " + missionId, parent);
+            SetHeight(badgeRow, 26);
+            var tierText = Label(badgeRow, "◆ " + T(tierKey), 20, 26,
+                tier == 1 ? Jade : tier == 2 ? Lantern : Vermilion, TextAnchor.MiddleLeft, FontStyle.Bold);
+            Stretch(tierText.rectTransform);
+            tierText.rectTransform.offsetMin = new Vector2(12, 0);
+
             MissionButton(parent, titleKey, missionId, prerequisiteId, Paper, action, Ink, prerequisiteTitleKey);
         }
 
@@ -1713,7 +1956,7 @@ namespace TastePassport.Core
                 return;
             }
             foreach (string imprint in profile.worldImprints)
-                CollectionCopy(card, "◆  " + T(ImprintNameKey(imprint)), 26, Ink, TextAnchor.MiddleCenter);
+                CollectionCopy(card, T("stamp") + " · " + T(ImprintNameKey(imprint)), 26, Ink, TextAnchor.MiddleCenter);
         }
 
         private static string ImprintNameKey(string id)
@@ -1732,7 +1975,7 @@ namespace TastePassport.Core
 
         private void DrawWardrobe(Transform parent)
         {
-            CollectionHeader(parent, "wardrobe", "collection_wardrobe_hint", T("coins") + ": " + profile.coins + " ◆");
+            CollectionHeader(parent, "wardrobe", "collection_wardrobe_hint", T("coins") + ": " + profile.coins);
             for (int i = 0; i < OutfitCatalog.All.Length; i++)
             {
                 var outfit = OutfitCatalog.All[i];
@@ -1741,7 +1984,7 @@ namespace TastePassport.Core
                 SetHeight(preview, 150);
                 DrawAvatar(preview, OutfitCatalog.Get(profile.outfitId).Avatar, outfit.Id);
                 CollectionCopy(card, T(outfit.NameKey), 29, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-                CollectionCopy(card, outfit.IsOwned(profile) ? T("outfit_owned") : T("outfit_price") + ": " + outfit.Price + " ◆", 26, Muted, TextAnchor.MiddleCenter);
+                CollectionCopy(card, outfit.IsOwned(profile) ? T("outfit_owned") : T("outfit_price") + ": " + outfit.Price, 26, Muted, TextAnchor.MiddleCenter);
                 if (outfit.IsOwned(profile)) CompactButton(card, profile.outfitId == outfit.Id ? T("outfit_selected") : T("outfit_wear"), Jade, () => SetOutfit(outfit.Id));
                 else CompactButton(card, T("outfit_unlock"), outfit.Price <= profile.coins ? Lantern : Border, () => UnlockOutfit(outfit.Id), Ink);
             }
@@ -1772,8 +2015,8 @@ namespace TastePassport.Core
             var languages = NewRect("Settings language choices", language);
             SetHeight(languages, GameUiTheme.ButtonHeight);
             AddHorizontal(languages);
-            Button(languages, T("language_vi") + (profile.language == "vi" ? "  ✓" : ""), profile.language == "vi" ? Lantern : Paper, () => ChangeLanguage("vi"), Ink);
-            Button(languages, T("language_ko") + (profile.language == "ko" ? "  ✓" : ""), profile.language == "ko" ? Lantern : Paper, () => ChangeLanguage("ko"), Ink);
+            Button(languages, T("language_vi") + (profile.language == "vi" ? " · " + T("selected_state") : ""), profile.language == "vi" ? Lantern : Paper, () => ChangeLanguage("vi"), Ink);
+            Button(languages, T("language_ko") + (profile.language == "ko" ? " · " + T("selected_state") : ""), profile.language == "ko" ? Lantern : Paper, () => ChangeLanguage("ko"), Ink);
             var sound = JourneyCard(parent);
             sound.name = "Settings audio group";
             CollectionCopy(sound, T("settings_sound"), 29, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
@@ -1898,7 +2141,7 @@ namespace TastePassport.Core
                     if (mark >= FestivalPreparationRun.MarkCount) break;
                     int selectedMark = mark;
                     bool selected = festivalRun.SelectedMarkIndex == mark;
-                    var choice = Button(choices, T("finale_mark_" + mark) + (selected ? " ✓" : ""),
+                    var choice = Button(choices, T("finale_mark_" + mark) + (selected ? " · " + T("selected_state") : ""),
                         selected ? Jade : Paper, () => SelectFestivalMark(selectedMark), selected ? Color.white : Ink);
                     choice.GetComponent<UnityEngine.UI.Button>().interactable = !festivalRun.IsMarkPlaced(mark);
                 }
@@ -1914,7 +2157,7 @@ namespace TastePassport.Core
             {
                 string decorationId = FestivalPreparationRun.GetDecorationId(i);
                 bool selected = festivalRun.SelectedDecorationId == decorationId;
-                Button(decorations, T("festival_decoration_" + decorationId) + (selected ? " ✓" : ""),
+                Button(decorations, T("festival_decoration_" + decorationId) + (selected ? " · " + T("selected_state") : ""),
                     selected ? Lantern : Paper, () => SelectFestivalDecoration(decorationId), Ink);
             }
 
@@ -1939,7 +2182,7 @@ namespace TastePassport.Core
             if (festivalRun.IsStationPlaced(stationIndex))
             {
                 int mark = festivalRun.GetPlacedMarkForStation(stationIndex);
-                CollectionCopy(card, "◆  " + T("finale_mark_" + mark), 24, Ink, TextAnchor.MiddleCenter);
+                CollectionCopy(card, T("stamp") + " · " + T("finale_mark_" + mark), 24, Ink, TextAnchor.MiddleCenter);
             }
             else CollectionCopy(card, T("festival_station_empty"), 23, Muted, TextAnchor.MiddleCenter);
 
@@ -2062,7 +2305,7 @@ namespace TastePassport.Core
                 string activityId = FestivalPreparationRun.GetVietnamActivityId(i);
                 bool connected = festivalRun.IsLinkConnected(FestivalPreparationRun.GetLinkId(i));
                 bool selected = festivalRun.SelectedVietnamActivityId == activityId;
-                var choice = Button(vietnam, T("festival_activity_vi_" + activityId) + (selected ? " ✓" : ""),
+                var choice = Button(vietnam, T("festival_activity_vi_" + activityId) + (selected ? " · " + T("selected_state") : ""),
                     selected ? Jade : Paper, () => SelectFestivalActivity(true, activityId), selected ? Color.white : Ink);
                 choice.GetComponent<UnityEngine.UI.Button>().interactable = !connected;
             }
@@ -2074,14 +2317,14 @@ namespace TastePassport.Core
                 string activityId = FestivalPreparationRun.GetKoreaActivityId(i);
                 bool connected = festivalRun.IsLinkConnected(FestivalPreparationRun.GetLinkId(i));
                 bool selected = festivalRun.SelectedKoreaActivityId == activityId;
-                var choice = Button(korea, T("festival_activity_ko_" + activityId) + (selected ? " ✓" : ""),
+                var choice = Button(korea, T("festival_activity_ko_" + activityId) + (selected ? " · " + T("selected_state") : ""),
                     selected ? Lantern : Paper, () => SelectFestivalActivity(false, activityId), Ink);
                 choice.GetComponent<UnityEngine.UI.Button>().interactable = !connected;
             }
             for (int i = 0; i < FestivalPreparationRun.LinkCount; i++)
             {
                 string pairId = FestivalPreparationRun.GetLinkId(i);
-                CollectionCopy(card, (festivalRun.IsLinkConnected(pairId) ? "◆  " : "○  ") + T("festival_pair_" + pairId), 23, festivalRun.IsLinkConnected(pairId) ? Jade : Muted, TextAnchor.MiddleCenter);
+                CollectionCopy(card, T("festival_pair_" + pairId) + " · " + T(festivalRun.IsLinkConnected(pairId) ? "completed_state" : "pending_state"), 23, festivalRun.IsLinkConnected(pairId) ? Jade : Muted, TextAnchor.MiddleCenter);
             }
             Button(card, T("festival_connect"), festivalRun.Complete ? Paper : Jade,
                 ConnectFestivalActivities, festivalRun.Complete ? Ink : Color.white);
@@ -2234,8 +2477,7 @@ namespace TastePassport.Core
 
         private void NarrationButtons(Transform parent, string text)
         {
-            Button(parent, T("read_story"), Jade, () => StoryNarration.Speak(profile.language, text));
-            Button(parent, T("stop_voice"), Paper, StoryNarration.Stop, Ink);
+            SpeakerControl(parent, text);
         }
 
         private RectTransform ActivityGuide(Transform parent, string phaseKey, string hintKey)
@@ -2248,11 +2490,30 @@ namespace TastePassport.Core
 
         private void ActivityNarration(Transform parent, string text)
         {
-            var row = NewRect("Activity narration", parent);
-            SetHeight(row, 74);
-            AddHorizontal(row);
-            CompactButton(row, T("read_story"), Paper, () => StoryNarration.Speak(profile.language, text), Ink);
-            CompactButton(row, T("stop_voice"), Paper, StoryNarration.Stop, Ink);
+            SpeakerControl(parent, text);
+        }
+
+        private void SpeakerControl(Transform parent, string text)
+        {
+            var row = NewRect("Dialogue narration control", parent);
+            SetHeight(row, 74f);
+            var layout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
+            layout.childAlignment = TextAnchor.MiddleRight;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = false;
+            bool speaking = StoryNarration.IsSpeaking;
+            var control = Button(row, speaking ? "♫" : "♪", speaking ? Jade : Paper, () =>
+            {
+                if (StoryNarration.IsSpeaking) StoryNarration.Stop();
+                else StoryNarration.Speak(profile.language, text);
+                Show();
+            }, Ink);
+            var element = control.GetComponent<LayoutElement>();
+            element.minWidth = element.preferredWidth = 76f;
+            element.flexibleWidth = 0f;
+            SetHeight(control.GetComponent<RectTransform>(), 68f);
         }
 
         private void DrawDialogue(Transform parent)
@@ -2263,7 +2524,7 @@ namespace TastePassport.Core
             SpeakerBadge(parent, T(run.Level == LevelCatalog.HoiAn ? "character_nhung" : "character_gabo"));
             var card = JourneyCard(parent);
             CollectionCopy(card, T(run.Level.GuideKey), 31, Ink, TextAnchor.MiddleCenter);
-            ActivityNarration(parent, T(run.Level.GuideKey));
+            ActivityNarration(card, T(run.Level.GuideKey));
             Button(parent, T("mission_start"), Jade, () => Navigate(Page.Explore));
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
@@ -2273,24 +2534,28 @@ namespace TastePassport.Core
             Header(parent, T(run.Level.PlaceKey));
             ActivityGuide(parent, "activity_search_phase", "search_hint");
             ProgressStrip(parent, run.FoundCount, 3, T("fragments"));
-            Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 140);
-            for (int row = 0; row < 3; row++)
+            var scene = Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 430);
+            if (!string.IsNullOrEmpty(interactionFeedbackKey))
             {
-                var rowRect = NewRect("Places", parent);
-                SetHeight(rowRect, 145);
-                var layout = rowRect.gameObject.AddComponent<HorizontalLayoutGroup>();
-                layout.spacing = 14;
-                layout.childControlWidth = true;
-                layout.childControlHeight = true;
-                layout.childForceExpandWidth = true;
-                layout.childForceExpandHeight = false;
-                for (int column = 0; column < 2; column++)
-                {
-                    int index = row * 2 + column;
-                    bool inspected = run.IsInspected(index);
-                    var place = Button(rowRect, T(run.Level.ObjectKeys[index]) + (inspected ? " ✓" : " ?"), inspected ? Lantern : Paper, () => InspectPlace(index), Ink);
-                    SetHeight(place.GetComponent<RectTransform>(), 137);
-                }
+                var foundFeedback = CollectionCopy(parent, T(interactionFeedbackKey), 25, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                if (interactionFeedbackKey == "fragment_found") StartCoroutine(PopFoundFragment(foundFeedback.rectTransform));
+            }
+            for (int index = 0; index < run.Level.ObjectKeys.Length; index++)
+            {
+                int spotIndex = index;
+                bool inspected = run.IsInspected(spotIndex);
+                string spotKey = (run.Level == LevelCatalog.HoiAn ? "search_hoian_" : "search_jeonju_") + spotIndex;
+                var spot = Button(scene, T(spotKey) + (inspected ? "\n" + T("inspected_state") : ""),
+                    inspected ? Lantern : new Color(Paper.r, Paper.g, Paper.b, .96f), () => InspectPlace(spotIndex), Ink);
+                spot.name = "Search spot " + spotIndex;
+                var rect = spot.GetComponent<RectTransform>();
+                rect.anchorMin = rect.anchorMax = new Vector2(.17f + (spotIndex % 3) * .33f, spotIndex < 3 ? .28f : .72f);
+                rect.pivot = new Vector2(.5f, .5f);
+                rect.sizeDelta = new Vector2(168f, 82f);
+                rect.anchoredPosition = Vector2.zero;
+                spot.GetComponentInChildren<Text>().fontSize = 24;
+                if (run.Level == LevelCatalog.HoiAn) HoiAnVisuals.DecorateLocationCard(rect);
+                else KoreaVisuals.DecorateLocationCard(rect);
             }
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
@@ -2299,16 +2564,38 @@ namespace TastePassport.Core
         {
             InspectResult result = run.Inspect(index);
             if (run.SearchComplete) { Navigate(Page.Assembly); return; }
-            notice = T(result == InspectResult.Fragment ? "fragment_found" : result == InspectResult.Empty ? "empty_spot" : "already_searched");
+            interactionFeedbackKey = result == InspectResult.Fragment ? "fragment_found" : result == InspectResult.Empty ? "empty_spot" : "already_searched";
+            notice = T(interactionFeedbackKey);
             Show();
+        }
+
+        private static IEnumerator PopFoundFragment(RectTransform target)
+        {
+            if (target == null) yield break;
+            var group = target.GetComponent<CanvasGroup>();
+            if (group == null) group = target.gameObject.AddComponent<CanvasGroup>();
+            Vector2 start = target.anchoredPosition;
+            float elapsed = 0f;
+            const float duration = .32f;
+            while (target != null && elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / duration);
+                float punch = t < .45f ? Mathf.Lerp(.72f, 1.12f, t / .45f) : Mathf.Lerp(1.12f, 1f, (t - .45f) / .55f);
+                target.localScale = Vector3.one * punch;
+                target.anchoredPosition = start + Vector2.up * (24f * t);
+                group.alpha = Mathf.Lerp(.7f, 1f, t);
+                yield return null;
+            }
+            if (target != null) { target.localScale = Vector3.one; target.anchoredPosition = start + Vector2.up * 24f; }
         }
 
         private void DrawAssembly(Transform parent)
         {
-            Header(parent, T("assemble_title"));
+            Header(parent, T(run.Level == LevelCatalog.HoiAn ? "assemble_hoian_title" : "assemble_jeonju_title"));
             ActivityGuide(parent, "activity_assemble_phase", "assemble_hint");
             ProgressStrip(parent, (placedFragments[0] ? 1 : 0) + (placedFragments[1] ? 1 : 0) + (placedFragments[2] ? 1 : 0), 3, T("activity_pieces_placed"));
-            Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 140);
+            Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 190);
             CollectionCopy(parent, selectedFragment >= 0 ? T("activity_selected_piece") + " " + (selectedFragment + 1) : T("activity_select_piece"), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             pieceViews = new FragmentDrag[3];
             slotViews = new Transform[3];
@@ -2319,8 +2606,12 @@ namespace TastePassport.Core
             {
                 int index = i;
                 if (placedFragments[i]) { Spacer(pieces, 112); continue; }
-                var piece = Button(pieces, T("piece") + " " + (i + 1) + (selectedFragment == i ? " ✓" : ""), selectedFragment == i ? Lantern : Paper, () => { selectedFragment = index; Show(); }, Ink);
+                var pieceImage = Panel("Architecture fragment " + (i + 1), pieces, selectedFragment == i ? Lantern : Paper, true);
+                var piece = pieceImage.gameObject;
+                Label(piece.transform, T(run.Level == LevelCatalog.HoiAn ? "hoian_arch_piece_" + i : "jeonju_arch_piece_" + i), 23, 0, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
                 SetHeight(piece.GetComponent<RectTransform>(), 112);
+                if (run.Level == LevelCatalog.HoiAn) HoiAnVisuals.DecorateLocationCard(piece.GetComponent<RectTransform>());
+                else KoreaVisuals.DecorateLocationCard(piece.GetComponent<RectTransform>());
                 pieceViews[i] = piece.AddComponent<FragmentDrag>();
                 pieceViews[i].PieceIndex = i;
             }
@@ -2330,10 +2621,12 @@ namespace TastePassport.Core
             for (int i = 0; i < 3; i++)
             {
                 int index = i;
-                var slot = Button(slots, placedFragments[i] ? "✓" : T("slot") + " " + (i + 1), placedFragments[i] ? Jade : Paper,
-                    () => TryPlace(index, null), placedFragments[i] ? Color.white : Ink);
+                var slot = Panel("Architecture target " + (i + 1), slots, placedFragments[i] ? Jade : Paper, true).gameObject;
+                Label(slot.transform, placedFragments[i] ? T("slot_filled_state") : T(run.Level == LevelCatalog.HoiAn ? "hoian_arch_piece_" + i : "jeonju_arch_piece_" + i), 23, 0, placedFragments[i] ? Color.white : Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
                 slotViews[i] = slot.transform;
                 SetHeight(slot.GetComponent<RectTransform>(), 112);
+                if (run.Level == LevelCatalog.HoiAn) HoiAnVisuals.DecorateLocationCard(slot.GetComponent<RectTransform>());
+                else KoreaVisuals.DecorateLocationCard(slot.GetComponent<RectTransform>());
                 var drop = slot.AddComponent<FragmentDropSlot>();
                 drop.SlotIndex = i;
                 drop.TryDrop = TryPlace;
@@ -2358,7 +2651,11 @@ namespace TastePassport.Core
             var panel = Panel("Original travel illustration", parent, Paper).rectTransform;
             SetHeight(panel, height);
             TravelArtwork.Draw(panel, kind);
-            if (kind == TravelArtworkKind.HoiAn || kind == TravelArtworkKind.VietnamJourney || kind == TravelArtworkKind.CaoLau)
+            if (kind == TravelArtworkKind.LocationHoiAnCaoLau || kind == TravelArtworkKind.LocationJeonjuBibimbap)
+            {
+                // The combined paintings own their contained light, water and blossom motion.
+            }
+            else if (kind == TravelArtworkKind.HoiAn || kind == TravelArtworkKind.VietnamJourney || kind == TravelArtworkKind.CaoLau)
                 HoiAnVisuals.Attach(panel, kind);
             else KoreaVisuals.Attach(panel, kind);
             return panel;
@@ -2403,7 +2700,7 @@ namespace TastePassport.Core
         }
 
         private string MissionLabel(string titleKey, string levelId) =>
-            T(titleKey) + (ProgressService.HasStamp(profile, levelId) ? "  ✓" : "");
+            T(titleKey) + (ProgressService.HasStamp(profile, levelId) ? " · " + T("completed_state") : "");
 
         private void MissionButton(Transform parent, string titleKey, string levelId, string prerequisiteId,
             Color color, Action action, Color? foreground = null, string prerequisiteTitleKey = null)
@@ -2411,7 +2708,7 @@ namespace TastePassport.Core
             bool unlocked = ProgressService.HasStamp(profile, prerequisiteId) || ProgressService.HasStamp(profile, levelId);
             string requirement = prerequisiteTitleKey == null ? T("unlock_previous")
                 : T("journey_requires_mission").Replace("{mission}", T(prerequisiteTitleKey));
-            CompactButton(parent, unlocked ? MissionLabel(titleKey, levelId) : "○  " + T(titleKey) + " · " + T("locked"),
+            CompactButton(parent, unlocked ? MissionLabel(titleKey, levelId) : T(titleKey) + " · " + T("locked"),
                 unlocked ? color : Border, unlocked ? action : () => Toast(requirement), unlocked ? foreground : Ink)
                 .GetComponent<UnityEngine.UI.Button>().interactable = unlocked;
             if (!unlocked && prerequisiteTitleKey != null)
@@ -2445,7 +2742,7 @@ namespace TastePassport.Core
         {
             bool earned = ProgressService.HasStamp(profile, levelId);
             var card = JourneyCard(parent);
-            CollectionCopy(card, earned ? "◆  " + T("stamp") : "○  " + T("locked"), 26,
+            CollectionCopy(card, earned ? T("stamp") : T("locked"), 26,
                 earned ? Vermilion : Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
             CollectionCopy(card, T(titleKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
         }
@@ -2493,7 +2790,7 @@ namespace TastePassport.Core
         private void SpeakerBadge(Transform parent, string speaker)
         {
             var badge = Card(parent, 82);
-            Label(badge, "●  " + speaker, 28, 42, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(badge, speaker, 28, 42, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
         }
 
         private void TryPlace(int slotIndex, FragmentDrag dragged)
@@ -2543,26 +2840,63 @@ namespace TastePassport.Core
             Header(parent, T("activity_result_title"));
             ActivityGuide(parent, "activity_saved", "activity_result_hint");
             if (FirstJourneyComplete()) CollectionCopy(parent, T("first_journey_complete"), 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Artwork(parent, matchResult ? TravelArtworkKind.Friendship : recipeResult ? (recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau) : run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 210);
+            Artwork(parent, matchResult
+                ? (matchRun.Definition == MatchCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju)
+                : recipeResult ? (recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau)
+                : run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 210);
             var card = JourneyCard(parent);
             CollectionCopy(card, T("activity_result_completed", T(subjectKey)), 29, Ink, TextAnchor.MiddleCenter);
             CollectionCopy(card, T("score") + ": " + score, 35, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(card, T("stars") + ": " + new string('★', stars), 30, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(card, T("activity_coins_earned") + ": " + (20 + stars * 5) + " ◆", 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T("stars") + ": " + stars + "/3", 30, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(card, T("activity_coins_earned") + ": " + (20 + stars * 5), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var stamp = JourneyCard(parent);
-            CollectionCopy(stamp, "◆  " + T("stamp") + ": " + T(subjectKey), 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(stamp, T("stamp") + ": " + T(subjectKey), 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             string speaker = T(koreanBackdrop ? "character_gabo" : "character_nhung");
             var letter = JourneyCard(parent);
-            CollectionCopy(letter, "◆  " + speaker, 25, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(letter, speaker, 25, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             CollectionCopy(letter, T(koreanBackdrop ? "stamp_message_gabo" : "stamp_message_nhung", T(subjectKey)), 24, Ink, TextAnchor.MiddleCenter);
+            StartCoroutine(StampImpact(stamp));
             Button(parent, T("passport"), Jade, () => Navigate(Page.Passport));
             CompactButton(parent, T("replay"), Paper, () => { if (matchResult) StartMatch(matchRun.Definition); else if (recipeResult) StartRecipe(recipeRun.Recipe); else StartLevel(run.Level); }, Ink);
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
+        private static IEnumerator StampImpact(RectTransform stamp)
+        {
+            if (stamp == null) yield break;
+            const float impactTime = .13f;
+            const float settleTime = .19f;
+            stamp.localScale = Vector3.one * .72f;
+            stamp.localRotation = Quaternion.Euler(0f, 0f, -6f);
+            float elapsed = 0f;
+            while (stamp != null && elapsed < impactTime)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float progress = Mathf.SmoothStep(0f, 1f, elapsed / impactTime);
+                stamp.localScale = Vector3.Lerp(Vector3.one * .72f, Vector3.one * 1.06f, progress);
+                stamp.localRotation = Quaternion.Euler(0f, 0f, Mathf.Lerp(-6f, 1.5f, progress));
+                yield return null;
+            }
+            elapsed = 0f;
+            while (stamp != null && elapsed < settleTime)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float progress = Mathf.SmoothStep(0f, 1f, elapsed / settleTime);
+                stamp.localScale = Vector3.Lerp(Vector3.one * 1.06f, Vector3.one, progress);
+                stamp.localRotation = Quaternion.Euler(0f, 0f, Mathf.Lerp(1.5f, 0f, progress));
+                yield return null;
+            }
+            if (stamp != null)
+            {
+                stamp.localScale = Vector3.one;
+                stamp.localRotation = Quaternion.identity;
+            }
+        }
+
         private void StartRecipe(RecipeDefinition recipe)
         {
             StoryNarration.Stop();
+            interactionFeedbackKey = null;
             resultCommitted = false;
             koreanBackdrop = recipe == RecipeCatalog.Bibimbap;
             matchResult = false;
@@ -2576,11 +2910,11 @@ namespace TastePassport.Core
         {
             Header(parent, T(recipeRun.Recipe.DishKey));
             ActivityGuide(parent, "activity_ready", "activity_recipe_intro");
-            Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 150);
+            Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 200);
             SpeakerBadge(parent, T(recipeRun.Recipe == RecipeCatalog.Bibimbap ? "character_kim" : "character_lan"));
             var card = JourneyCard(parent);
             CollectionCopy(card, T(recipeRun.Recipe.GuideKey), 30, Ink, TextAnchor.MiddleCenter);
-            ActivityNarration(parent, T(recipeRun.Recipe.GuideKey));
+            ActivityNarration(card, T(recipeRun.Recipe.GuideKey));
             if (recipeRun.Recipe == RecipeCatalog.Bibimbap) KoreaVisuals.DecorateRecipePanel(card);
             else HoiAnVisuals.DecorateRecipePanel(card);
             CollectionCopy(parent, T("recipe_hint"), 25, Jade, TextAnchor.MiddleCenter);
@@ -2603,15 +2937,20 @@ namespace TastePassport.Core
                 CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
                 return;
             }
-            var status = ActivityGuide(parent, "activity_recipe_phase", "activity_recipe_tap");
+            var status = ActivityGuide(parent, "activity_recipe_phase", "activity_recipe_drop");
             recipeTimer = CollectionCopy(status, "", 32, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             ProgressStrip(parent, recipeRun.StepIndex, recipeRun.Recipe.Steps.Length, T("recipe_step"));
-            Artwork(parent, bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 140);
+            Artwork(parent, bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 205);
             var guide = JourneyCard(parent);
             if (bibimbap) KoreaVisuals.DecorateRecipePanel(guide);
             else HoiAnVisuals.DecorateRecipePanel(guide);
             CollectionCopy(guide, T("recipe_step") + " " + (recipeRun.StepIndex + 1) + "/" + recipeRun.Recipe.Steps.Length, 29, Jade, TextAnchor.MiddleCenter);
             CollectionCopy(guide, T(recipeRun.Recipe.Steps[recipeRun.StepIndex]), 37, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var recipeDrop = guide.gameObject.AddComponent<FragmentDropSlot>();
+            recipeDrop.SlotIndex = -1;
+            recipeDrop.TryDrop = TryDropIngredient;
+            if (!string.IsNullOrEmpty(interactionFeedbackKey))
+                CollectionCopy(guide, T(interactionFeedbackKey), 23, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int row = 0; row < (recipeRun.Choices.Length + 1) / 2; row++)
             {
                 var ingredients = NewRect("Ingredients", parent);
@@ -2621,12 +2960,14 @@ namespace TastePassport.Core
                 {
                     int index = row * 2 + column;
                     if (index >= recipeRun.Choices.Length) break;
-                    var ingredient = Button(ingredients, T(recipeRun.Choices[index]), Paper, () => ChooseIngredient(index), Ink);
-                    SetHeight(ingredient.GetComponent<RectTransform>(), 104);
+                    var ingredient = Panel("Ingredient card " + index, ingredients, Paper, true).gameObject;
+                    Label(ingredient.transform, T(recipeRun.Choices[index]), 24, 0, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                    SetHeight(ingredient.GetComponent<RectTransform>(), 112);
                     if (recipeRun.Recipe == RecipeCatalog.CaoLau)
                         HoiAnVisuals.StyleIngredientCard(ingredient.GetComponent<RectTransform>(), recipeRun.Choices[index]);
                     else if (bibimbap)
                         KoreaVisuals.StyleIngredientCard(ingredient.GetComponent<RectTransform>(), recipeRun.Choices[index]);
+                    ingredient.AddComponent<FragmentDrag>().PieceIndex = index;
                 }
             }
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
@@ -2636,14 +2977,21 @@ namespace TastePassport.Core
         {
             if (Time.time >= recipeDeadline) { Navigate(Page.RecipeFail); return; }
             IngredientResult result = recipeRun.Choose(index);
+            interactionFeedbackKey = result == IngredientResult.Wrong ? "recipe_wrong" : "recipe_correct";
             if (result == IngredientResult.Complete)
             {
                 if (recipeRun.Recipe == RecipeCatalog.Bibimbap) Navigate(Page.RecipeMix);
                 else CompleteRecipe();
                 return;
             }
-            notice = T(result == IngredientResult.Correct ? "recipe_correct" : "recipe_wrong");
-            Show();
+            if (result == IngredientResult.Wrong)
+                StartCoroutine(RefreshAfterInput(false));
+            else Show();
+        }
+
+        private void TryDropIngredient(int targetIndex, FragmentDrag dragged)
+        {
+            if (dragged != null) ChooseIngredient(dragged.PieceIndex);
         }
 
         private void DrawRecipeMix(Transform parent)
@@ -2652,19 +3000,101 @@ namespace TastePassport.Core
             ActivityGuide(parent, "activity_mix_phase", "activity_mix_hint");
             ProgressStrip(parent, recipeRun.StepIndex, recipeRun.Recipe.Steps.Length, T("activity_ingredients_ready"));
             Artwork(parent, TravelArtworkKind.Bibimbap, 210);
-            Button(parent, T("mix"), Jade, CompleteRecipe);
+            var mixZone = JourneyCard(parent);
+            mixZone.name = "Bibimbap swipe mixing area";
+            Label(mixZone, T("mix_gesture_target"), 28, 0, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            mixZone.gameObject.AddComponent<MixGestureHandler>().Initialize(CompleteRecipe);
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
 
         private void DrawRecipeFail(Transform parent)
         {
+            TryPlayLearningAudioMood();
             Header(parent, T(recipeRun.Recipe.DishKey));
             ActivityGuide(parent, "activity_retry", "activity_recipe_retry_hint");
             ProgressStrip(parent, recipeRun.StepIndex, recipeRun.Recipe.Steps.Length, T("activity_ingredients_ready"));
-            Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 210);
-            CollectionCopy(parent, T("time_out"), 32, Vermilion, TextAnchor.MiddleCenter);
+            Artwork(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau, 190);
+            CollectionCopy(parent, T("time_out"), 32, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            DrawFailureLearningCard(parent, recipeRun.Recipe == RecipeCatalog.Bibimbap ? "jeonju_bibimbap" : "hoian_caolau");
+            Spacer(parent, GameUiTheme.SpaceSmall);
             Button(parent, T("replay"), Jade, () => StartRecipe(recipeRun.Recipe));
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
+        }
+
+        private void TryPlayLearningAudioMood()
+        {
+            try
+            {
+                var director = GetComponent<TastePassport.UI.StageAudioDirector>();
+                if (director != null)
+                {
+                    var method = director.GetType().GetMethod("PlayLearningMusic") ?? director.GetType().GetMethod("SetMood");
+                    if (method != null)
+                    {
+                        var parameters = method.GetParameters();
+                        if (parameters.Length == 0) method.Invoke(director, null);
+                        else if (parameters.Length == 1 && parameters[0].ParameterType.IsEnum)
+                        {
+                            var enumValue = Enum.Parse(parameters[0].ParameterType, "Learning");
+                            method.Invoke(director, new[] { enumValue });
+                        }
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                Debug.LogWarning("Learning audio mood hook skipped: " + error.Message);
+            }
+        }
+
+        private void DrawFailureLearningCard(Transform parent, string activityTopic)
+        {
+            var card = JourneyCard(parent);
+            card.name = "Cultural failure lesson notebook";
+
+            bool isKo = profile != null && profile.language == "ko";
+            bool isBibimbap = activityTopic == "jeonju_bibimbap";
+
+            Label(card, isKo ? "여행 노트 · 음식 & 문화 배움" : "Ghi chú du ký · Từ vựng & Văn hóa", 28, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+
+            string vocabWord = isBibimbap
+                ? (isKo ? "비빔밥 · Cơm trộn Jeonju" : "Bibimbap (비빔밥) · Cơm trộn Jeonju")
+                : (isKo ? "카오라우 · Cao Lầu Hội An" : "Cao Lầu (비빔 쌀국수) · Cao Lầu Hội An");
+
+            string pronunciation = isBibimbap
+                ? (isKo ? "발음: [bi-bim-bap]" : "Phát âm: [Bi-bim-bap]")
+                : (isKo ? "발음: [kao-lau]" : "Phát âm: [Kao-lau / Bibim ssal-guksu]");
+
+            string meaning = isBibimbap
+                ? (isKo ? "전주 대표 전통 음식. 오방색(청·적·황·백·흑) 나물과 고추장의 조화로 맛과 건강을 담은 밥 요리."
+                        : "Món cơm biểu tượng của Jeonju. Sự phối hợp hài hòa giữa ngũ sắc rau củ và tương ớt Gochujang thơm lừng.")
+                : (isKo ? "호이안의 대표 전통 비빔 쌀국수. 바레 고대 우물물과 참섬 나무 재를 사용해 특유 của 쫄깃한 식감을 냅니다."
+                        : "Món mì độc nhất vô nhị của Hội An, dùng nước giếng Bá Lễ và tro củi Cù Lao Chàm để tạo sợi mì dẻo giòn đặc trưng.");
+
+            string example = isBibimbap
+                ? (isKo ? "예문: \"따뜻한 놋그릇에 담긴 전주 비빔밥을 맛있게 비벼 드세요.\" (Hãy thưởng thức tô cơm trộn Jeonju nóng hổi.)"
+                        : "Ví dụ: \"Vuốt nhẹ qua lại để trộn đều các nguyên liệu ngũ sắc.\" (재료가 잘 어우러지도록 골고루 비벼주세요.)")
+                : (isKo ? "예문: \"호아이 강변에서 향긋한 채소와 함께 카오라우를 맛보세요.\" (Hãy thưởng thức Cao Lầu cùng rau sống sông Hoài.)"
+                        : "Ví dụ: \"Cao Lầu ăn kèm rau đắng Trà Quế và bánh tráng mè nướng giòn.\" (신선한 채소와 바삭한 라이스페이퍼를 곁들여 먹습니다.)");
+
+            var wordBox = Panel("Vocabulary highlight box", card, new Color(1f, 0.98f, 0.92f));
+            wordBox.rectTransform.gameObject.AddComponent<Outline>().effectColor = Border;
+            var wordLayout = wordBox.rectTransform.gameObject.AddComponent<VerticalLayoutGroup>();
+            wordLayout.padding = new RectOffset(16, 16, 12, 12);
+            wordLayout.spacing = 6;
+            wordLayout.childAlignment = TextAnchor.MiddleCenter;
+            wordLayout.childControlWidth = true;
+            wordLayout.childControlHeight = true;
+            wordLayout.childForceExpandWidth = true;
+            wordLayout.childForceExpandHeight = false;
+
+            Label(wordBox.transform, vocabWord, 29, 0, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(wordBox.transform, pronunciation, 22, 0, Muted, TextAnchor.MiddleCenter);
+
+            Spacer(card, 6);
+            CollectionCopy(card, meaning, 24, Ink, TextAnchor.MiddleLeft);
+            Spacer(card, 4);
+            CollectionCopy(card, example, 22, Jade, TextAnchor.MiddleLeft, FontStyle.Italic);
         }
 
         private void CompleteRecipe()
@@ -2686,6 +3116,7 @@ namespace TastePassport.Core
         private void StartMatch(MatchDefinition definition)
         {
             StoryNarration.Stop();
+            interactionFeedbackKey = null;
             resultCommitted = false;
             koreanBackdrop = definition == MatchCatalog.Jeonju;
             matchRun = new MatchRun(definition, Environment.TickCount);
@@ -2698,11 +3129,11 @@ namespace TastePassport.Core
         {
             Header(parent, T(matchRun.Definition.TitleKey));
             ActivityGuide(parent, "activity_ready", "activity_match_intro");
-            Artwork(parent, TravelArtworkKind.Friendship, 150);
+            Artwork(parent, matchRun.Definition == MatchCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 190);
             SpeakerBadge(parent, T(matchRun.Definition == MatchCatalog.HoiAn ? "character_nhung" : "character_gabo"));
             var card = JourneyCard(parent);
             CollectionCopy(card, T(matchRun.Definition.GuideKey), 29, Ink, TextAnchor.MiddleCenter);
-            ActivityNarration(parent, T(matchRun.Definition.GuideKey));
+            ActivityNarration(card, T(matchRun.Definition.GuideKey));
             Button(parent, T("activity_start_match"), Jade, () => Navigate(Page.MatchGame));
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
@@ -2718,14 +3149,27 @@ namespace TastePassport.Core
             }
             ActivityGuide(parent, "activity_match_phase", "activity_match_intro");
             ProgressStrip(parent, matchRun.StepIndex, matchRun.Definition.RequestKeys.Length, T("activity_guests_helped"));
-            Artwork(parent, TravelArtworkKind.Friendship, 120);
+            Artwork(parent, matchRun.Definition == MatchCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 190);
             CollectionCopy(parent, T("recipe_step") + " " + (matchRun.StepIndex + 1) + "/" + matchRun.Definition.RequestKeys.Length, 28, Jade, TextAnchor.MiddleCenter);
             var request = JourneyCard(parent);
             CollectionCopy(request, T(matchRun.CurrentRequestKey), 31, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            bool hoiAn = matchRun.Definition == MatchCatalog.HoiAn;
+            if (hoiAn) HoiAnVisuals.DecorateLocationCard(request);
+            else KoreaVisuals.DecorateLocationCard(request);
+            var target = request.gameObject.AddComponent<FragmentDropSlot>();
+            target.SlotIndex = -1;
+            target.TryDrop = TryDropMatch;
+            if (!string.IsNullOrEmpty(interactionFeedbackKey))
+                CollectionCopy(request, T(interactionFeedbackKey), 23, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int i = 0; i < matchRun.AnswerCount; i++)
             {
                 int choice = i;
-                Button(parent, T(matchRun.AnswerKey(i)), Paper, () => ChooseMatch(choice), Ink);
+                var answer = Panel("Experience card " + (i + 1), parent, Paper, true).gameObject;
+                Label(answer.transform, T(matchRun.AnswerKey(i)), 24, 0, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                SetHeight(answer.GetComponent<RectTransform>(), 105);
+                if (hoiAn) HoiAnVisuals.StyleIngredientCard(answer.GetComponent<RectTransform>(), matchRun.AnswerKey(i));
+                else KoreaVisuals.StyleIngredientCard(answer.GetComponent<RectTransform>(), matchRun.AnswerKey(i));
+                answer.AddComponent<FragmentDrag>().PieceIndex = choice;
             }
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
         }
@@ -2733,12 +3177,16 @@ namespace TastePassport.Core
         private void ChooseMatch(int choice)
         {
             MatchResult result = matchRun.Choose(choice);
+            interactionFeedbackKey = result == MatchResult.Wrong
+                ? (matchRun.Definition == MatchCatalog.HoiAn ? "match_wrong_hoian" : "match_wrong_jeonju")
+                : (matchRun.Definition == MatchCatalog.HoiAn ? "match_correct_hoian" : "match_correct_jeonju");
             if (result == MatchResult.Complete) { CompleteMatch(); return; }
-            bool hoiAn = matchRun.Definition == MatchCatalog.HoiAn;
-            notice = T(result == MatchResult.Correct
-                ? (hoiAn ? "match_correct_hoian" : "match_correct_jeonju")
-                : (hoiAn ? "match_wrong_hoian" : "match_wrong_jeonju"));
             Show();
+        }
+
+        private void TryDropMatch(int targetIndex, FragmentDrag dragged)
+        {
+            if (dragged != null) ChooseMatch(dragged.PieceIndex);
         }
 
         private void CompleteMatch()
@@ -2837,24 +3285,50 @@ namespace TastePassport.Core
             circleSprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
             return circleSprite;
         }
-        private void DrawAvatar(Transform parent, int index) => DrawAvatar(parent, index, profile == null ? 0 : profile.outfitId);
+        private void DrawAvatar(Transform parent, int index) => DrawAvatar(parent, index,
+            profile == null ? 0 : profile.outfitId,
+            profile == null ? 0 : profile.faceStyle,
+            profile == null ? 0 : profile.hairStyle,
+            profile == null ? 0 : profile.bodyStyle,
+            profile == null ? 0 : profile.accessoryStyle);
 
-        private void DrawAvatar(Transform parent, int index, int outfitId)
+        private void DrawAvatar(Transform parent, int index, int outfitId) => DrawAvatar(parent, index, outfitId,
+            profile == null ? 0 : profile.faceStyle,
+            profile == null ? 0 : profile.hairStyle,
+            profile == null ? 0 : profile.bodyStyle,
+            profile == null ? 0 : profile.accessoryStyle);
+
+        private void DrawAvatar(Transform parent, int index, int outfitId, int faceStyle, int hairStyle, int bodyStyle, int accessoryStyle)
         {
             Color[] skin = { Hex("#EAB998"), Hex("#D69B75"), Hex("#F0C4A5") };
             Color[] hair = { Hex("#3B302C"), Hex("#674534"), Hex("#302F3B") };
+            index = Mathf.Clamp(index, 0, 2);
+            faceStyle = Mathf.Clamp(faceStyle, 0, 2);
+            hairStyle = Mathf.Clamp(hairStyle, 0, 2);
+            bodyStyle = Mathf.Clamp(bodyStyle, 0, 2);
+            accessoryStyle = Mathf.Clamp(accessoryStyle, 0, 2);
             Color outfitColor = outfitId == 1 ? Hex("#A94A42") : outfitId == 2 ? Hex("#357E84") : outfitId == 3 ? Hex("#E6A14D") : outfitId == 4 ? Hex("#788B70") : avatarColors[index];
-            PortraitPart(parent, "Outfit silhouette", outfitColor, new Vector2(0, 0), new Vector2(outfitId == 1 || outfitId == 2 ? 106 : 98, outfitId == 1 || outfitId == 2 ? 86 : 70), CircleSprite());
+            float[] bodyWidths = { 98f, 84f, 110f };
+            float[] bodyHeights = { 70f, 82f, 74f };
+            PortraitPart(parent, "Outfit silhouette", outfitColor, new Vector2(0, 0),
+                new Vector2(bodyWidths[bodyStyle] + (outfitId == 1 || outfitId == 2 ? 8f : 0f), bodyHeights[bodyStyle] + (outfitId == 1 || outfitId == 2 ? 10f : 0f)), CircleSprite());
             if (outfitId == 1) PortraitPart(parent, "Ao dai panel", Hex("#FFF1D5"), new Vector2(0, -12), new Vector2(10, 50), RoundedSprite());
             if (outfitId == 2) PortraitPart(parent, "Hanbok collar", Hex("#F7E8D0"), new Vector2(0, -5), new Vector2(44, 15), RoundedSprite());
-            PortraitPart(parent, "Hair back", hair[index], new Vector2(0, 27), new Vector2(80, 91), CircleSprite());
-            PortraitPart(parent, "Face", skin[index], new Vector2(0, 19), new Vector2(65, 74), CircleSprite());
-            PortraitPart(parent, "Fringe", hair[index], new Vector2(index == 1 ? 12 : -8, 48), new Vector2(index == 2 ? 61 : 49, 25), RoundedSprite());
-            if (outfitId == 3) PortraitPart(parent, "Lantern hair pin", Lantern, new Vector2(36, 49), new Vector2(16, 22), CircleSprite());
-            if (outfitId == 4) PortraitPart(parent, "Hanji hair pin", Paper, new Vector2(-36, 49), new Vector2(18, 18), CircleSprite());
-            PortraitPart(parent, "Left ink eye", Hex("#43372F"), new Vector2(-14, 19), new Vector2(5, 7), CircleSprite());
-            PortraitPart(parent, "Right ink eye", Hex("#43372F"), new Vector2(14, 19), new Vector2(5, 7), CircleSprite());
-            PortraitPart(parent, "Smile", Hex("#A94A42"), new Vector2(0, 3), new Vector2(11, 3), RoundedSprite());
+            float[] hairWidths = { 80f, 92f, 74f };
+            float[] hairHeights = { 91f, 77f, 102f };
+            float[] faceWidths = { 65f, 72f, 60f };
+            float[] faceHeights = { 74f, 70f, 80f };
+            PortraitPart(parent, "Hair back", hair[index], new Vector2(0, 27), new Vector2(hairWidths[hairStyle], hairHeights[hairStyle]), CircleSprite());
+            PortraitPart(parent, "Face", skin[index], new Vector2(0, 19), new Vector2(faceWidths[faceStyle], faceHeights[faceStyle]), CircleSprite());
+            float fringeX = hairStyle == 1 ? 12f : hairStyle == 2 ? 0f : -8f;
+            float fringeWidth = hairStyle == 2 ? 68f : hairStyle == 1 ? 52f : 49f;
+            PortraitPart(parent, "Fringe", hair[index], new Vector2(fringeX, 48), new Vector2(fringeWidth, hairStyle == 2 ? 31f : 25f), RoundedSprite());
+            float eyeY = faceStyle == 2 ? 22f : 19f;
+            float eyeWidth = faceStyle == 1 ? 6f : 5f;
+            PortraitPart(parent, "Left ink eye", Hex("#43372F"), new Vector2(-14, eyeY), new Vector2(eyeWidth, 7), CircleSprite());
+            PortraitPart(parent, "Right ink eye", Hex("#43372F"), new Vector2(14, eyeY), new Vector2(eyeWidth, 7), CircleSprite());
+            PortraitPart(parent, "Nose detail", Hex("#A86F58"), new Vector2(0, 12), new Vector2(4, 4), CircleSprite());
+            PortraitPart(parent, "Smile", Hex("#A94A42"), new Vector2(0, faceStyle == 2 ? 1 : 3), new Vector2(faceStyle == 1 ? 13f : 11f, 3), RoundedSprite());
             if (outfitId == 1)
             {
                 PortraitPart(parent, "Ao dai collar", Hex("#FFF1D5"), new Vector2(0, 31), new Vector2(20, 10), RoundedSprite());
@@ -2869,6 +3343,17 @@ namespace TastePassport.Core
             {
                 PortraitPart(parent, "Classic coat button", Hex("#E6A14D"), new Vector2(0, -18), new Vector2(7, 7), CircleSprite());
             }
+            int accessory = outfitId == 3 ? 1 : outfitId == 4 ? 2 : accessoryStyle;
+            if (accessory == 1)
+            {
+                PortraitPart(parent, "Hoi An lantern hair ornament", Lantern, new Vector2(34, 47), new Vector2(14, 18), CircleSprite());
+                PortraitPart(parent, "Lantern ornament tassel", Vermilion, new Vector2(34, 34), new Vector2(3, 10), RoundedSprite());
+            }
+            else if (accessory == 2)
+            {
+                PortraitPart(parent, "Hanji flower hair ornament", Paper, new Vector2(-34, 47), new Vector2(18, 18), CircleSprite());
+                PortraitPart(parent, "Flower center", Vermilion, new Vector2(-34, 47), new Vector2(6, 6), CircleSprite());
+            }
         }
         private static void PortraitPart(Transform parent, string name, Color color, Vector2 position, Vector2 size, Sprite sprite)
         {
@@ -2880,6 +3365,145 @@ namespace TastePassport.Core
             image.color = color;
             image.sprite = sprite;
             image.raycastTarget = false;
+        }
+
+        private void DrawFullBodyTraveler(Transform parent, int avatarIndex, int outfitId, int faceStyle, int hairStyle, int bodyStyle, int accessoryStyle)
+        {
+            Color[] skin = { Hex("#EAB998"), Hex("#D69B75"), Hex("#F0C4A5") };
+            Color[] hair = { Hex("#3B302C"), Hex("#674534"), Hex("#302F3B") };
+            avatarIndex = Mathf.Clamp(avatarIndex, 0, 2);
+            faceStyle = Mathf.Clamp(faceStyle, 0, 2);
+            hairStyle = Mathf.Clamp(hairStyle, 0, 2);
+            bodyStyle = Mathf.Clamp(bodyStyle, 0, 2);
+            accessoryStyle = Mathf.Clamp(accessoryStyle, 0, 2);
+            outfitId = Mathf.Clamp(outfitId, 0, 4);
+
+            float scaleX = bodyStyle == 1 ? 0.88f : bodyStyle == 2 ? 1.14f : 1.0f;
+            float scaleY = bodyStyle == 1 ? 1.06f : bodyStyle == 2 ? 0.94f : 1.0f;
+
+            Color outfitColor = outfitId == 1 ? Hex("#A94A42") : outfitId == 2 ? Hex("#357E84") : outfitId == 3 ? Hex("#E6A14D") : outfitId == 4 ? Hex("#788B70") : avatarColors[avatarIndex];
+
+            // 1. Floor shadow / pedestal
+            PortraitPart(parent, "Traveler pedestal shadow", new Color(0.28f, 0.22f, 0.18f, 0.22f), new Vector2(0, -135), new Vector2(170 * scaleX, 24), CircleSprite());
+
+            // 2. Shoes
+            if (outfitId == 1) // Áo dài traditional silk shoes / wooden clogs
+            {
+                PortraitPart(parent, "Left shoe sole", Hex("#94633E"), new Vector2(-19 * scaleX, -132), new Vector2(28, 9), RoundedSprite());
+                PortraitPart(parent, "Left shoe silk", Hex("#A94A42"), new Vector2(-19 * scaleX, -127), new Vector2(24, 11), CircleSprite());
+                PortraitPart(parent, "Right shoe sole", Hex("#94633E"), new Vector2(19 * scaleX, -132), new Vector2(28, 9), RoundedSprite());
+                PortraitPart(parent, "Right shoe silk", Hex("#A94A42"), new Vector2(19 * scaleX, -127), new Vector2(24, 11), CircleSprite());
+            }
+            else if (outfitId == 2) // Hanbok kipsin embroidered shoes
+            {
+                PortraitPart(parent, "Left kipsin", Hex("#2A474D"), new Vector2(-19 * scaleX, -130), new Vector2(26, 13), RoundedSprite());
+                PortraitPart(parent, "Right kipsin", Hex("#2A474D"), new Vector2(19 * scaleX, -130), new Vector2(26, 13), RoundedSprite());
+                PortraitPart(parent, "Left kipsin tip", Hex("#FFF5E4"), new Vector2(-19 * scaleX, -127), new Vector2(10, 6), CircleSprite());
+                PortraitPart(parent, "Right kipsin tip", Hex("#FFF5E4"), new Vector2(19 * scaleX, -127), new Vector2(10, 6), CircleSprite());
+            }
+            else // Travel boots
+            {
+                PortraitPart(parent, "Left boot", Hex("#463428"), new Vector2(-19 * scaleX, -129), new Vector2(28, 15), RoundedSprite());
+                PortraitPart(parent, "Right boot", Hex("#463428"), new Vector2(19 * scaleX, -129), new Vector2(28, 15), RoundedSprite());
+                PortraitPart(parent, "Left boot cuff", Hex("#61493A"), new Vector2(-19 * scaleX, -122), new Vector2(24, 8), RoundedSprite());
+                PortraitPart(parent, "Right boot cuff", Hex("#61493A"), new Vector2(19 * scaleX, -122), new Vector2(24, 8), RoundedSprite());
+            }
+
+            // 3. Lower garment / legs
+            if (outfitId == 1) // Áo dài: white silk trousers + crimson front flap
+            {
+                PortraitPart(parent, "Silk trousers left", Hex("#FFF8F0"), new Vector2(-17 * scaleX, -78), new Vector2(26 * scaleX, 98), RoundedSprite());
+                PortraitPart(parent, "Silk trousers right", Hex("#FFF8F0"), new Vector2(17 * scaleX, -78), new Vector2(26 * scaleX, 98), RoundedSprite());
+                PortraitPart(parent, "Ao dai front flap", Hex("#A94A42"), new Vector2(0, -62), new Vector2(56 * scaleX, 126), RoundedSprite());
+                PortraitPart(parent, "Ao dai hem border", Hex("#E6A14D"), new Vector2(0, -122), new Vector2(50 * scaleX, 5), RoundedSprite());
+            }
+            else if (outfitId == 2) // Hanbok: voluminous chima skirt
+            {
+                PortraitPart(parent, "Hanbok chima skirt", Hex("#2C4D57"), new Vector2(0, -70), new Vector2(124 * scaleX, 134), RoundedSprite());
+                PortraitPart(parent, "Skirt pleat left", Hex("#24414A"), new Vector2(-36 * scaleX, -72), new Vector2(6, 122), RoundedSprite());
+                PortraitPart(parent, "Skirt pleat right", Hex("#24414A"), new Vector2(36 * scaleX, -72), new Vector2(6, 122), RoundedSprite());
+                PortraitPart(parent, "Skirt pleat center", new Color(1f, 1f, 1f, 0.08f), new Vector2(0, -72), new Vector2(10 * scaleX, 126), RoundedSprite());
+                PortraitPart(parent, "Skirt hem border", Hex("#5A8794"), new Vector2(0, -134), new Vector2(112 * scaleX, 6), RoundedSprite());
+            }
+            else // Travel trousers + coat flap
+            {
+                PortraitPart(parent, "Travel trousers left", Hex("#463B34"), new Vector2(-16 * scaleX, -76), new Vector2(26 * scaleX, 96), RoundedSprite());
+                PortraitPart(parent, "Travel trousers right", Hex("#463B34"), new Vector2(16 * scaleX, -76), new Vector2(26 * scaleX, 96), RoundedSprite());
+                PortraitPart(parent, "Coat flap", outfitColor, new Vector2(0, -36), new Vector2(76 * scaleX, 62), RoundedSprite());
+                PortraitPart(parent, "Coat hem trim", Hex("#D49B55"), new Vector2(0, -65), new Vector2(70 * scaleX, 6), RoundedSprite());
+            }
+
+            // 4. Upper body & Torso
+            if (outfitId == 1) // Áo dài torso
+            {
+                PortraitPart(parent, "Ao dai torso", Hex("#A94A42"), new Vector2(0, 10), new Vector2(72 * scaleX, 74 * scaleY), RoundedSprite());
+                PortraitPart(parent, "Ao dai collar", Hex("#FFF1D5"), new Vector2(0, 48), new Vector2(24, 14), RoundedSprite());
+                PortraitPart(parent, "Ao dai piping", Hex("#E6A14D"), new Vector2(6 * scaleX, 26), new Vector2(2, 34), RoundedSprite());
+                PortraitPart(parent, "Ao dai buttons", Hex("#E6A14D"), new Vector2(10 * scaleX, 20), new Vector2(4, 26), RoundedSprite());
+            }
+            else if (outfitId == 2) // Hanbok jeogori + dongjeong + otgoreum bow
+            {
+                PortraitPart(parent, "Hanbok jeogori", Hex("#438C88"), new Vector2(0, 18), new Vector2(78 * scaleX, 60 * scaleY), RoundedSprite());
+                PortraitPart(parent, "Hanbok dongjeong", Hex("#FFFFFF"), new Vector2(0, 44), new Vector2(34, 12), RoundedSprite());
+                PortraitPart(parent, "Hanbok ribbon knot", Hex("#A94A42"), new Vector2(10 * scaleX, 24), new Vector2(14, 12), CircleSprite());
+                PortraitPart(parent, "Hanbok ribbon long", Hex("#A94A42"), new Vector2(14 * scaleX, -2), new Vector2(9, 46), RoundedSprite());
+                PortraitPart(parent, "Hanbok ribbon short", Hex("#A94A42"), new Vector2(8 * scaleX, 4), new Vector2(9, 30), RoundedSprite());
+            }
+            else // Travel coat + leather belt + brass buttons + satchel
+            {
+                PortraitPart(parent, "Travel coat", outfitColor, new Vector2(0, 10), new Vector2(76 * scaleX, 74 * scaleY), RoundedSprite());
+                PortraitPart(parent, "Coat lapel", Hex("#D49B55"), new Vector2(0, 36), new Vector2(38 * scaleX, 22), RoundedSprite());
+                PortraitPart(parent, "Brass button 1", Hex("#F2BC56"), new Vector2(0, 20), new Vector2(7, 7), CircleSprite());
+                PortraitPart(parent, "Brass button 2", Hex("#F2BC56"), new Vector2(0, 2), new Vector2(7, 7), CircleSprite());
+                PortraitPart(parent, "Leather belt", Hex("#4C372A"), new Vector2(0, -14), new Vector2(72 * scaleX, 10), RoundedSprite());
+                PortraitPart(parent, "Belt buckle", Hex("#F2BC56"), new Vector2(0, -14), new Vector2(12, 12), RoundedSprite());
+                PortraitPart(parent, "Satchel strap", Hex("#583C2A"), new Vector2(2, 12), new Vector2(7, 74), RoundedSprite());
+                PortraitPart(parent, "Travel satchel", Hex("#704C33"), new Vector2(-38 * scaleX, -16), new Vector2(26, 32), RoundedSprite());
+                PortraitPart(parent, "Satchel lock", Hex("#F2BC56"), new Vector2(-38 * scaleX, -16), new Vector2(7, 7), CircleSprite());
+            }
+
+            // 5. Arms & Hands
+            PortraitPart(parent, "Left sleeve", outfitColor, new Vector2(-42 * scaleX, 16), new Vector2(20 * scaleX, 62), RoundedSprite());
+            PortraitPart(parent, "Right sleeve", outfitColor, new Vector2(42 * scaleX, 16), new Vector2(20 * scaleX, 62), RoundedSprite());
+            PortraitPart(parent, "Left hand", skin[avatarIndex], new Vector2(-44 * scaleX, -18), new Vector2(15, 15), CircleSprite());
+            PortraitPart(parent, "Right hand", skin[avatarIndex], new Vector2(44 * scaleX, -18), new Vector2(15, 15), CircleSprite());
+
+            // 6. Neck, Head, Hair & Face
+            PortraitPart(parent, "Neck", skin[avatarIndex], new Vector2(0, 48), new Vector2(18, 16), RoundedSprite());
+
+            float[] hairW = { 68f, 80f, 66f };
+            float[] hairH = { 72f, 94f, 76f };
+            PortraitPart(parent, "Hair back", hair[avatarIndex], new Vector2(0, 72), new Vector2(hairW[hairStyle], hairH[hairStyle]), CircleSprite());
+            if (hairStyle == 2)
+                PortraitPart(parent, "Hair bun top", hair[avatarIndex], new Vector2(0, 104), new Vector2(28, 28), CircleSprite());
+
+            float[] faceW = { 56f, 62f, 52f };
+            float[] faceH = { 64f, 60f, 70f };
+            PortraitPart(parent, "Face", skin[avatarIndex], new Vector2(0, 70), new Vector2(faceW[faceStyle], faceH[faceStyle]), CircleSprite());
+
+            float fringeX = hairStyle == 1 ? 10f : hairStyle == 2 ? 0f : -7f;
+            float fringeWidth = hairStyle == 2 ? 58f : hairStyle == 1 ? 46f : 43f;
+            PortraitPart(parent, "Fringe", hair[avatarIndex], new Vector2(fringeX, 89), new Vector2(fringeWidth, hairStyle == 2 ? 26f : 22f), RoundedSprite());
+
+            float eyeY = faceStyle == 2 ? 73f : 70f;
+            float eyeW = faceStyle == 1 ? 6f : 5f;
+            PortraitPart(parent, "Left eye", Hex("#3B2F2A"), new Vector2(-11, eyeY), new Vector2(eyeW, 7), CircleSprite());
+            PortraitPart(parent, "Right eye", Hex("#3B2F2A"), new Vector2(11, eyeY), new Vector2(eyeW, 7), CircleSprite());
+            PortraitPart(parent, "Nose detail", Hex("#A86F58"), new Vector2(0, 64), new Vector2(4, 4), CircleSprite());
+            PortraitPart(parent, "Smile", Hex("#A94A42"), new Vector2(0, faceStyle == 2 ? 56 : 58), new Vector2(faceStyle == 1 ? 12f : 10f, 3), RoundedSprite());
+
+            // 7. Accessories
+            int acc = outfitId == 3 ? 1 : outfitId == 4 ? 2 : accessoryStyle;
+            if (acc == 1) // Lantern hairpin & tassel
+            {
+                PortraitPart(parent, "Lantern hairpin", Lantern, new Vector2(28, 94), new Vector2(14, 18), CircleSprite());
+                PortraitPart(parent, "Lantern tassel", Vermilion, new Vector2(28, 81), new Vector2(3, 14), RoundedSprite());
+            }
+            else if (acc == 2) // Hanji flower
+            {
+                PortraitPart(parent, "Hanji flower ornament", Hex("#FFF5F7"), new Vector2(-28, 94), new Vector2(18, 18), CircleSprite());
+                PortraitPart(parent, "Flower center", Vermilion, new Vector2(-28, 94), new Vector2(6, 6), CircleSprite());
+            }
         }
         private RectTransform Card(Transform parent, float height)
         {
@@ -2954,6 +3578,9 @@ namespace TastePassport.Core
             var shadow = rect.gameObject.AddComponent<Shadow>();
             shadow.effectColor = new Color(0.26f, 0.21f, 0.17f, 0.2f);
             shadow.effectDistance = new Vector2(0, -3);
+            var border = rect.gameObject.AddComponent<Outline>();
+            border.effectColor = new Color(0.35f, 0.26f, 0.20f, 0.24f);
+            border.effectDistance = new Vector2(1, -1);
             var button = rect.gameObject.AddComponent<UnityEngine.UI.Button>();
             var colors = button.colors;
             colors.highlightedColor = Color.Lerp(Color.white, GameUiTheme.Secondary, .12f);
@@ -2989,6 +3616,28 @@ namespace TastePassport.Core
             input.textComponent = text;
             input.text = value;
             return input;
+        }
+    }
+
+    /// <summary>Subtle breathing and idle micro-animation for the full-body character creator preview.</summary>
+    public sealed class CharacterPreviewBobbing : MonoBehaviour
+    {
+        private RectTransform target;
+        private Vector2 origin;
+
+        private void Awake()
+        {
+            target = transform as RectTransform;
+            if (target != null) origin = target.anchoredPosition;
+        }
+
+        private void Update()
+        {
+            if (target == null) return;
+            float time = Time.unscaledTime;
+            float breath = Mathf.Sin(time * 2.2f) * 2.5f;
+            target.anchoredPosition = origin + new Vector2(0f, breath);
+            target.localScale = new Vector3(1f + Mathf.Sin(time * 2.2f) * 0.008f, 1f + Mathf.Sin(time * 2.2f) * 0.012f, 1f);
         }
     }
 }

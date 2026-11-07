@@ -8,6 +8,8 @@ namespace TastePassport.Gameplay
         public readonly string GuideKey;
         public readonly string[] Steps;
         public readonly string[] Decoys;
+        public int DifficultyTier => 1;
+        public string DifficultyTierKey => "journey_tier_challenge";
 
         public RecipeDefinition(string id, string placeKey, string dishKey, string guideKey, string[] steps, string[] decoys)
         {
@@ -29,7 +31,7 @@ namespace TastePassport.Gameplay
 
         public static readonly RecipeDefinition Bibimbap = new RecipeDefinition(
             "jeonju-bibimbap", "jeonju", "bibimbap", "kim_mission",
-            new[] { "bibi_rice", "bibi_vegetables", "bibi_egg" },
+            new[] { "bibi_rice", "bibi_vegetables", "bibi_gochujang", "bibi_egg" },
             new[] { "decoy_cheese", "decoy_noodles" });
     }
 }

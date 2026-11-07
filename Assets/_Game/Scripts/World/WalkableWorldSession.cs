@@ -438,7 +438,7 @@ namespace TastePassport.World
             var visualObject = new GameObject("Character Visual");
             visualObject.transform.SetParent(playerObject.transform, false);
             visualObject.transform.localScale = Vector3.one * CharacterVisualScale;
-            WorldCharacterModelBuilder character = WorldCharacterModelBuilder.Create(visualObject.transform, "traveler", true);
+            WorldCharacterModelBuilder character = WorldCharacterModelBuilder.Create(visualObject.transform, "traveler", true, profile);
             if (character == null)
                 Debug.LogError("DẤU XỨ: Could not build the 3D player character.", visualObject);
             playerObject.AddComponent<Rigidbody2D>();

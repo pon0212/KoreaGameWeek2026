@@ -55,4 +55,8 @@ public final class TastePassportTts {
         queuedText = null;
         if (engine != null) engine.stop();
     }
+
+    public static synchronized boolean isSpeaking() {
+        return queuedText != null || (engine != null && engine.isSpeaking());
+    }
 }
