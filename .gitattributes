@@ -1,0 +1,13 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Source code
+*.cs text eol=crlf
+
+# Unity YAML assets natively have trailing spaces on empty scalar keys (e.g., "userData: ")
+# Ignore whitespace checks for Unity serialized files so git diff --check does not fail
+*.meta -whitespace
+*.unity -whitespace
+*.prefab -whitespace
+*.asset -whitespace
+*.mat -whitespace
