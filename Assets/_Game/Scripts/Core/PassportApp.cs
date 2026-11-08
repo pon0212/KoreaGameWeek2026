@@ -24,6 +24,9 @@ namespace TastePassport.Core
         private static readonly Color Vermilion = GameUiTheme.Vermilion;
         private static readonly Color Border = GameUiTheme.Border;
         private static readonly Color Muted = GameUiTheme.TextSecondary;
+        private static readonly Color HeaderWood = GameUiTheme.HeaderWood;
+        private static readonly Color GoldGlow = GameUiTheme.GoldGlow;
+        private static readonly Color PaperShadow = GameUiTheme.PaperShadow;
         private readonly Color[] avatarColors = { Lantern, Jade, Vermilion };
         private static Sprite roundedSprite;
         private static Sprite circleSprite;
@@ -338,7 +341,7 @@ namespace TastePassport.Core
                 image.uvRect = new Rect((1f - uvWidth) * .5f, (1f - uvHeight) * .5f, uvWidth, uvHeight);
             }
             if (!introBookPage)
-                Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, mapPage ? .36f : .22f), true);
+                Panel("Paper wash", safeRoot, new Color(Cream.r, Cream.g, Cream.b, mapPage ? .10f : .22f), true);
             if (page == Page.Menu || page == Page.Map || page == Page.Passport || page == Page.Postcard)
             {
                 var petals = NewRect("Floating cherry blossoms", safeRoot);
@@ -467,14 +470,40 @@ namespace TastePassport.Core
 
         private void BuildContextHelpButton()
         {
-            var control = Button(safeRoot, "?", Vermilion, () => { helpOpen = true; Show(); }, Color.white);
+            var control = Button(safeRoot, "?", Paper, () => { helpOpen = true; Show(); }, Jade);
             var rect = control.GetComponent<RectTransform>();
             rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(1f, 1f);
-            rect.sizeDelta = new Vector2(60f, 60f);
-            rect.anchoredPosition = new Vector2(-24f, -24f);
+            rect.sizeDelta = new Vector2(52f, 52f);
+            rect.anchoredPosition = new Vector2(-20f, -20f);
+            var image = control.GetComponent<Image>();
+            if (image != null)
+            {
+                image.sprite = CircleSprite();
+                image.type = Image.Type.Simple;
+                image.color = Paper;
+            }
+            var border = control.GetComponent<Outline>();
+            if (border != null)
+            {
+                border.effectColor = GoldGlow;
+                border.effectDistance = new Vector2(2f, -2f);
+            }
+            var shadow = control.GetComponent<Shadow>();
+            if (shadow != null)
+            {
+                shadow.effectColor = GameUiTheme.PaperShadow;
+                shadow.effectDistance = new Vector2(0f, -3f);
+            }
             var label = control.GetComponentInChildren<Text>();
-            if (label != null) label.fontSize = 30;
+            if (label != null)
+            {
+                label.rectTransform.offsetMin = Vector2.zero;
+                label.rectTransform.offsetMax = Vector2.zero;
+                label.fontSize = 28;
+                label.color = Jade;
+                label.fontStyle = FontStyle.Bold;
+            }
         }
 
         private void DrawContextHelpOverlay()
@@ -640,15 +669,36 @@ namespace TastePassport.Core
 
         private void DrawMenu(Transform parent)
         {
-            // Keep the title directly on the stage; one small paper surface owns the primary action.
-            Spacer(parent, GameUiTheme.SpaceLarge);
-            CollectionCopy(parent, T("title"), 44, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(parent, T("subtitle"), 26, Muted, TextAnchor.MiddleCenter);
-            CollectionCopy(parent, T("tagline"), 26, Ink, TextAnchor.MiddleCenter);
-            Spacer(parent, 208);
+            Spacer(parent, GameUiTheme.SpaceMedium);
+
+            // Cultural Grand Header Plaque (Gỗ trầm, viền chỉ vàng)
+            var plaque = Card(parent, 250f);
+            plaque.name = "Menu cultural plaque";
+            var plaqueImage = plaque.GetComponent<Image>();
+            if (plaqueImage != null) plaqueImage.color = GameUiTheme.HeaderWood;
+            var plaqueBorder = plaque.GetComponent<Outline>();
+            if (plaqueBorder != null)
+            {
+                plaqueBorder.effectColor = GameUiTheme.GoldGlow;
+                plaqueBorder.effectDistance = new Vector2(2, -2);
+            }
+            CountryFlags(plaque);
+            CollectionCopy(plaque, T("title"), 44, GameUiTheme.GoldGlow, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            CollectionCopy(plaque, T("subtitle"), 24, GameUiTheme.Surface, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Rule(plaque);
+            CollectionCopy(plaque, T("tagline"), 22, GameUiTheme.SoftSage, TextAnchor.MiddleCenter, FontStyle.Italic);
+
+            Spacer(parent, GameUiTheme.SpaceMedium);
+
+            // Primary Hero Journey Surface
             var welcome = JourneyCard(parent);
             welcome.name = "Journey start surface";
             CollectionCopy(welcome, T(profile.created ? "journey_welcome_back" : "journey_first_run"), 30, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (profile.created)
+            {
+                string regionSubtitle = profile.language == "ko" ? "호이안 & 전주 · 문화 탐험 여행" : "Hội An & Jeonju · Hành trình văn hóa";
+                CollectionCopy(welcome, regionSubtitle, 22, Jade, TextAnchor.MiddleCenter, FontStyle.Normal);
+            }
             Button(welcome, T(profile.created ? "continue" : "start"), Jade, () =>
             {
                 if (!profile.created)
@@ -658,6 +708,8 @@ namespace TastePassport.Core
                 }
                 Navigate(Page.Map);
             });
+
+            // Secondary Navigation Bar
             var row = NewRect("Menu secondary navigation", parent);
             SetHeight(row, 84);
             AddHorizontal(row);
@@ -857,9 +909,9 @@ namespace TastePassport.Core
 
         // Let translated copy grow with its content rather than clipping at a fixed height.
         private Text CollectionCopy(Transform parent, string value, int size, Color color,
-            TextAnchor alignment = TextAnchor.MiddleLeft, FontStyle style = FontStyle.Normal)
+            TextAnchor alignment = TextAnchor.MiddleLeft, FontStyle style = FontStyle.Normal, bool classic = false)
         {
-            var label = Label(parent, value, size, 0, color, alignment, style);
+            var label = Label(parent, value, size, 0, color, alignment, style, classic);
             var layout = label.GetComponent<LayoutElement>();
             layout.minHeight = -1;
             layout.preferredHeight = -1;
@@ -871,31 +923,55 @@ namespace TastePassport.Core
             RecordTutorialPassportView();
             var title = JourneyCard(parent);
             CollectionCopy(title, T("passport"), 38, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Spacer(parent, 64);
+
+            // Cultural Category Quick-Nav Ribbon
+            var navRow = NewRect("Passport cultural tabs", parent);
+            SetHeight(navRow, 56);
+            AddHorizontal(navRow);
+            CompactButton(navRow, "👤 " + (profile != null && profile.language == "ko" ? "여행자" : "Lữ khách"), Paper, () => {}, Ink);
+            CompactButton(navRow, "🔖 " + T("stamps"), Paper, () => {}, Ink);
+            CompactButton(navRow, "✉️ " + (profile != null && profile.language == "ko" ? "엽서" : "Bưu thiếp"), Paper, () => {}, Ink);
+            CompactButton(navRow, "🎒 " + (profile != null && profile.language == "ko" ? "소지품" : "Kho đồ"), Paper, () => Navigate(Page.Inventory), Ink);
+
+            Spacer(parent, 20);
             var book = JourneyCard(parent);
             book.name = "Open passport book";
             book.GetComponent<Image>().color = Jade;
-            book.GetComponent<VerticalLayoutGroup>().padding = new RectOffset(12, 12, 12, 12);
+            var bookBorder = book.gameObject.AddComponent<Outline>();
+            bookBorder.effectColor = GameUiTheme.GoldGlow;
+            bookBorder.effectDistance = new Vector2(2, -2);
+            book.GetComponent<VerticalLayoutGroup>().padding = new RectOffset(14, 14, 14, 14);
             var spread = NewRect("Open book spread", book);
-            SetHeight(spread, 320f);
+            SetHeight(spread, 330f);
             var identity = JourneyCard(spread);
             identity.name = "Passport left leaf";
             identity.anchorMin = Vector2.zero;
             identity.anchorMax = new Vector2(.5f, 1f);
             identity.offsetMin = Vector2.zero;
             identity.offsetMax = new Vector2(-5f, 0f);
-            Artwork(identity, TravelArtworkKind.Passport, 144);
-            CollectionCopy(identity, profile.playerName, 32, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(identity, T("avatar_" + profile.avatarIndex), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var avatarFrame = Panel("Traveler Avatar Frame", identity, Paper).rectTransform;
+            SetHeight(avatarFrame, 130f);
+            var avatarOutline = avatarFrame.gameObject.AddComponent<Outline>();
+            avatarOutline.effectColor = GoldGlow;
+            avatarOutline.effectDistance = new Vector2(1.5f, -1.5f);
+            DrawAvatar(avatarFrame, profile.avatarIndex, profile.outfitId, profile.faceStyle, profile.hairStyle, profile.bodyStyle, profile.accessoryStyle);
+            CollectionCopy(identity, profile.playerName, 28, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold);
+            string outfitName = profile.outfitId == 1 ? (profile.language == "ko" ? "Áo dài" : "Áo dài Việt Nam") :
+                profile.outfitId == 2 ? (profile.language == "ko" ? "Hanbok" : "Hanbok Hàn Quốc") :
+                (profile.language == "ko" ? "여행자 복장" : "Trang phục lữ hành");
+            CollectionCopy(identity, "★ " + outfitName, 22, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var greeting = JourneyCard(spread);
             greeting.name = "Passport right leaf";
             greeting.anchorMin = new Vector2(.5f, 0f);
             greeting.anchorMax = Vector2.one;
             greeting.offsetMin = new Vector2(5f, 0f);
             greeting.offsetMax = Vector2.zero;
-            CollectionCopy(greeting, T("passport_intro"), 26, Muted, TextAnchor.MiddleCenter);
+            CollectionCopy(greeting, "◆ " + T("passport_intro") + " ◆", 24, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold);
             Rule(greeting);
-            CollectionCopy(greeting, T("coins") + ": " + profile.coins, 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(greeting, "★ " + (profile.language == "ko" ? "총 별점: " : "Tổng số sao: ") + profile.GetTotalStars() + " / 24", 24, Lantern, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(greeting, "🪙 " + T("coins") + ": " + profile.coins, 24, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            int vocabLearned = profile.learnedVocabulary == null ? 0 : profile.learnedVocabulary.Count;
+            CollectionCopy(greeting, "📖 " + (profile.language == "ko" ? "학습한 어휘: " : "Từ vựng đã học: ") + vocabLearned + " / " + TastePassport.Learning.VocabularyCatalog.AllWords.Length, 22, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var spine = Panel("Book binding", spread, Border).rectTransform;
             spine.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
             spine.anchorMin = new Vector2(.5f, 0f);
@@ -918,6 +994,40 @@ namespace TastePassport.Core
             CompactButton(collections, T("inventory") + " · " + (profile.inventoryItems == null ? 0 : profile.inventoryItems.Count), Paper, () => Navigate(Page.Inventory), Ink);
             CompactButton(collections, T("culture_cards") + " · " + (profile.culturalCards == null ? 0 : profile.culturalCards.Count), Paper, () => Navigate(Page.CultureCards), Ink);
             CompactButton(collections, T("wardrobe"), Paper, () => Navigate(Page.Wardrobe), Ink);
+
+            // Cultural Vocabulary Notebook in Passport
+            var vocabCard = JourneyCard(parent);
+            vocabCard.name = "Passport vocabulary notebook";
+            var vocabBorder = vocabCard.gameObject.AddComponent<Outline>();
+            vocabBorder.effectColor = Border;
+            vocabBorder.effectDistance = new Vector2(1.5f, -1.5f);
+            CollectionCopy(vocabCard, "📖 " + (profile != null && profile.language == "ko" ? "한-베 문화 어휘 수첩" : "Sổ tay từ vựng văn hóa Việt - Hàn"), 28, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold);
+            int learnedCount = profile != null && profile.learnedVocabulary != null ? profile.learnedVocabulary.Count : 0;
+            CollectionCopy(vocabCard, (profile != null && profile.language == "ko" ? "수집한 단어: " : "Đã mở khóa: ") + learnedCount + " / " + TastePassport.Learning.VocabularyCatalog.AllWords.Length, 22, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            int displayCount = Mathf.Min(6, TastePassport.Learning.VocabularyCatalog.AllWords.Length);
+            for (int w = 0; w < displayCount; w++)
+            {
+                var word = TastePassport.Learning.VocabularyCatalog.AllWords[w];
+                bool isLearned = profile != null && profile.learnedVocabulary != null && profile.learnedVocabulary.Contains(word.Id);
+                var wordRow = Panel("VocabRow_" + word.Id, vocabCard, isLearned ? Paper : new Color(0.95f, 0.93f, 0.89f)).rectTransform;
+                SetHeight(wordRow, 48);
+                var wOutline = wordRow.gameObject.AddComponent<Outline>();
+                wOutline.effectColor = isLearned ? Border : new Color(0.85f, 0.82f, 0.78f);
+                wOutline.effectDistance = new Vector2(1f, -1f);
+                var rowLayout = wordRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+                rowLayout.padding = new RectOffset(14, 14, 4, 4);
+                rowLayout.spacing = 8;
+                rowLayout.childAlignment = TextAnchor.MiddleCenter;
+                rowLayout.childControlWidth = true;
+                rowLayout.childControlHeight = true;
+                rowLayout.childForceExpandWidth = true;
+                rowLayout.childForceExpandHeight = false;
+
+                string leftText = isLearned ? (word.Vietnamese + " (" + word.KoreanPronunciation + ")") : "???";
+                string rightText = isLearned ? word.Korean : "🔒 " + (profile != null && profile.language == "ko" ? "잠김" : "Chưa mở");
+                var wLeft = Label(wordRow, leftText, 20, 44, isLearned ? HeaderWood : Muted, TextAnchor.MiddleLeft, FontStyle.Bold);
+                var wRight = Label(wordRow, rightText, 20, 44, isLearned ? Jade : Muted, TextAnchor.MiddleRight, FontStyle.Bold);
+            }
             CollectionCopy(parent, T("collection_postcards"), 30, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int i = 0; i < PostcardCatalog.All.Length; i++)
             {
@@ -1103,6 +1213,7 @@ namespace TastePassport.Core
                 Show();
                 return;
             }
+            TastePassport.Learning.VocabularyCatalog.UnlockStageWords(candidate, 2);
             if (!store.TrySave(candidate))
             {
                 notice = T("save_error");
@@ -1287,6 +1398,7 @@ namespace TastePassport.Core
                 Show();
                 return;
             }
+            TastePassport.Learning.VocabularyCatalog.UnlockStageWords(candidate, 6);
             if (!store.TrySave(candidate))
             {
                 notice = T("save_error");
@@ -1529,9 +1641,17 @@ namespace TastePassport.Core
             MapObjectiveDefinition nextObjective = MapObjectiveService.GetCurrent(profile, IsJeonjuUnlocked(profile));
             var objectiveCard = JourneyCard(parent);
             objectiveCard.name = "Next objective surface";
-            CollectionCopy(objectiveCard, T("map"), 38, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-            Label(objectiveCard, T("map_next_step"), 24, 42, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            var objectiveTitle = Label(objectiveCard, T(nextObjective.TitleKey), 30, 86, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var objImage = objectiveCard.GetComponent<Image>();
+            if (objImage != null) objImage.color = new Color(0.99f, 0.97f, 0.92f, 0.95f);
+            var objBorder = objectiveCard.GetComponent<Outline>();
+            if (objBorder != null)
+            {
+                objBorder.effectColor = GoldGlow;
+                objBorder.effectDistance = new Vector2(2f, -2f);
+            }
+            CollectionCopy(objectiveCard, "◆ " + T("map") + " ◆", 36, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            Label(objectiveCard, "— " + T("map_next_step") + " —", 22, 36, Lantern, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var objectiveTitle = Label(objectiveCard, T(nextObjective.TitleKey), 32, 86, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             // Some existing objective keys contain a full mission introduction.
             // Measure that text at the available width instead of truncating it.
             var titleSize = objectiveTitle.GetComponent<LayoutElement>();
@@ -1539,26 +1659,75 @@ namespace TastePassport.Core
             titleSize.preferredHeight = -1;
             string objectiveHint = nextObjective.Action == MapObjectiveAction.LanternCraft || nextObjective.Action == MapObjectiveAction.HanjiCraft
                 ? "card_craft_hint" : nextObjective.Action == MapObjectiveAction.StoryCardTarget ? "card_next_hint" : nextObjective.DescriptionKey;
-            CollectionCopy(objectiveCard, T(objectiveHint), 26, Muted, TextAnchor.MiddleCenter);
+            Rule(objectiveCard);
+            CollectionCopy(objectiveCard, T(objectiveHint), 25, Ink, TextAnchor.MiddleCenter);
             StoryPrimary(objectiveCard, T(profile.mainStoryCompleted ? "view_ending" : nextObjective.ActionLabelKey),
                 profile.mainStoryCompleted ? () => Navigate(Page.FinaleResult) : () => RunMapObjective(nextObjective));
+
             var journeyProgress = JourneyCard(parent);
-            CollectionCopy(journeyProgress, T("journey_destinations") + " · " + T("journey_progress") + " " +
-                JourneyStampCount(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
-                    LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id) + "/6",
-                28, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var progImage = journeyProgress.GetComponent<Image>();
+            if (progImage != null) progImage.color = new Color(0.98f, 0.96f, 0.91f, 0.96f);
+            var progBorder = journeyProgress.GetComponent<Outline>();
+            if (progBorder != null)
+            {
+                progBorder.effectColor = GoldGlow;
+                progBorder.effectDistance = new Vector2(1.5f, -1.5f);
+            }
+            int totalStamps = JourneyStampCount(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
+                LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id);
+            CollectionCopy(journeyProgress, "🔖 " + T("journey_destinations") + " · " + T("journey_progress") + " " + totalStamps + "/6",
+                26, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold);
+
+            // Visual Cultural Stamp Strip
+            var stampStrip = NewRect("Cultural stamp track", journeyProgress);
+            SetHeight(stampStrip, 52);
+            AddHorizontal(stampStrip);
+            string[] trackMissions = {
+                LevelCatalog.HoiAn.Id, "lantern-display-ready", RecipeCatalog.CaoLau.Id,
+                LevelCatalog.Jeonju.Id, "hanji-display-ready", RecipeCatalog.Bibimbap.Id
+            };
+            string[] trackIcons = { "🏛️", "🏮", "🍜", "🏯", "📜", "🍚" };
+            for (int i = 0; i < 6; i++)
+            {
+                bool earned = i == 1 ? StoryProgressService.HasImprint(profile, "lantern-display-ready")
+                    : i == 4 ? StoryProgressService.HasImprint(profile, "hanji-display-ready")
+                    : ProgressService.HasStamp(profile, trackMissions[i]);
+                var badge = NewRect("StampToken_" + i, stampStrip);
+                SetHeight(badge, 44);
+                var tokenBg = badge.gameObject.AddComponent<Image>();
+                tokenBg.sprite = CircleSprite();
+                tokenBg.color = earned ? (i < 3 ? Lantern : Jade) : new Color(0.85f, 0.82f, 0.77f, 0.5f);
+                var tokenBorder = badge.gameObject.AddComponent<Outline>();
+                tokenBorder.effectColor = earned ? GoldGlow : Border;
+                tokenBorder.effectDistance = new Vector2(1f, -1f);
+                var tokenLabel = Label(badge, trackIcons[i] + (earned ? "✓" : ""), 20, 44, earned ? Color.white : Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
+                Stretch(tokenLabel.rectTransform);
+                var lyt = badge.gameObject.AddComponent<LayoutElement>();
+                lyt.flexibleWidth = 1f;
+            }
+
+            DrawVisualJourneyMap(parent);
+
             MapLocationSwitcher(parent);
+
             var hoian = JourneyCard(parent);
             hoian.name = "Hoi An destination surface";
+            var hoianBorder = hoian.GetComponent<Outline>();
+            if (hoianBorder != null)
+            {
+                hoianBorder.effectColor = Lantern;
+                hoianBorder.effectDistance = new Vector2(2f, -2f);
+            }
+            Artwork(hoian, TravelArtworkKind.HoiAn, 110);
             // The 38pt display face needs a 55-unit line box plus room for descenders.
-            Label(hoian, T("hoian"), 38, 64, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            CollectionCopy(hoian, T("hoian_desc"), 26, Muted, TextAnchor.MiddleCenter);
+            Label(hoian, "🏮 " + T("hoian"), 38, 64, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            CollectionCopy(hoian, T("hoian_desc"), 24, Muted, TextAnchor.MiddleCenter, FontStyle.Italic);
             DestinationProgress(hoian, LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id);
             CompactButton(hoian, T(showHoiAnActivities ? "journey_hide_activities" : "journey_show_activities"), Paper,
                 () => { showHoiAnActivities = !showHoiAnActivities; Show(); }, Ink);
             if (showHoiAnActivities)
             {
-                Label(hoian, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+                Label(hoian, "🏮 " + T("journey_explore_craft"), 28, 52, HeaderWood, TextAnchor.MiddleLeft, FontStyle.Bold);
                 DrawLocationTargets(hoian, "hoian");
                 if (profile.mainStoryCompleted) CompactButton(hoian, T("explore_hoian"), Paper, () => OpenWorld("hoian"), Ink);
                 var hoianTierTag = NewRect("Mission tier tag hoian_architecture", hoian);
@@ -1568,24 +1737,32 @@ namespace TastePassport.Core
                 hoianTierLabel.rectTransform.offsetMin = new Vector2(12, 0);
                 CompactButton(hoian, MissionLabel("journey_hoian_architecture", LevelCatalog.HoiAn.Id), Paper, () => StartLevel(LevelCatalog.HoiAn), Ink);
                 CompactButton(hoian, T("lantern_craft_map"), Paper, StartLanternCraft, Ink);
-                Label(hoian, T("journey_food_exchange"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+                Label(hoian, "🍜 " + T("journey_food_exchange"), 28, 52, HeaderWood, TextAnchor.MiddleLeft, FontStyle.Bold);
                 Artwork(hoian, TravelArtworkKind.CaoLau, 126);
                 JourneyMissionButton(hoian, "cao_lau", RecipeCatalog.CaoLau.Id, LevelCatalog.HoiAn.Id, "journey_hoian_architecture", () => StartRecipe(RecipeCatalog.CaoLau));
                 JourneyMissionButton(hoian, "hoian_exchange", MatchCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, "cao_lau", () => StartMatch(MatchCatalog.HoiAn));
             }
             HoiAnVisuals.DecorateLocationCard(hoian);
+
             var jeonju = JourneyCard(parent);
             jeonju.name = "Jeonju destination surface";
-            Label(jeonju, T("jeonju"), 38, 64, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            CollectionCopy(jeonju, T("jeonju_desc"), 26, Muted, TextAnchor.MiddleCenter);
+            var jeonjuBorder = jeonju.GetComponent<Outline>();
+            if (jeonjuBorder != null)
+            {
+                jeonjuBorder.effectColor = Jade;
+                jeonjuBorder.effectDistance = new Vector2(2f, -2f);
+            }
+            Artwork(jeonju, TravelArtworkKind.Jeonju, 110);
+            Label(jeonju, "🏯 " + T("jeonju"), 38, 64, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            CollectionCopy(jeonju, T("jeonju_desc"), 24, Muted, TextAnchor.MiddleCenter, FontStyle.Italic);
             DestinationProgress(jeonju, LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id);
             bool jeonjuUnlocked = IsJeonjuUnlocked(profile);
-            if (!jeonjuUnlocked) CollectionCopy(jeonju, T("locked") + " · " + T("journey_jeonju_requirement"), 26, Muted, TextAnchor.MiddleCenter);
+            if (!jeonjuUnlocked) CollectionCopy(jeonju, "🔒 " + T("locked") + " · " + T("journey_jeonju_requirement"), 26, Muted, TextAnchor.MiddleCenter);
             CompactButton(jeonju, T(showJeonjuActivities ? "journey_hide_activities" : "journey_show_activities"), Paper,
                 () => { showJeonjuActivities = !showJeonjuActivities; Show(); }, Ink);
             if (showJeonjuActivities)
             {
-                Label(jeonju, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+                Label(jeonju, "🏯 " + T("journey_explore_craft"), 28, 52, HeaderWood, TextAnchor.MiddleLeft, FontStyle.Bold);
                 DrawLocationTargets(jeonju, "jeonju");
                 if (profile.mainStoryCompleted)
                     CompactButton(jeonju, T("explore_jeonju"), Paper, () => OpenWorld("jeonju"), Ink);
@@ -1593,17 +1770,25 @@ namespace TastePassport.Core
                 CompactButton(jeonju, T("hanji_craft_map") + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
                     jeonjuUnlocked ? StartHanjiCraft : () => Toast(T("jeonju_not_unlocked")), Ink)
                     .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
-                Label(jeonju, T("journey_food_exchange"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+                Label(jeonju, "🍚 " + T("journey_food_exchange"), 28, 52, HeaderWood, TextAnchor.MiddleLeft, FontStyle.Bold);
                 Artwork(jeonju, TravelArtworkKind.Bibimbap, 126);
                 JourneyMissionButton(jeonju, "bibimbap", RecipeCatalog.Bibimbap.Id, LevelCatalog.Jeonju.Id, "journey_jeonju_architecture", () => StartRecipe(RecipeCatalog.Bibimbap));
                 JourneyMissionButton(jeonju, "jeonju_exchange", MatchCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, "bibimbap", () => StartMatch(MatchCatalog.Jeonju));
             }
             KoreaVisuals.DecorateLocationCard(jeonju);
+
             DrawJourneyTiers(parent);
             JourneyNavigation(parent, Page.Map);
+
             var storyCard = JourneyCard(parent);
-            Label(storyCard, profile.mainStoryCompleted ? T("main_story_completed") : T("chapter_title_4"),
-                29, 86, profile.mainStoryCompleted ? Jade : Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var storyBorder = storyCard.GetComponent<Outline>();
+            if (storyBorder != null)
+            {
+                storyBorder.effectColor = GoldGlow;
+                storyBorder.effectDistance = new Vector2(2f, -2f);
+            }
+            Label(storyCard, profile.mainStoryCompleted ? "★ " + T("main_story_completed") : "📜 " + T("chapter_title_4"),
+                30, 86, profile.mainStoryCompleted ? Jade : Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             if (profile.mainStoryCompleted)
             {
                 Label(storyCard, T("main_story_complete_map"), 24, 66, Ink, TextAnchor.MiddleCenter);
@@ -1618,19 +1803,116 @@ namespace TastePassport.Core
             else Label(storyCard, T("finale_locked_hint"), 26, 144, Muted, TextAnchor.MiddleCenter);
         }
 
+        private void DrawVisualJourneyMap(Transform parent)
+        {
+            var mapCard = JourneyCard(parent);
+            mapCard.name = "Expedition cultural map board";
+            var cardImg = mapCard.GetComponent<Image>();
+            if (cardImg != null) cardImg.color = new Color(0.99f, 0.97f, 0.92f, 0.98f);
+            var cardBorder = mapCard.GetComponent<Outline>();
+            if (cardBorder != null)
+            {
+                cardBorder.effectColor = GoldGlow;
+                cardBorder.effectDistance = new Vector2(2f, -2f);
+            }
+
+            // Map Header
+            CollectionCopy(mapCard, "🧭 " + (profile.language == "ko" ? "한-베 문화 탐험 지도" : "BẢN ĐỒ KHÁM PHÁ VĂN HÓA VIỆT — HÀN"), 30, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            Label(mapCard, profile.language == "ko" ? "8개 문화 여정 및 유산 거점" : "Hành trình 8 chặng văn hóa & di sản hai miền đất", 22, 32, Lantern, TextAnchor.MiddleCenter, FontStyle.Italic);
+
+            // Geographic Map Silhouette with City Pin
+            Artwork(mapCard, selectedMapKorea ? TravelArtworkKind.KoreaMap : TravelArtworkKind.VietnamMap, 150);
+
+            // Region Title: Hội An - Việt Nam (Chặng 1 -> 4)
+            Label(mapCard, "🏮 " + (profile.language == "ko" ? "베트남 호이안 여정 (1~4단계)" : "VIỆT NAM — HỘI AN (CHẶNG 1 — 4)"), 24, 38, HeaderWood, TextAnchor.MiddleLeft, FontStyle.Bold);
+
+            // 4 Waypoint Cards for Hoi An
+            DrawWaypointRow(mapCard, 1, "🏛️ Chùa Cầu", LevelCatalog.HoiAn.Id, () => StartLevel(LevelCatalog.HoiAn), true);
+            DrawWaypointRow(mapCard, 2, "🏮 Đèn Lồng", "lantern-display-ready", StartLanternCraft, StoryProgressService.HasImprint(profile, "lantern-display-ready") || ProgressService.HasStamp(profile, LevelCatalog.HoiAn.Id));
+            DrawWaypointRow(mapCard, 3, "🍜 Cao Lầu", RecipeCatalog.CaoLau.Id, () => StartRecipe(RecipeCatalog.CaoLau), StoryProgressService.HasImprint(profile, "lantern-display-ready"));
+            DrawWaypointRow(mapCard, 4, "🎴 Bài Chòi", MatchCatalog.HoiAn.Id, () => StartMatch(MatchCatalog.HoiAn), ProgressService.HasStamp(profile, RecipeCatalog.CaoLau.Id));
+
+            // Cultural Bridge Connector
+            var bridge = NewRect("Cultural route connector", mapCard);
+            SetHeight(bridge, 34);
+            var bridgeLabel = Label(bridge, "✈️ ────── " + (profile.language == "ko" ? "우정의 문화 교류 다리" : "CẦU NỐI VĂN HÓA VIỆT — HÀN") + " ────── ✈️", 20, 34, GoldGlow, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Stretch(bridgeLabel.rectTransform);
+
+            // Region Title: Jeonju - Hàn Quốc (Chặng 5 -> 8)
+            Label(mapCard, "🏯 " + (profile.language == "ko" ? "한국 전주 여정 (5~8단계)" : "HÀN QUỐC — JEONJU (CHẶNG 5 — 8)"), 24, 38, Jade, TextAnchor.MiddleLeft, FontStyle.Bold);
+
+            bool jeonjuUnlocked = IsJeonjuUnlocked(profile);
+            DrawWaypointRow(mapCard, 5, "🏯 Làng Hanok", LevelCatalog.Jeonju.Id, () => { if (jeonjuUnlocked) StartLevel(LevelCatalog.Jeonju); else Toast(T("jeonju_not_unlocked")); }, jeonjuUnlocked);
+            DrawWaypointRow(mapCard, 6, "📜 Giấy Hanji", "hanji-display-ready", () => { if (jeonjuUnlocked) StartHanjiCraft(); else Toast(T("jeonju_not_unlocked")); }, jeonjuUnlocked && ProgressService.HasStamp(profile, LevelCatalog.Jeonju.Id));
+            DrawWaypointRow(mapCard, 7, "🍚 Bibimbap", RecipeCatalog.Bibimbap.Id, () => { if (jeonjuUnlocked) StartRecipe(RecipeCatalog.Bibimbap); else Toast(T("jeonju_not_unlocked")); }, jeonjuUnlocked && StoryProgressService.HasImprint(profile, "hanji-display-ready"));
+            DrawWaypointRow(mapCard, 8, "🎊 Ngày Hội Lớn", MatchCatalog.Jeonju.Id, () => { if (FirstJourneyComplete()) StartFinale(); else Toast(T("finale_locked_hint")); }, jeonjuUnlocked && ProgressService.HasStamp(profile, RecipeCatalog.Bibimbap.Id));
+        }
+
+        private void DrawWaypointRow(Transform parent, int stageNum, string title, string missionOrImprint, Action onAction, bool unlocked)
+        {
+            bool earned = missionOrImprint == "lantern-display-ready" || missionOrImprint == "hanji-display-ready"
+                ? StoryProgressService.HasImprint(profile, missionOrImprint)
+                : ProgressService.HasStamp(profile, missionOrImprint);
+
+            var row = NewRect("Waypoint_" + stageNum, parent);
+            SetHeight(row, 56);
+            AddHorizontal(row);
+
+            // Stage Number Badge
+            var numBox = NewRect("StageNumBox", row);
+            SetHeight(numBox, 48);
+            var numImg = numBox.gameObject.AddComponent<Image>();
+            numImg.sprite = CircleSprite();
+            numImg.color = earned ? Jade : unlocked ? Lantern : Border;
+            var numTxt = Label(numBox, stageNum.ToString(), 20, 48, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Stretch(numTxt.rectTransform);
+            var numLyt = numBox.gameObject.AddComponent<LayoutElement>();
+            numLyt.minWidth = 48;
+            numLyt.preferredWidth = 48;
+
+            // Title & Status
+            string statusStr = earned ? " ★★★ " + (profile.language == "ko" ? "완료" : "Đã xong ✓")
+                : unlocked ? (profile.language == "ko" ? "탐험 가능 ▶" : "Sẵn sàng ▶")
+                : (profile.language == "ko" ? "잠김 🔒" : "Khóa 🔒");
+            Color titleColor = earned ? Jade : unlocked ? Ink : Muted;
+
+            var actionBtn = CompactButton(row, title + "  " + statusStr, unlocked ? Paper : new Color(0.92f, 0.90f, 0.86f),
+                unlocked ? onAction : () => Toast(T("locked")), titleColor);
+            var btnLyt = actionBtn.GetComponent<LayoutElement>();
+            if (btnLyt != null) btnLyt.flexibleWidth = 1f;
+            var btnBorder = actionBtn.GetComponent<Outline>();
+            if (btnBorder != null)
+            {
+                btnBorder.effectColor = earned ? GoldGlow : unlocked ? Border : new Color(0.7f, 0.68f, 0.65f, 0.5f);
+                btnBorder.effectDistance = new Vector2(1.5f, -1.5f);
+            }
+        }
+
         private void MapLocationSwitcher(Transform parent)
         {
             var row = NewRect("Location destination selector", parent);
             SetHeight(row, 86);
             AddHorizontal(row);
             var hoiAn = CompactButton(row, T("map_tab_hoian") + (selectedMapKorea ? "" : " · " + T("selected_state")),
-                selectedMapKorea ? Paper : Jade, () => SelectMapDestination(false), selectedMapKorea ? Ink : Color.white);
+                selectedMapKorea ? Paper : Lantern, () => SelectMapDestination(false), selectedMapKorea ? Ink : Color.white);
             var jeonju = CompactButton(row, T("map_tab_jeonju") + (selectedMapKorea ? " · " + T("selected_state") : ""),
                 selectedMapKorea ? Jade : Paper, () => SelectMapDestination(true), selectedMapKorea ? Color.white : Ink);
             foreach (var button in new[] { hoiAn, jeonju })
             {
                 var layout = button.GetComponent<LayoutElement>();
                 if (layout != null) layout.flexibleWidth = 1f;
+            }
+            var hoiBorder = hoiAn.GetComponent<Outline>();
+            if (hoiBorder != null)
+            {
+                hoiBorder.effectColor = selectedMapKorea ? Border : GoldGlow;
+                hoiBorder.effectDistance = new Vector2(1.5f, -1.5f);
+            }
+            var jeonBorder = jeonju.GetComponent<Outline>();
+            if (jeonBorder != null)
+            {
+                jeonBorder.effectColor = selectedMapKorea ? GoldGlow : Border;
+                jeonBorder.effectDistance = new Vector2(1.5f, -1.5f);
             }
         }
 
@@ -1653,7 +1935,13 @@ namespace TastePassport.Core
         private void DrawJourneyTiers(Transform parent)
         {
             var intro = JourneyCard(parent);
-            CollectionCopy(intro, T("journey_tiers") + " · " + T("journey_tier_unlock_note"), 23, Ink,
+            var introBorder = intro.GetComponent<Outline>();
+            if (introBorder != null)
+            {
+                introBorder.effectColor = Border;
+                introBorder.effectDistance = new Vector2(1.5f, -1.5f);
+            }
+            CollectionCopy(intro, "◆ " + T("journey_tiers") + " · " + T("journey_tier_unlock_note") + " ◆", 24, HeaderWood,
                 TextAnchor.MiddleCenter, FontStyle.Bold);
             var row = NewRect("Journey tier progress", parent);
             SetHeight(row, 84);
@@ -1667,14 +1955,20 @@ namespace TastePassport.Core
         {
             var tile = Panel("Journey tier " + titleKey, parent, completed == 2 ? new Color(.91f,.96f,.92f) : Paper).rectTransform;
             SetHeight(tile, 84);
-            var label = Label(tile, T(titleKey) + "\n" + completed + "/2", 22, 84,
+            var border = tile.gameObject.AddComponent<Outline>();
+            border.effectColor = completed == 2 ? GoldGlow : Border;
+            border.effectDistance = new Vector2(1.5f, -1.5f);
+            var shadow = tile.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = GameUiTheme.PaperShadow;
+            shadow.effectDistance = new Vector2(0f, -2f);
+            var label = Label(tile, (completed == 2 ? "★ " : "◇ ") + T(titleKey) + "\n" + completed + "/2", 22, 84,
                 completed == 2 ? Jade : Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
             Stretch(label.rectTransform);
         }
 
         private void DestinationProgress(Transform parent, params string[] missionIds)
         {
-            Label(parent, T("journey_destination_progress") + "  " + JourneyStampCount(missionIds) + "/3", 26, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(parent, "🔖 " + T("journey_destination_progress") + "  " + JourneyStampCount(missionIds) + "/3", 26, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
         }
 
         private void JourneyMissionButton(Transform parent, string titleKey, string missionId, string prerequisiteId, string prerequisiteTitleKey, Action action)
@@ -1715,7 +2009,14 @@ namespace TastePassport.Core
 
         private GameObject StoryPrimary(Transform parent, string label, Action action)
         {
-            return Button(parent, label, Jade, action);
+            var btn = Button(parent, label, Jade, action);
+            var border = btn.GetComponent<Outline>();
+            if (border != null)
+            {
+                border.effectColor = GoldGlow;
+                border.effectDistance = new Vector2(2f, -2f);
+            }
+            return btn;
         }
 
         private void DrawLocationTargets(Transform parent, string worldId)
@@ -2599,6 +2900,7 @@ namespace TastePassport.Core
             CollectionCopy(parent, selectedFragment >= 0 ? T("activity_selected_piece") + " " + (selectedFragment + 1) : T("activity_select_piece"), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             pieceViews = new FragmentDrag[3];
             slotViews = new Transform[3];
+            CollectionCopy(parent, profile != null && profile.language == "ko" ? "◆ 수집한 조각 (아래 틀로 끌어놓으세요) ◆" : "◆ Mảnh ghép đã tìm được (Kéo vào khung bên dưới) ◆", 22, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             var pieces = NewRect("Fragments", parent);
             SetHeight(pieces, 128);
             AddHorizontal(pieces);
@@ -2615,6 +2917,7 @@ namespace TastePassport.Core
                 pieceViews[i] = piece.AddComponent<FragmentDrag>();
                 pieceViews[i].PieceIndex = i;
             }
+            CollectionCopy(parent, profile != null && profile.language == "ko" ? "◆ 완성할 엽서 틀 ◆" : "◆ Khung bưu thiếp cần ghép ◆", 22, GameUiTheme.Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
             var slots = NewRect("Postcard slots", parent);
             SetHeight(slots, 128);
             AddHorizontal(slots);
@@ -2742,9 +3045,20 @@ namespace TastePassport.Core
         {
             bool earned = ProgressService.HasStamp(profile, levelId);
             var card = JourneyCard(parent);
-            CollectionCopy(card, earned ? T("stamp") : T("locked"), 26,
-                earned ? Vermilion : Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(card, T(titleKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+            if (earned)
+            {
+                var border = card.gameObject.AddComponent<Outline>();
+                border.effectColor = Vermilion;
+                border.effectDistance = new Vector2(2, -2);
+                CollectionCopy(card, "◆ " + T("stamp") + " ◆", 24, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(card, T(titleKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(card, profile != null && profile.language == "ko" ? "★ 공식 인증 발자취 ★" : "★ DẤU ẤN CHÍNH THỨC ★", 18, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            }
+            else
+            {
+                CollectionCopy(card, "🔒 " + T("locked"), 24, Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(card, T(titleKey), 26, Muted, TextAnchor.MiddleCenter, FontStyle.Normal);
+            }
         }
 
         private bool HasAnyStamp(params string[] levelIds)
@@ -2824,6 +3138,7 @@ namespace TastePassport.Core
             ProgressService.Record(saved, run.Level.Id, run.Score, run.Stars);
             RecordMissionWorldMark(saved, run.Level.Id);
             saved.coins += 20 + run.Stars * 5;
+            TastePassport.Learning.VocabularyCatalog.UnlockStageWords(saved, run.Level == LevelCatalog.HoiAn ? 1 : 5);
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
             audioManager?.PlayCue(GameSoundCue.Stamp);
@@ -2837,25 +3152,87 @@ namespace TastePassport.Core
             string subjectKey = matchResult ? matchRun.Definition.TitleKey : recipeResult ? recipeRun.Recipe.DishKey : run.Level.PlaceKey;
             int score = matchResult ? matchRun.Score : recipeResult ? recipeRun.Score : run.Score;
             int stars = matchResult ? matchRun.Stars : recipeResult ? recipeRun.Stars : run.Stars;
-            Header(parent, T("activity_result_title"));
-            ActivityGuide(parent, "activity_saved", "activity_result_hint");
+
+            // Grand Celebration Plaque (Yêu cầu 8)
+            var celebrationPlaque = JourneyCard(parent);
+            var plaqueBorder = celebrationPlaque.gameObject.AddComponent<Outline>();
+            plaqueBorder.effectColor = GoldGlow;
+            plaqueBorder.effectDistance = new Vector2(2f, -2f);
+            CollectionCopy(celebrationPlaque, "★ " + (profile != null && profile.language == "ko" ? "여정 완료 · 축하합니다!" : "CHÚC MỪNG HOÀN THÀNH CHẶNG!") + " ★", 30, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold, true);
+            string starGraphic = stars >= 3 ? "★★★ " + (profile != null && profile.language == "ko" ? "(완벽한 성공!)" : "(Xuất sắc!)") :
+                stars == 2 ? "★★☆ " + (profile != null && profile.language == "ko" ? "(능숙한 솜씨)" : "(Thành thạo)") :
+                "★☆☆ " + (profile != null && profile.language == "ko" ? "(첫 발걸음)" : "(Làm quen)");
+            CollectionCopy(celebrationPlaque, starGraphic, 28, Lantern, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(celebrationPlaque, T("score") + ": " + score + "   ·   🪙 +" + (20 + stars * 5), 24, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+
             if (FirstJourneyComplete()) CollectionCopy(parent, T("first_journey_complete"), 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Artwork(parent, matchResult
                 ? (matchRun.Definition == MatchCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju)
                 : recipeResult ? (recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau)
-                : run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 210);
-            var card = JourneyCard(parent);
-            CollectionCopy(card, T("activity_result_completed", T(subjectKey)), 29, Ink, TextAnchor.MiddleCenter);
-            CollectionCopy(card, T("score") + ": " + score, 35, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(card, T("stars") + ": " + stars + "/3", 30, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
-            CollectionCopy(card, T("activity_coins_earned") + ": " + (20 + stars * 5), 28, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+                : run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 190);
+
+            // Cultural Seal Stamp Card with Impact Animation
             var stamp = JourneyCard(parent);
-            CollectionCopy(stamp, T("stamp") + ": " + T(subjectKey), 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var sBorder = stamp.gameObject.AddComponent<Outline>();
+            sBorder.effectColor = Vermilion;
+            sBorder.effectDistance = new Vector2(2f, -2f);
+            CollectionCopy(stamp, "★ " + T("stamp") + ": " + T(subjectKey) + " ★", 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            StartCoroutine(StampImpact(stamp));
+
+            // Companion Narrative Letter Card
             string speaker = T(koreanBackdrop ? "character_gabo" : "character_nhung");
             var letter = JourneyCard(parent);
-            CollectionCopy(letter, speaker, 25, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            var lBorder = letter.gameObject.AddComponent<Outline>();
+            lBorder.effectColor = Border;
+            lBorder.effectDistance = new Vector2(1.5f, -1.5f);
+            CollectionCopy(letter, "💌 " + speaker, 25, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             CollectionCopy(letter, T(koreanBackdrop ? "stamp_message_gabo" : "stamp_message_nhung", T(subjectKey)), 24, Ink, TextAnchor.MiddleCenter);
-            StartCoroutine(StampImpact(stamp));
+
+            // Newly Unlocked Cultural Vocabulary Card (Yêu cầu 5)
+            int stageIdx = matchResult ? (matchRun.Definition == MatchCatalog.HoiAn ? 4 : 8) :
+                recipeResult ? (recipeRun.Recipe == RecipeCatalog.CaoLau ? 3 : 7) :
+                (run.Level == LevelCatalog.HoiAn ? 1 : 5);
+            var stageWords = TastePassport.Learning.VocabularyCatalog.GetWordsForStage(stageIdx);
+            if (stageWords != null && stageWords.Count > 0)
+            {
+                var vocabCard = JourneyCard(parent);
+                var vBorder = vocabCard.gameObject.AddComponent<Outline>();
+                vBorder.effectColor = GoldGlow;
+                vBorder.effectDistance = new Vector2(1.5f, -1.5f);
+                CollectionCopy(vocabCard, "📖 " + (profile != null && profile.language == "ko" ? "새로 획득한 문화 어휘:" : "Từ vựng văn hóa vừa thu thập:"), 26, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold);
+                foreach (var word in stageWords)
+                {
+                    var row = Panel("RewardWord_" + word.Id, vocabCard, Paper).rectTransform;
+                    SetHeight(row, 44);
+                    var rLayout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
+                    rLayout.padding = new RectOffset(12, 12, 4, 4);
+                    rLayout.spacing = 8;
+                    rLayout.childAlignment = TextAnchor.MiddleCenter;
+                    rLayout.childControlWidth = true;
+                    rLayout.childControlHeight = true;
+                    rLayout.childForceExpandWidth = true;
+                    rLayout.childForceExpandHeight = false;
+                    Label(row, "★ " + word.Vietnamese + " (" + word.KoreanPronunciation + ")", 20, 40, HeaderWood, TextAnchor.MiddleLeft, FontStyle.Bold);
+                    Label(row, word.Korean + " · " + word.MeaningVi, 18, 40, Jade, TextAnchor.MiddleRight, FontStyle.Italic);
+                }
+            }
+
+            // Next Stage Waypoint Preview (Yêu cầu 8)
+            var nextObj = MapObjectiveService.GetCurrent(profile, IsJeonjuUnlocked(profile));
+            if (nextObj != null && !profile.mainStoryCompleted)
+            {
+                var nextCard = JourneyCard(parent);
+                var nBorder = nextCard.gameObject.AddComponent<Outline>();
+                nBorder.effectColor = Lantern;
+                nBorder.effectDistance = new Vector2(1.5f, -1.5f);
+                CollectionCopy(nextCard, "— " + (profile != null && profile.language == "ko" ? "다음 여정 안내" : "Hành trình tiếp theo đang chờ bạn") + " —", 22, Lantern, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(nextCard, "❖ " + T(nextObj.TitleKey), 28, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold);
+                string hintKey = nextObj.Action == MapObjectiveAction.LanternCraft || nextObj.Action == MapObjectiveAction.HanjiCraft
+                    ? "card_craft_hint" : nextObj.Action == MapObjectiveAction.StoryCardTarget ? "card_next_hint" : nextObj.DescriptionKey;
+                CollectionCopy(nextCard, T(hintKey), 23, Muted, TextAnchor.MiddleCenter);
+                StoryPrimary(nextCard, (profile != null && profile.language == "ko" ? "다음 여정 시작 ►" : "Tiến vào chặng kế tiếp ►"), () => RunMapObjective(nextObj));
+            }
+
             Button(parent, T("passport"), Jade, () => Navigate(Page.Passport));
             CompactButton(parent, T("replay"), Paper, () => { if (matchResult) StartMatch(matchRun.Definition); else if (recipeResult) StartRecipe(recipeRun.Recipe); else StartLevel(run.Level); }, Ink);
             CompactButton(parent, T("back_map"), Paper, () => Navigate(Page.Map), Ink);
@@ -2951,6 +3328,7 @@ namespace TastePassport.Core
             recipeDrop.TryDrop = TryDropIngredient;
             if (!string.IsNullOrEmpty(interactionFeedbackKey))
                 CollectionCopy(guide, T(interactionFeedbackKey), 23, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(parent, profile != null && profile.language == "ko" ? "◆ 재료 선택 (알맞은 재료를 위 단계로 끌어놓으세요) ◆" : "◆ Chọn nguyên liệu (Kéo nguyên liệu vào bước nấu ăn ở trên) ◆", 22, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int row = 0; row < (recipeRun.Choices.Length + 1) / 2; row++)
             {
                 var ingredients = NewRect("Ingredients", parent);
@@ -3105,6 +3483,7 @@ namespace TastePassport.Core
             ProgressService.Record(saved, recipeRun.Recipe.Id, recipeRun.Score, recipeRun.Stars);
             RecordMissionWorldMark(saved, recipeRun.Recipe.Id);
             saved.coins += 20 + recipeRun.Stars * 5;
+            TastePassport.Learning.VocabularyCatalog.UnlockStageWords(saved, recipeRun.Recipe == RecipeCatalog.CaoLau ? 3 : 7);
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
             audioManager?.PlayCue(GameSoundCue.Stamp);
@@ -3161,6 +3540,7 @@ namespace TastePassport.Core
             target.TryDrop = TryDropMatch;
             if (!string.IsNullOrEmpty(interactionFeedbackKey))
                 CollectionCopy(request, T(interactionFeedbackKey), 23, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(parent, profile != null && profile.language == "ko" ? "◆ 알맞은 경험을 골라 위 손님 카드에 전달하세요 ◆" : "◆ Chọn trải nghiệm thích hợp kéo vào thẻ du khách ở trên ◆", 22, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             for (int i = 0; i < matchRun.AnswerCount; i++)
             {
                 int choice = i;
@@ -3197,6 +3577,7 @@ namespace TastePassport.Core
             ProgressService.Record(saved, matchRun.Definition.Id, matchRun.Score, matchRun.Stars);
             RecordMissionWorldMark(saved, matchRun.Definition.Id);
             saved.coins += 20 + matchRun.Stars * 5;
+            TastePassport.Learning.VocabularyCatalog.UnlockStageWords(saved, matchRun.Definition == MatchCatalog.HoiAn ? 4 : 8);
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
             audioManager?.PlayCue(GameSoundCue.Stamp);
@@ -3512,10 +3893,10 @@ namespace TastePassport.Core
             // Use the Canvas plane for every nested paper surface; UI shadows provide its depth cue.
             var shadow = card.gameObject.AddComponent<Shadow>();
             shadow.effectColor = GameUiTheme.PaperShadow;
-            shadow.effectDistance = new Vector2(0f, -3f);
+            shadow.effectDistance = new Vector2(0f, -4f);
             var border = card.gameObject.AddComponent<Outline>();
             border.effectColor = Border;
-            border.effectDistance = new Vector2(1, -1);
+            border.effectDistance = new Vector2(1.5f, -1.5f);
             var layout = card.gameObject.AddComponent<VerticalLayoutGroup>();
             layout.padding = new RectOffset(GameUiTheme.SpaceLarge, GameUiTheme.SpaceLarge, GameUiTheme.CardPaddingVertical, GameUiTheme.CardPaddingVertical);
             layout.spacing = GameUiTheme.SpaceSmall;
@@ -3577,10 +3958,10 @@ namespace TastePassport.Core
             rect.GetComponent<Image>().raycastTarget = true;
             var shadow = rect.gameObject.AddComponent<Shadow>();
             shadow.effectColor = new Color(0.26f, 0.21f, 0.17f, 0.2f);
-            shadow.effectDistance = new Vector2(0, -3);
+            shadow.effectDistance = new Vector2(0, -4);
             var border = rect.gameObject.AddComponent<Outline>();
-            border.effectColor = new Color(0.35f, 0.26f, 0.20f, 0.24f);
-            border.effectDistance = new Vector2(1, -1);
+            border.effectColor = (background == Jade || background == Lantern) ? GoldGlow : new Color(0.35f, 0.26f, 0.20f, 0.24f);
+            border.effectDistance = new Vector2(1.5f, -1.5f);
             var button = rect.gameObject.AddComponent<UnityEngine.UI.Button>();
             var colors = button.colors;
             colors.highlightedColor = Color.Lerp(Color.white, GameUiTheme.Secondary, .12f);

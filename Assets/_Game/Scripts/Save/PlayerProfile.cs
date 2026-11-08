@@ -27,6 +27,7 @@ namespace TastePassport.Save
         public List<string> worldImprints = new List<string>();
         public List<string> inventoryItems = new List<string>();
         public List<string> culturalCards = new List<string>();
+        public List<string> learnedVocabulary = new List<string>();
         public string lastWorldId = "hoian";
         public float lastWorldX = -5.1f;
         public float lastWorldY = -1.8f;
@@ -59,9 +60,30 @@ namespace TastePassport.Save
             worldImprints = source.worldImprints == null ? new List<string>() : new List<string>(source.worldImprints);
             inventoryItems = source.inventoryItems == null ? new List<string>() : new List<string>(source.inventoryItems);
             culturalCards = source.culturalCards == null ? new List<string>() : new List<string>(source.culturalCards);
+            learnedVocabulary = source.learnedVocabulary == null ? new List<string>() : new List<string>(source.learnedVocabulary);
             lastWorldId = source.lastWorldId;
             lastWorldX = source.lastWorldX;
             lastWorldY = source.lastWorldY;
+        }
+
+        public int GetTotalStars()
+        {
+            int total = 0;
+            if (levels != null)
+            {
+                foreach (var lvl in levels)
+                {
+                    if (lvl != null) total += lvl.bestStars;
+                }
+            }
+            return total;
+        }
+
+        public int GetLevelStars(string levelId)
+        {
+            if (levels == null || string.IsNullOrEmpty(levelId)) return 0;
+            var lvl = levels.Find(l => l != null && l.levelId == levelId);
+            return lvl != null ? lvl.bestStars : 0;
         }
     }
 
@@ -99,10 +121,12 @@ namespace TastePassport.Save
             if (profile.worldImprints == null) profile.worldImprints = new List<string>();
             if (profile.inventoryItems == null) profile.inventoryItems = new List<string>();
             if (profile.culturalCards == null) profile.culturalCards = new List<string>();
+            if (profile.learnedVocabulary == null) profile.learnedVocabulary = new List<string>();
             profile.storyFlags = NormalizeIds(profile.storyFlags);
             profile.worldImprints = NormalizeIds(profile.worldImprints);
             profile.inventoryItems = NormalizeIds(profile.inventoryItems);
             profile.culturalCards = NormalizeIds(profile.culturalCards);
+            profile.learnedVocabulary = NormalizeIds(profile.learnedVocabulary);
             profile.chapterIndex = profile.mainStoryCompleted ? 4 : Math.Max(1, Math.Min(4, profile.chapterIndex));
             profile.faceStyle = Math.Max(0, Math.Min(2, profile.faceStyle));
             profile.hairStyle = Math.Max(0, Math.Min(2, profile.hairStyle));

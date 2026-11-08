@@ -172,20 +172,55 @@ namespace TastePassport.Core
 
             IntroLeafDefinition definition = IntroLeaves[introPageIndex];
             if (introPageIndex == 0)
-                BookCopy(leafContent, T("intro_series"), 24, Vermilion, TextAnchor.MiddleCenter, true);
-            BookCopy(leafContent, T(definition.EraKey), 24, Jade, TextAnchor.MiddleCenter, true);
-            BookCopy(leafContent, T(definition.TitleKey), 32, Ink, TextAnchor.MiddleCenter, true);
+                BookCopy(leafContent, T("intro_series"), 22, Vermilion, TextAnchor.MiddleCenter, true);
+            BookCopy(leafContent, "◆ " + T(definition.EraKey) + " ◆", 22, Jade, TextAnchor.MiddleCenter, true);
+            BookCopy(leafContent, T(definition.TitleKey), 28, HeaderWood, TextAnchor.MiddleCenter, true);
             Rule(leafContent);
             DrawIntroIllustration(leafContent, definition.Visual);
-            BookCopy(leafContent, T(definition.CaptionKey), 24, Muted, TextAnchor.MiddleCenter, true);
-            BookCopy(leafContent, T(definition.BodyKey), 25, Ink, TextAnchor.MiddleLeft, true);
-            BookCopy(leafContent, T(definition.NoteKey), 24, Vermilion, TextAnchor.MiddleLeft, false);
+            BookCopy(leafContent, T(definition.CaptionKey), 22, Muted, TextAnchor.MiddleCenter, true);
+            BookCopy(leafContent, T(definition.BodyKey), 24, Ink, TextAnchor.MiddleLeft, true);
+            if (!string.IsNullOrEmpty(definition.NoteKey))
+                BookCopy(leafContent, T(definition.NoteKey), 21, Vermilion, TextAnchor.MiddleLeft, false);
+
             string count = T("intro_page_count")
                 .Replace("{current}", (introPageIndex + 1).ToString())
                 .Replace("{total}", IntroLeaves.Length.ToString());
-            BookCopy(leafContent, count, 23, Muted, TextAnchor.MiddleCenter, true);
+            BookCopy(leafContent, count, 21, Muted, TextAnchor.MiddleCenter, true);
+
+            // Responsive Navigation Bar at the bottom of the book stage
+            var navBar = NewRect("Book navigation bar", stage);
+            SetHeight(navBar, 52);
+            var navLayout = navBar.gameObject.AddComponent<HorizontalLayoutGroup>();
+            navLayout.spacing = 10;
+            navLayout.childAlignment = TextAnchor.MiddleCenter;
+            navLayout.childControlWidth = true;
+            navLayout.childControlHeight = true;
+            navLayout.childForceExpandWidth = true;
+            navLayout.childForceExpandHeight = false;
+
+            if (introPageIndex > 0)
+            {
+                var backBtn = CompactButton(navBar, "◄ " + T("nav_back_previous"), Paper, BackIntroBook, Ink);
+                SetHeight(backBtn.GetComponent<RectTransform>(), 48);
+            }
+
+            var indicator = Panel("Page badge", navBar, Paper).rectTransform;
+            SetHeight(indicator, 48);
+            var indicatorLabel = Label(indicator, count, 22, 48, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Stretch(indicatorLabel.rectTransform);
+
+            string nextText = introPageIndex == IntroLeaves.Length - 1 ? ("★ " + T("start")) : (T("card_continue") + " ►");
+            var nextBtn = CompactButton(navBar, nextText, introPageIndex == IntroLeaves.Length - 1 ? Jade : Lantern, AdvanceIntroBook, Color.white);
+            SetHeight(nextBtn.GetComponent<RectTransform>(), 48);
+
+            if (introPageIndex < IntroLeaves.Length - 1)
+            {
+                var skipBtn = CompactButton(navBar, T("world_controls_skip_save"), Paper, () => Navigate(profile.created ? Page.Map : Page.Language), Muted);
+                SetHeight(skipBtn.GetComponent<RectTransform>(), 48);
+            }
+
             BookCopy(stage, T(introPageIndex == IntroLeaves.Length - 1 ? "intro_tap_finish" : "intro_tap_next"),
-                26, Paper, TextAnchor.MiddleCenter, true);
+                24, Paper, TextAnchor.MiddleCenter, true);
         }
 
         private Text BookCopy(Transform parent, string value, int size, Color color, TextAnchor alignment, bool classic)
