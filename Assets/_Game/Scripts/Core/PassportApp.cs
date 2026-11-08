@@ -960,6 +960,22 @@ namespace TastePassport.Core
                 profile.outfitId == 2 ? (profile.language == "ko" ? "Hanbok" : "Hanbok Hàn Quốc") :
                 (profile.language == "ko" ? "여행자 복장" : "Trang phục lữ hành");
             CollectionCopy(identity, "★ " + outfitName, 22, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+
+            // Traveler Passport Account Actions
+            var passAccRow = NewRect("Passport account action row", identity);
+            SetHeight(passAccRow, 44);
+            AddHorizontal(passAccRow);
+            CompactButton(passAccRow, "✏️ " + T("edit_profile"), Paper, () => OpenCharacterEditor(Page.Passport), Ink);
+            CompactButton(passAccRow, "🚪 " + (profile.language == "ko" ? "로그아웃" : "Đăng xuất"), new Color(0.95f, 0.90f, 0.88f), () =>
+            {
+                if (profile != null && !string.IsNullOrEmpty(profile.playerName)) store.TrySave(profile);
+                string currentLang = profile != null ? profile.language : "vi";
+                profile = new PlayerProfile { language = currentLang, created = false };
+                draftName = "";
+                editingProfile = false;
+                Navigate(Page.Create);
+                Toast(currentLang == "ko" ? "로그아웃되었습니다." : "Đã đăng xuất.");
+            }, Lantern);
             var greeting = JourneyCard(spread);
             greeting.name = "Passport right leaf";
             greeting.anchorMin = new Vector2(.5f, 0f);
@@ -2333,6 +2349,56 @@ namespace TastePassport.Core
                 if (mute) StoryNarration.Stop();
                 Show();
             }, Ink);
+
+            // Traveler Account Management Group (Đăng xuất & Đăng nhập lại)
+            var account = JourneyCard(parent);
+            account.name = "Settings account group";
+            var accBorder = account.GetComponent<Outline>();
+            if (accBorder != null)
+            {
+                accBorder.effectColor = GoldGlow;
+                accBorder.effectDistance = new Vector2(1.5f, -1.5f);
+            }
+            CollectionCopy(account, "👤 " + (profile != null && profile.language == "ko" ? "여행자 계정 관리" : "Tài khoản nhà du hành"), 29, HeaderWood, TextAnchor.MiddleLeft, FontStyle.Bold);
+            string curName = profile != null && !string.IsNullOrEmpty(profile.playerName) ? profile.playerName : (profile != null && profile.language == "ko" ? "새 여행자" : "Lữ khách mới");
+            CollectionCopy(account, (profile != null && profile.language == "ko" ? "현재 계정: " : "Lữ khách hiện tại: ") + curName + (profile != null && profile.created ? "  (✓ Đã lưu)" : ""), 25, Jade);
+            CollectionCopy(account, profile != null && profile.language == "ko" ? "새로운 여행자로 다시 시작하거나 프로필을 변경할 수 있습니다." : "Bạn có thể đăng xuất để tạo hành trình mới hoặc đổi thông tin lữ khách.", 22, Muted);
+
+            var accButtons = NewRect("Settings account action row", account);
+            SetHeight(accButtons, GameUiTheme.ButtonHeight);
+            AddHorizontal(accButtons);
+
+            // Nút 1: Đổi tài khoản / Đăng nhập lại
+            var reloginBtn = CompactButton(accButtons, "🔄 " + (profile != null && profile.language == "ko" ? "계정 전환 / 다시 로그인" : "Đổi tài khoản / Đăng nhập"), Paper, () =>
+            {
+                editingProfile = true;
+                profileEditReturnPage = Page.Settings;
+                draftName = profile != null ? profile.playerName : "";
+                draftAvatar = profile != null ? profile.avatarIndex : 0;
+                draftFaceStyle = profile != null ? profile.faceStyle : 0;
+                draftHairStyle = profile != null ? profile.hairStyle : 0;
+                draftBodyStyle = profile != null ? profile.bodyStyle : 0;
+                draftAccessoryStyle = profile != null ? profile.accessoryStyle : 0;
+                draftOutfit = profile != null ? profile.outfitId : 0;
+                Navigate(Page.Create);
+            }, Ink);
+            var reloginLyt = reloginBtn.GetComponent<LayoutElement>();
+            if (reloginLyt != null) reloginLyt.flexibleWidth = 1f;
+
+            // Nút 2: Đăng xuất (Tạo lữ khách mới)
+            var logoutBtn = CompactButton(accButtons, "🚪 " + (profile != null && profile.language == "ko" ? "로그아웃" : "Đăng xuất"), new Color(0.95f, 0.90f, 0.88f), () =>
+            {
+                if (profile != null && !string.IsNullOrEmpty(profile.playerName)) store.TrySave(profile);
+                string currentLang = profile != null ? profile.language : "vi";
+                profile = new PlayerProfile { language = currentLang, created = false };
+                draftName = "";
+                editingProfile = false;
+                Navigate(Page.Create);
+                Toast(currentLang == "ko" ? "성공적으로 로그아웃되었습니다." : "Đã đăng xuất tài khoản thành công.");
+            }, Lantern);
+            var logoutLyt = logoutBtn.GetComponent<LayoutElement>();
+            if (logoutLyt != null) logoutLyt.flexibleWidth = 1f;
+
             CompactButton(parent, T("nav_back_previous"), Paper, () => Navigate(settingsReturnPage), Ink);
         }
 
@@ -3681,6 +3747,44 @@ namespace TastePassport.Core
 
         private void DrawAvatar(Transform parent, int index, int outfitId, int faceStyle, int hairStyle, int bodyStyle, int accessoryStyle)
         {
+            index = Mathf.Clamp(index, 0, 2);
+            string[] characterPaths = { "Art/Characters/Traveler", "Art/Characters/Nhung", "Art/Characters/GaBo" };
+            var charSprite = Resources.Load<Sprite>(characterPaths[index]);
+            if (charSprite != null)
+            {
+                var portraitBox = NewRect("Face", parent);
+                Stretch(portraitBox);
+                var charImg = portraitBox.gameObject.AddComponent<Image>();
+                charImg.sprite = charSprite;
+                charImg.preserveAspect = true;
+                charImg.raycastTarget = false;
+
+                // Cultural outfit badge overlay
+                if (outfitId == 1)
+                {
+                    var badge = NewRect("Avatar outfit tag", parent);
+                    badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0f);
+                    badge.sizeDelta = new Vector2(80, 22);
+                    badge.anchoredPosition = new Vector2(0, 12);
+                    var bImg = badge.gameObject.AddComponent<Image>();
+                    bImg.color = Hex("#A94A42");
+                    var bTxt = Label(badge, "Áo dài", 14, 22, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold);
+                    Stretch(bTxt.rectTransform);
+                }
+                else if (outfitId == 2)
+                {
+                    var badge = NewRect("Avatar outfit tag", parent);
+                    badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0f);
+                    badge.sizeDelta = new Vector2(80, 22);
+                    badge.anchoredPosition = new Vector2(0, 12);
+                    var bImg = badge.gameObject.AddComponent<Image>();
+                    bImg.color = Hex("#357E84");
+                    var bTxt = Label(badge, "Hanbok", 14, 22, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold);
+                    Stretch(bTxt.rectTransform);
+                }
+                return;
+            }
+
             Color[] skin = { Hex("#EAB998"), Hex("#D69B75"), Hex("#F0C4A5") };
             Color[] hair = { Hex("#3B302C"), Hex("#674534"), Hex("#302F3B") };
             index = Mathf.Clamp(index, 0, 2);
@@ -3750,8 +3854,6 @@ namespace TastePassport.Core
 
         private void DrawFullBodyTraveler(Transform parent, int avatarIndex, int outfitId, int faceStyle, int hairStyle, int bodyStyle, int accessoryStyle)
         {
-            Color[] skin = { Hex("#EAB998"), Hex("#D69B75"), Hex("#F0C4A5") };
-            Color[] hair = { Hex("#3B302C"), Hex("#674534"), Hex("#302F3B") };
             avatarIndex = Mathf.Clamp(avatarIndex, 0, 2);
             faceStyle = Mathf.Clamp(faceStyle, 0, 2);
             hairStyle = Mathf.Clamp(hairStyle, 0, 2);
@@ -3759,8 +3861,60 @@ namespace TastePassport.Core
             accessoryStyle = Mathf.Clamp(accessoryStyle, 0, 2);
             outfitId = Mathf.Clamp(outfitId, 0, 4);
 
-            float scaleX = bodyStyle == 1 ? 0.88f : bodyStyle == 2 ? 1.14f : 1.0f;
-            float scaleY = bodyStyle == 1 ? 1.06f : bodyStyle == 2 ? 0.94f : 1.0f;
+            float scaleX = bodyStyle == 1 ? 0.90f : bodyStyle == 2 ? 1.10f : 1.0f;
+            float scaleY = bodyStyle == 1 ? 1.05f : bodyStyle == 2 ? 0.95f : 1.0f;
+
+            string[] characterPaths = { "Art/Characters/Traveler", "Art/Characters/Nhung", "Art/Characters/GaBo" };
+            var charSprite = Resources.Load<Sprite>(characterPaths[avatarIndex]);
+            if (charSprite != null)
+            {
+                // Shadow underneath
+                PortraitPart(parent, "Traveler pedestal shadow", new Color(0.28f, 0.22f, 0.18f, 0.28f), new Vector2(0, -135), new Vector2(170 * scaleX, 24), CircleSprite());
+
+                var charRect = NewRect("High res traveler showcase", parent);
+                charRect.anchorMin = charRect.anchorMax = new Vector2(0.5f, 0.5f);
+                charRect.sizeDelta = new Vector2(250, 280);
+                charRect.anchoredPosition = new Vector2(0, -5);
+                var img = charRect.gameObject.AddComponent<Image>();
+                img.sprite = charSprite;
+                img.preserveAspect = true;
+                img.raycastTarget = false;
+                charRect.localScale = new Vector3(scaleX, scaleY, 1f);
+
+                // Outfit badge
+                if (outfitId == 1)
+                {
+                    var badge = NewRect("Outfit badge", parent);
+                    badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0.5f);
+                    badge.sizeDelta = new Vector2(130, 28);
+                    badge.anchoredPosition = new Vector2(0, -145);
+                    var bImg = badge.gameObject.AddComponent<Image>();
+                    bImg.color = Hex("#A94A42");
+                    var bOutline = badge.gameObject.AddComponent<Outline>();
+                    bOutline.effectColor = GoldGlow;
+                    bOutline.effectDistance = new Vector2(1, -1);
+                    var bTxt = Label(badge, "🇻🇳 Áo dài", 16, 28, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold);
+                    Stretch(bTxt.rectTransform);
+                }
+                else if (outfitId == 2)
+                {
+                    var badge = NewRect("Outfit badge", parent);
+                    badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0.5f);
+                    badge.sizeDelta = new Vector2(130, 28);
+                    badge.anchoredPosition = new Vector2(0, -145);
+                    var bImg = badge.gameObject.AddComponent<Image>();
+                    bImg.color = Hex("#357E84");
+                    var bOutline = badge.gameObject.AddComponent<Outline>();
+                    bOutline.effectColor = GoldGlow;
+                    bOutline.effectDistance = new Vector2(1, -1);
+                    var bTxt = Label(badge, "🇰🇷 Hanbok", 16, 28, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold);
+                    Stretch(bTxt.rectTransform);
+                }
+                return;
+            }
+
+            Color[] skin = { Hex("#EAB998"), Hex("#D69B75"), Hex("#F0C4A5") };
+            Color[] hair = { Hex("#3B302C"), Hex("#674534"), Hex("#302F3B") };
 
             Color outfitColor = outfitId == 1 ? Hex("#A94A42") : outfitId == 2 ? Hex("#357E84") : outfitId == 3 ? Hex("#E6A14D") : outfitId == 4 ? Hex("#788B70") : avatarColors[avatarIndex];
 

@@ -245,10 +245,10 @@ namespace TastePassport.Core
                     break;
                 case IntroVisual.People:
                     var portraits = NewRect("Two guides in the storybook", parent);
-                    SetHeight(portraits, 112);
+                    SetHeight(portraits, 140);
                     AddHorizontal(portraits);
-                    DrawBookPortrait(portraits, "Art/Characters/Nhung", TravelArtworkKind.HoiAn);
-                    DrawBookPortrait(portraits, "Art/Characters/GaBo", TravelArtworkKind.Jeonju);
+                    DrawBookPortrait(portraits, "Art/Characters/Nhung", profile != null && profile.language == "ko" ? "🏮 늉 (호이안)" : "🏮 Nhung (Hội An)", Lantern, TravelArtworkKind.HoiAn);
+                    DrawBookPortrait(portraits, "Art/Characters/GaBo", profile != null && profile.language == "ko" ? "🏯 가보 (전주)" : "🏯 Ga Bo (Jeonju)", Jade, TravelArtworkKind.Jeonju);
                     break;
                 case IntroVisual.Food:
                     DrawBookPair(parent, TravelArtworkKind.CaoLau, TravelArtworkKind.Bibimbap, 112);
@@ -271,25 +271,43 @@ namespace TastePassport.Core
             Artwork(row, right, height);
         }
 
-        private void DrawBookPortrait(Transform parent, string resourcePath, TravelArtworkKind fallback)
+        private void DrawBookPortrait(Transform parent, string resourcePath, string guideName, Color tagColor, TravelArtworkKind fallback)
         {
+            var card = NewRect("Guide card " + guideName, parent);
+            SetHeight(card, 136);
+            var layout = card.gameObject.AddComponent<LayoutElement>();
+            layout.flexibleWidth = 1f;
+
+            var frame = Panel("Story guide portrait", card, Paper).rectTransform;
+            SetHeight(frame, 106);
             var sprite = Resources.Load<Sprite>(resourcePath);
-            if (sprite == null)
-            {
-                Artwork(parent, fallback, 112);
-                return;
-            }
-            var frame = Panel("Story guide portrait", parent, Paper).rectTransform;
-            SetHeight(frame, 112);
             var image = frame.GetComponent<Image>();
-            image.sprite = sprite;
-            image.type = Image.Type.Simple;
-            image.color = Color.white;
-            image.preserveAspect = true;
+            if (sprite != null)
+            {
+                image.sprite = sprite;
+                image.type = Image.Type.Simple;
+                image.color = Color.white;
+                image.preserveAspect = true;
+            }
+            else
+            {
+                Artwork(frame, fallback, 106);
+            }
             image.raycastTarget = false;
             var outline = frame.gameObject.AddComponent<Outline>();
-            outline.effectColor = Border;
-            outline.effectDistance = new Vector2(2, -2);
+            outline.effectColor = GoldGlow;
+            outline.effectDistance = new Vector2(1.5f, -1.5f);
+
+            if (!string.IsNullOrEmpty(guideName))
+            {
+                var label = Label(card, guideName, 20, 26, tagColor, TextAnchor.MiddleCenter, FontStyle.Bold);
+                label.lineSpacing = 1f;
+            }
+        }
+
+        private void DrawBookPortrait(Transform parent, string resourcePath, TravelArtworkKind fallback)
+        {
+            DrawBookPortrait(parent, resourcePath, "", Ink, fallback);
         }
 
         private void OpenClosedBook()
