@@ -1650,7 +1650,7 @@ namespace TastePassport.Core
                 objBorder.effectDistance = new Vector2(2f, -2f);
             }
             CollectionCopy(objectiveCard, "◆ " + T("map") + " ◆", 36, HeaderWood, TextAnchor.MiddleCenter, FontStyle.Bold, true);
-            Label(objectiveCard, "— " + T("map_next_step") + " —", 22, 36, Lantern, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(objectiveCard, T("map_next_step"), 22, 36, Lantern, TextAnchor.MiddleCenter, FontStyle.Bold);
             var objectiveTitle = Label(objectiveCard, T(nextObjective.TitleKey), 32, 86, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             // Some existing objective keys contain a full mission introduction.
             // Measure that text at the available width instead of truncating it.
@@ -1787,7 +1787,7 @@ namespace TastePassport.Core
                 storyBorder.effectColor = GoldGlow;
                 storyBorder.effectDistance = new Vector2(2f, -2f);
             }
-            Label(storyCard, profile.mainStoryCompleted ? "★ " + T("main_story_completed") : "📜 " + T("chapter_title_4"),
+            Label(storyCard, profile.mainStoryCompleted ? T("main_story_completed") : "📜 " + T("chapter_title_4"),
                 30, 86, profile.mainStoryCompleted ? Jade : Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             if (profile.mainStoryCompleted)
             {
