@@ -19,9 +19,50 @@ namespace TastePassport.EditorTools
         {
             EditorApplication.delayCall += () =>
             {
-                if (!File.Exists(FullScenePath) && !EditorApplication.isPlayingOrWillChangePlaymode)
-                    SetupMvp();
+                var sceneAsset = AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath);
+                if (sceneAsset != null)
+                {
+                    EditorSceneManager.playModeStartScene = sceneAsset;
+                }
+
+                if (!EditorApplication.isPlayingOrWillChangePlaymode)
+                {
+                    var activeScene = SceneManager.GetActiveScene();
+                    if (string.IsNullOrEmpty(activeScene.path) || activeScene.name == "Untitled")
+                    {
+                        if (File.Exists(FullScenePath))
+                        {
+                            EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+                            Debug.Log("DẤU XỨ VIỆT HÀN: Đã tự động mở Scene chính: " + ScenePath);
+                        }
+                        else
+                        {
+                            SetupMvp();
+                        }
+                    }
+                }
             };
+        }
+
+        [MenuItem("DẤU XỨ VIỆT HÀN/Mở Scene Chính (TastePassport_MVP)", false, 1)]
+        public static void OpenMainScene()
+        {
+            if (File.Exists(FullScenePath))
+            {
+                EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+                Debug.Log("DẤU XỨ VIỆT HÀN: Đã mở Scene chính: " + ScenePath);
+            }
+            else
+            {
+                SetupMvp();
+            }
+        }
+
+        [MenuItem("DẤU XỨ VIỆT HÀN/Chơi Game Ngay (Open & Play)", false, 2)]
+        public static void OpenAndPlay()
+        {
+            OpenMainScene();
+            EditorApplication.isPlaying = true;
         }
 
         [MenuItem("Tools/Taste Passport/Setup MVP")]
