@@ -1,5 +1,6 @@
 using TastePassport.Save;
 using TastePassport.Story;
+using System;
 
 namespace TastePassport.Gameplay
 {
@@ -18,6 +19,7 @@ namespace TastePassport.Gameplay
         InvalidStation,
         StationNotReady,
         MissingSelection,
+        UnownedItem,
         AlreadyDecorated,
         Decorated
     }
@@ -50,10 +52,13 @@ namespace TastePassport.Gameplay
         private readonly bool[] placed = new bool[7];
         private readonly int[] placedMarks = { -1, -1, -1, -1, -1, -1, -1 };
         private readonly string[] decorations = new string[7];
+        private readonly string[] decorationItemIds = new string[7];
         private readonly bool[] connected = new bool[3];
+        private readonly PlayerProfile profile;
 
         public int SelectedMarkIndex { get; private set; } = -1;
         public string SelectedDecorationId { get; private set; }
+        public string SelectedDecorationItemId { get; private set; }
         public string SelectedVietnamActivityId { get; private set; }
         public string SelectedKoreaActivityId { get; private set; }
 
@@ -72,32 +77,57 @@ namespace TastePassport.Gameplay
 
         public FestivalPreparationRun(PlayerProfile profile)
         {
+            this.profile = profile ?? new PlayerProfile();
             for (int station = 0; station < StationIds.Length; station++)
             {
-                if (StoryProgressService.HasImprint(profile, GetPlacementImprintId(station)))
+                if (StoryProgressService.HasImprint(this.profile, GetPlacementImprintId(station)))
                 {
                     placed[station] = true;
                     placedMarks[station] = MarksByStation[station];
                 }
                 foreach (string decorationId in DecorationIds)
                 {
-                    if (!StoryProgressService.HasImprint(profile, GetDecorationImprintId(station, decorationId))) continue;
+                    if (!StoryProgressService.HasImprint(this.profile, GetDecorationImprintId(station, decorationId))) continue;
+                    string savedItem = this.profile.festivalDecorations?.Find(entry => entry != null && entry.stationId == StationIds[station])?.itemId;
+                    string itemId = IsOwnedDecorationItem(this.profile, savedItem) ? savedItem : GetOwnedDecorationItemId(this.profile, decorationId);
+                    if (string.IsNullOrEmpty(itemId)) continue;
                     decorations[station] = decorationId;
+                    decorationItemIds[station] = itemId;
                     break;
                 }
             }
             for (int i = 0; i < LinkIds.Length; i++)
-                connected[i] = StoryProgressService.HasImprint(profile, GetConnectionImprintId(LinkIds[i]));
+                connected[i] = StoryProgressService.HasImprint(this.profile, GetConnectionImprintId(LinkIds[i]));
         }
 
         public static int StationCount => StationIds.Length;
         public static int MarkCount => 7;
         public static int DecorationCount => DecorationIds.Length;
+        public int AvailableDecorationCount
+        {
+            get
+            {
+                int count = 0;
+                foreach (string id in DecorationIds) if (!string.IsNullOrEmpty(GetOwnedDecorationItemId(profile, id))) count++;
+                return count;
+            }
+        }
         public static int LinkCount => LinkIds.Length;
 
         public static string GetStationId(int index) => IsValidIndex(index, StationIds.Length) ? StationIds[index] : null;
         public static int GetRequiredMarkIndex(int stationIndex) => IsValidIndex(stationIndex, MarksByStation.Length) ? MarksByStation[stationIndex] : -1;
         public static string GetDecorationId(int index) => IsValidIndex(index, DecorationIds.Length) ? DecorationIds[index] : null;
+        public string GetAvailableDecorationId(int index)
+        {
+            if (index < 0) return null;
+            int availableIndex = 0;
+            foreach (string id in DecorationIds)
+            {
+                if (string.IsNullOrEmpty(GetOwnedDecorationItemId(profile, id))) continue;
+                if (availableIndex++ == index) return id;
+            }
+            return null;
+        }
         public static string GetLinkId(int index) => IsValidIndex(index, LinkIds.Length) ? LinkIds[index] : null;
         public static string GetVietnamActivityId(int index) => IsValidIndex(index, VietnamActivityIds.Length) ? VietnamActivityIds[index] : null;
         public static string GetKoreaActivityId(int index) => IsValidIndex(index, KoreaActivityIds.Length) ? KoreaActivityIds[index] : null;
@@ -119,6 +149,7 @@ namespace TastePassport.Gameplay
         public bool IsMarkPlaced(int markIndex) => IsValidIndex(markIndex, MarkCount) && IsMarkPlacedInternal(markIndex);
         public int GetPlacedMarkForStation(int stationIndex) => IsStationPlaced(stationIndex) ? placedMarks[stationIndex] : -1;
         public string GetDecorationForStation(int stationIndex) => IsValidIndex(stationIndex, decorations.Length) ? decorations[stationIndex] : null;
+        public string GetDecorationItemForStation(int stationIndex) => IsValidIndex(stationIndex, decorationItemIds.Length) ? decorationItemIds[stationIndex] : null;
         public bool IsLinkConnected(string linkId)
         {
             int index = Find(LinkIds, linkId);
@@ -148,8 +179,10 @@ namespace TastePassport.Gameplay
 
         public bool SelectDecoration(string decorationId)
         {
-            if (!IsValidDecoration(decorationId)) return false;
+            string itemId = GetOwnedDecorationItemId(profile, decorationId);
+            if (itemId == null || !IsValidDecoration(decorationId)) return false;
             SelectedDecorationId = decorationId;
+            SelectedDecorationItemId = itemId;
             return true;
         }
 
@@ -159,10 +192,65 @@ namespace TastePassport.Gameplay
             if (!placed[stationIndex]) return FestivalDecorationResult.StationNotReady;
             if (!string.IsNullOrEmpty(decorations[stationIndex])) return FestivalDecorationResult.AlreadyDecorated;
             if (!IsValidDecoration(SelectedDecorationId)) return FestivalDecorationResult.MissingSelection;
+            if (!IsOwnedDecorationItem(profile, SelectedDecorationItemId)) return FestivalDecorationResult.UnownedItem;
 
             decorations[stationIndex] = SelectedDecorationId;
+            decorationItemIds[stationIndex] = SelectedDecorationItemId;
             SelectedDecorationId = null;
+            SelectedDecorationItemId = null;
             return FestivalDecorationResult.Decorated;
+        }
+
+        public static string GetOwnedDecorationItemId(PlayerProfile profile, string decorationId)
+        {
+            if (profile == null || !IsValidDecoration(decorationId)) return null;
+            if (decorationId == "lantern")
+            {
+                if (profile.inventoryItems == null) return null;
+                for (int i = profile.inventoryItems.Count - 1; i >= 0; i--)
+                    if (InventoryService.GetLanternFrameId(profile.inventoryItems[i]) != null) return profile.inventoryItems[i];
+            }
+            else if (decorationId == "paper-flower")
+            {
+                if (profile.inventoryItems == null) return null;
+                for (int i = profile.inventoryItems.Count - 1; i >= 0; i--)
+                    if (InventoryService.GetHanjiShapeId(profile.inventoryItems[i]) != null) return profile.inventoryItems[i];
+            }
+            else if (decorationId == "postcard" && profile.memoryPhotos != null)
+            {
+                for (int i = profile.memoryPhotos.Count - 1; i >= 0; i--)
+                    if (MemoryPhotoService.Exists(profile.memoryPhotos[i])) return "photo:" + profile.memoryPhotos[i].photoId;
+            }
+            return null;
+        }
+
+        public static bool IsOwnedDecorationItem(PlayerProfile profile, string itemId)
+        {
+            if (string.IsNullOrWhiteSpace(itemId)) return false;
+            if (itemId.StartsWith("photo:", StringComparison.Ordinal))
+            {
+                string id = itemId.Substring("photo:".Length);
+                return profile?.memoryPhotos != null && MemoryPhotoService.Exists(profile.memoryPhotos.Find(photo => photo != null && photo.photoId == id));
+            }
+            return InventoryService.HasItem(profile, itemId) &&
+                (InventoryService.GetLanternFrameId(itemId) != null || InventoryService.GetHanjiShapeId(itemId) != null);
+        }
+
+        public static bool RecordDecoration(PlayerProfile profile, int stationIndex, string decorationId, string itemId)
+        {
+            string stationId = GetStationId(stationIndex);
+            if (profile == null || stationId == null || !IsValidDecoration(decorationId) ||
+                !IsOwnedDecorationItem(profile, itemId)) return false;
+            if (profile.festivalDecorations == null) profile.festivalDecorations = new System.Collections.Generic.List<FestivalDecorationRecord>();
+            FestivalDecorationRecord record = profile.festivalDecorations.Find(entry => entry != null && entry.stationId == stationId);
+            if (record == null)
+            {
+                record = new FestivalDecorationRecord { stationId = stationId };
+                profile.festivalDecorations.Add(record);
+            }
+            record.decorationId = decorationId;
+            record.itemId = itemId;
+            return true;
         }
 
         public FestivalSelectionResult SelectVietnamActivity(string activityId)

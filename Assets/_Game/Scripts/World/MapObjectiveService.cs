@@ -80,15 +80,12 @@ namespace TastePassport.World
             if (!StoryProgressService.HasFlag(profile, "tutorial-passport-viewed")) return ViewPassport;
 
             if (!ProgressService.HasStamp(profile, LevelCatalog.HoiAn.Id)) return HoianMission;
+            if (!StoryProgressService.HasImprint(profile, "lantern-display-ready")) return LanternCraftMission;
             if (!ProgressService.HasStamp(profile, RecipeCatalog.CaoLau.Id)) return CaoLauMission;
-            if (!ProgressService.HasStamp(profile, MatchCatalog.HoiAn.Id)) return HoianExchange;
             if (!jeonjuUnlocked) return MeetNhung;
             if (!ProgressService.HasStamp(profile, LevelCatalog.Jeonju.Id)) return JeonjuMission;
-            if (!ProgressService.HasStamp(profile, RecipeCatalog.Bibimbap.Id)) return BibimbapMission;
-            if (!ProgressService.HasStamp(profile, MatchCatalog.Jeonju.Id)) return JeonjuExchange;
-
-            if (!StoryProgressService.HasImprint(profile, "lantern-display-ready")) return LanternCraftMission;
             if (!StoryProgressService.HasImprint(profile, "hanji-display-ready")) return HanjiCraftMission;
+            if (!ProgressService.HasStamp(profile, RecipeCatalog.Bibimbap.Id)) return BibimbapMission;
             return Festival;
         }
 

@@ -11,6 +11,8 @@ using TastePassport.World;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.UI;
 
 namespace TastePassport.EditorTools
@@ -112,6 +114,163 @@ namespace TastePassport.EditorTools
             Debug.Log("Dấu Xứ phase five smoke PASS: four chapters, resumable festival, ending state, and free exploration");
         }
 
+        [MenuItem("Tools/Taste Passport/Validate Photo Journal")]
+        public static void RunMemoryJournalChecks()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "taste_passport_journal_" + Guid.NewGuid().ToString("N") + ".json");
+            string photoId = null;
+            string bibimbapPhotoId = null;
+            Texture2D source = null;
+            try
+            {
+                var profile = new PlayerProfile { created = true, playerName = "Journal QA" };
+                Require(PostcardCatalog.All.Length == 4,
+                    "the collection must include a dedicated Chùa Cầu postcard");
+                PostcardDefinition chuacauPostcard = Array.Find(PostcardCatalog.All, postcard => postcard.Id == "chuacau");
+                Require(chuacauPostcard != null && !chuacauPostcard.IsUnlocked(profile),
+                    "the Chùa Cầu postcard must stay locked until landmark discovery");
+                InventoryService.RecordChuaCauDiscovery(profile);
+                Require(chuacauPostcard.IsUnlocked(profile),
+                    "landmark discovery did not unlock the Chùa Cầu postcard");
+                var store = new ProfileStore(path);
+                Require(store.TrySave(profile), "could not create a temporary journal profile");
+                InventoryService.RecordLanternCraft(profile, "round", "red");
+                StoryProgressService.AddImprint(profile, "stamp-chuacau");
+
+                source = new Texture2D(16, 16, TextureFormat.RGB24, false);
+                for (int y = 0; y < source.height; y++)
+                    for (int x = 0; x < source.width; x++)
+                        source.SetPixel(x, y, new Color(x / 16f, y / 16f, .25f));
+                source.Apply();
+                byte[] jpeg = source.EncodeToJPG(80);
+                Require(MemoryPhotoService.TryStoreJpeg(profile, store, "hoian", "chuacau", jpeg, out photoId),
+                    "captured JPEG was not written and linked to the save");
+                UnityEngine.Object.DestroyImmediate(source);
+                source = null;
+
+                PlayerProfile loaded = new ProfileStore(path).Load();
+                Require(loaded.schemaVersion == PlayerProfile.CurrentSchemaVersion && loaded.memoryPhotos.Count == 1 &&
+                        loaded.memoryPhotos[0].photoId == photoId && MemoryPhotoService.Exists(loaded.memoryPhotos[0]),
+                    "photo metadata or image file did not survive save/load");
+                Texture2D restoredImage = MemoryPhotoService.LoadTexture(loaded.memoryPhotos[0]);
+                Require(restoredImage != null && restoredImage.width == 16 && restoredImage.height == 16,
+                    "gallery could not decode its saved photograph");
+                UnityEngine.Object.DestroyImmediate(restoredImage);
+                Require(loaded.journeyEvents.Exists(entry => entry != null && entry.eventId == "photo-captured"),
+                    "photo capture was omitted from the dated journey timeline");
+                Require(MemoryPhotoService.TryStoreJpeg(loaded, store, "jeonju", "bibimbap", jpeg, out bibimbapPhotoId),
+                    "completed Bibimbap photo could not be stored for the Korean food memory");
+                MemoryPhotoRecord bibimbapMemory = loaded.memoryPhotos.Find(photo => photo != null && photo.photoId == bibimbapPhotoId);
+                Require(bibimbapMemory != null && bibimbapMemory.worldId == "jeonju" && bibimbapMemory.locationId == "bibimbap" &&
+                        MemoryPhotoService.Exists(bibimbapMemory),
+                    "Bibimbap photo metadata or image file did not survive save/load");
+
+                Require(JournalService.TrySavePage(loaded, store, "hoian", "missing-photo", "", "", 0) == JournalSaveResult.MissingPhoto,
+                    "journal accepted a photo missing from the saved gallery");
+                Require(JournalService.TrySavePage(loaded, store, "hoian", bibimbapPhotoId, "", "", 0) == JournalSaveResult.InvalidPage,
+                    "journal accepted a Jeonju memory on the Hội An-only page");
+                Require(JournalService.TrySavePage(loaded, store, "hoian", photoId, "", "crafted-lantern-diamond-green", 0) == JournalSaveResult.UnownedItem,
+                    "journal accepted an item the player does not own");
+                Require(JournalService.TrySavePage(loaded, store, "hoian", photoId, "stamp-chuacau", "", 3) == JournalSaveResult.InvalidLayout,
+                    "journal accepted an out-of-range photo layout");
+                string ownedLantern = InventoryService.GetCraftedLantern(loaded);
+                Require(JournalService.TrySavePage(loaded, store, "hoian", photoId, "stamp-chuacau", ownedLantern, 2) == JournalSaveResult.Saved,
+                    "journal failed to save a photo with an owned seal and crafted item");
+                JournalPageState saved = JournalService.GetPage(new ProfileStore(path).Load(), "hoian");
+                Require(saved != null && saved.photoId == photoId && saved.imprintId == "stamp-chuacau" &&
+                        saved.itemId == ownedLantern && saved.layoutSlot == 2,
+                    "journal photo, decorations or layout did not survive reload");
+
+                string migrationPath = path + ".v3";
+                try
+                {
+                    File.WriteAllText(migrationPath, "{\"schemaVersion\":3,\"language\":\"ko\",\"created\":true,\"playerName\":\"Legacy\"}");
+                    PlayerProfile migrated = new ProfileStore(migrationPath).Load();
+                    Require(migrated.schemaVersion == PlayerProfile.CurrentSchemaVersion && migrated.memoryPhotos != null &&
+                            migrated.journeyEvents != null && migrated.journalPages != null,
+                        "schema-three save did not migrate to the photo/journal schema");
+                }
+                finally
+                {
+                    foreach (string suffix in new[] { "", ".bak", ".tmp", ".old" })
+                        if (File.Exists(migrationPath + suffix)) File.Delete(migrationPath + suffix);
+                }
+                Debug.Log("Dấu Xứ photo journal smoke PASS: durable JPEG, timeline, valid owned-item decoration, layout persistence, and v3 migration");
+            }
+            finally
+            {
+                if (source != null) UnityEngine.Object.DestroyImmediate(source);
+                if (!string.IsNullOrEmpty(photoId)) MemoryPhotoService.DeletePhotoFile(photoId);
+                if (!string.IsNullOrEmpty(bibimbapPhotoId)) MemoryPhotoService.DeletePhotoFile(bibimbapPhotoId);
+                foreach (string suffix in new[] { "", ".bak", ".tmp", ".old" })
+                    if (File.Exists(path + suffix)) File.Delete(path + suffix);
+            }
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Architecture and Persistence")]
+        public static void RunArchitectureAndPersistenceChecks()
+        {
+            RunArchitecturePuzzleChecks();
+            RunMemoryJournalChecks();
+            RunFestivalPreparationChecks();
+            RunNarrationSettingsChecks();
+            RunWorldSessionChecks();
+            RunWorldHudChecks();
+            Debug.Log("Dấu Xứ architecture/persistence smoke PASS: named landmark puzzles, durable journal, owned festival decor, linked world activities, and camera entry point");
+        }
+
+        public static void RunArchitecturePuzzleChecks()
+        {
+            foreach (LevelDefinition level in new[] { LevelCatalog.HoiAn, LevelCatalog.Jeonju })
+            {
+                Require(level.RequiredObjectIndices.Length == 3 && level.AssemblySlotKeys.Length == 3,
+                    level.Id + " does not define three detail-to-slot requirements");
+                var run = new ExplorationRun(level, 0);
+                int found = 0;
+                for (int i = 0; i < level.ObjectKeys.Length; i++)
+                {
+                    InspectResult result = run.Inspect(i);
+                    if (result != InspectResult.Fragment) continue;
+                    Require(run.FoundObjectIndexAt(found) == level.RequiredObjectIndices[found],
+                        level.Id + " discovered a detail outside its documented slot order");
+                    found++;
+                }
+                Require(run.SearchComplete && found == 3,
+                    level.Id + " did not require and discover exactly the three named architecture details");
+                foreach (string key in level.AssemblySlotKeys)
+                    Require(GameText.Get("vi", key) != key && GameText.Get("ko", key) != key,
+                        level.Id + " has an untranslated architecture slot: " + key);
+            }
+            Debug.Log("Dấu Xứ architecture puzzle smoke PASS: distinct Hội An and Jeonju detail sets with localized named slots");
+        }
+
+        public static void RunNarrationSettingsChecks()
+        {
+            float original = GameAudioSettings.NarrationVolume;
+            try
+            {
+                GameAudioSettings.SetNarrationVolume(.37f);
+                PlayerPrefs.Save();
+                Require(Mathf.Abs(GameAudioSettings.NarrationVolume - .37f) < .001f,
+                    "narration volume was not persisted separately from music/SFX/ambience");
+                Require(GameText.Get("vi", "settings_narration_volume") != GameText.Get("ko", "settings_narration_volume") &&
+                        GameText.Get("vi", "voice_language_unavailable") != "voice_language_unavailable" &&
+                        GameText.Get("ko", "voice_pc_unavailable") != "voice_pc_unavailable",
+                    "narration settings or Android TTS fallback copy is not localized");
+#if UNITY_EDITOR
+                Require(StoryNarration.Speak("vi", "Phụ đề vẫn hiển thị.") == "pc_unavailable",
+                    "the PC narration adapter did not return its supported fallback state");
+#endif
+                Debug.Log("Dấu Xứ narration settings smoke PASS: independent saved voice level, localized device fallback, and subtitle-safe PC adapter");
+            }
+            finally
+            {
+                StoryNarration.Stop();
+                GameAudioSettings.SetNarrationVolume(original);
+                PlayerPrefs.Save();
+            }
+        }
+
         public static void RunFestivalLocalizationChecks()
         {
             string[] keys =
@@ -130,7 +289,7 @@ namespace TastePassport.EditorTools
                 "festival_activity_ko_hanji", "festival_pair_architecture", "festival_pair_food", "festival_pair_craft",
                 "festival_connect", "festival_select_both_activities", "festival_wrong_pair", "festival_pair_already_connected",
                 "festival_pair_connected", "festival_scene_title", "festival_corners_complete", "festival_friends_title",
-                "festival_finish_action", "continue_free_exploration"
+                "festival_finish_action", "continue_free_exploration", "festival_select_owned_item"
             };
             foreach (string key in keys)
             {
@@ -394,6 +553,10 @@ namespace TastePassport.EditorTools
                 session.Open("jeonju", profile, store, null);
                 Require(GameObject.Find("World Target - hanji-display") == null,
                     "Hanji display appeared before the craft imprint was saved");
+                Transform productStand = GameObject.Find("Hanji Product Display")?.transform;
+                Require(productStand != null && !productStand.Find("Hanji Fan").gameObject.activeSelf &&
+                        !productStand.Find("Hanji Bookmark").gameObject.activeSelf && !productStand.Find("Hanji Flower").gameObject.activeSelf,
+                    "an uncrafted Hanji product appeared on the Jeonju display stand");
                 session.Close();
 
                 var saved = store.Load();
@@ -401,10 +564,15 @@ namespace TastePassport.EditorTools
                     "completed Hanji craft could not be saved before display");
                 session.Open("jeonju", store.Load(), store, null);
                 GameObject display = GameObject.Find("World Target - hanji-display");
-                Require(display != null && display.GetComponent<SpriteRenderer>() != null &&
-                        display.GetComponent<SpriteRenderer>().sprite == Resources.Load<Sprite>("Art/Props/HanjiFan") &&
-                        display.GetComponent<SpriteRenderer>().color != Color.white,
-                    "saved Hanji product did not appear as a styled Jeonju display after reload");
+                productStand = GameObject.Find("Hanji Product Display")?.transform;
+                Transform fan = productStand == null ? null : productStand.Find("Hanji Fan");
+                Transform bookmark = productStand == null ? null : productStand.Find("Hanji Bookmark");
+                Transform flower = productStand == null ? null : productStand.Find("Hanji Flower");
+                Color fanColor = fan == null ? Color.white : fan.GetComponentInChildren<Renderer>().sharedMaterial.color;
+                Require(display != null && display.GetComponent<WorldInteractable>() != null && fan != null && fan.gameObject.activeSelf &&
+                        bookmark != null && !bookmark.gameObject.activeSelf && flower != null && !flower.gameObject.activeSelf &&
+                        Vector4.Distance(fanColor, new Vector4(0.31f, 0.40f, 0.69f, 1f)) < 0.01f,
+                    "saved Hanji fan and indigo color did not appear on Jeonju's 3D display after reload");
                 session.Close();
 
                 var secondSaved = store.Load();
@@ -412,8 +580,15 @@ namespace TastePassport.EditorTools
                     "second Hanji shape could not be saved for the Jeonju display");
                 session.Open("jeonju", store.Load(), store, null);
                 display = GameObject.Find("World Target - hanji-display");
-                Require(display != null && display.GetComponent<SpriteRenderer>().sprite == Resources.Load<Sprite>("Art/Props/HanjiBookmark"),
-                    "Jeonju display did not update to the latest crafted Hanji shape");
+                productStand = GameObject.Find("Hanji Product Display")?.transform;
+                fan = productStand == null ? null : productStand.Find("Hanji Fan");
+                bookmark = productStand == null ? null : productStand.Find("Hanji Bookmark");
+                flower = productStand == null ? null : productStand.Find("Hanji Flower");
+                Color bookmarkColor = bookmark == null ? Color.white : bookmark.GetComponentInChildren<Renderer>().sharedMaterial.color;
+                Require(display != null && display.GetComponent<WorldInteractable>() != null && fan != null && !fan.gameObject.activeSelf &&
+                        bookmark != null && bookmark.gameObject.activeSelf && flower != null && !flower.gameObject.activeSelf &&
+                        Vector4.Distance(bookmarkColor, new Vector4(0.77f, 0.28f, 0.22f, 1f)) < 0.01f,
+                    "Jeonju's 3D display did not update to the latest vermilion Hanji bookmark after reload");
                 session.Close();
                 var reloaded = store.Load();
                 Require(reloaded.inventoryItems.Contains("crafted-hanji-fan-indigo-flower") &&
@@ -487,18 +662,20 @@ namespace TastePassport.EditorTools
 
             var eligibility = typeof(PassportApp).GetMethod("IsFirstJourneyComplete",
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-            Require(eligibility != null, "the six missions and two craft requirements are not checked as one story gate");
+            Require(eligibility != null, "the six cultural experiences are not checked as one story gate");
             var journey = new PlayerProfile();
             Require(!(bool)eligibility.Invoke(null, new object[] { journey }), "an empty profile unlocked the festival");
-            foreach (string id in new[] { LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
-                         LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id })
+            foreach (string id in new[] { LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id,
+                         LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id })
                 ProgressService.Record(journey, id, 100, 3);
-            Require(!(bool)eligibility.Invoke(null, new object[] { journey }), "mission stamps alone skipped the two main craft activities");
+            Require(!(bool)eligibility.Invoke(null, new object[] { journey }), "four activity stamps alone unlocked the festival before the two crafts");
             Require(InventoryService.RecordLanternCraft(journey, "round", "blue") &&
                     !(bool)eligibility.Invoke(null, new object[] { journey }), "festival unlocked before Hanji was completed");
             Require(InventoryService.RecordHanjiCraft(journey, "fan", "indigo", "flower") &&
                     (bool)eligibility.Invoke(null, new object[] { journey }),
-                "six mission stamps plus saved lantern and Hanji crafts did not unlock the festival");
+                "the six core cultural experiences did not unlock the festival without optional guest activities");
+            Require(!ProgressService.HasStamp(journey, MatchCatalog.HoiAn.Id) && !ProgressService.HasStamp(journey, MatchCatalog.Jeonju.Id),
+                "test profile unexpectedly completed optional guest activities");
 
             string path = Path.Combine(Path.GetTempPath(), "taste_passport_main_story_" + Guid.NewGuid().ToString("N") + ".json");
             try
@@ -525,7 +702,17 @@ namespace TastePassport.EditorTools
             var assembly = typeof(InventoryService).Assembly;
             var runType = assembly.GetType("TastePassport.Gameplay.FestivalPreparationRun");
             Require(runType != null, "festival preparation model is missing");
-            object run = Activator.CreateInstance(runType, new object[] { new PlayerProfile() });
+            var emptyProfile = new PlayerProfile();
+            object emptyRun = Activator.CreateInstance(runType, new object[] { emptyProfile });
+            Require(!(bool)runType.GetMethod("SelectDecoration").Invoke(emptyRun, new object[] { "lantern" }) &&
+                    !(bool)runType.GetMethod("SelectDecoration").Invoke(emptyRun, new object[] { "paper-flower" }) &&
+                    !(bool)runType.GetMethod("SelectDecoration").Invoke(emptyRun, new object[] { "postcard" }),
+                "festival accepted a decoration without an owned crafted item or saved photo");
+            var festivalProfile = new PlayerProfile();
+            Require(InventoryService.RecordLanternCraft(festivalProfile, "round", "red") &&
+                    InventoryService.RecordHanjiCraft(festivalProfile, "fan", "indigo", "flower"),
+                "could not create owned festival decoration fixtures");
+            object run = Activator.CreateInstance(runType, new object[] { festivalProfile });
             var selectMark = runType.GetMethod("SelectMark");
             var placeAt = runType.GetMethod("TryPlaceAt");
             var isStationPlaced = runType.GetMethod("IsStationPlaced");
@@ -557,6 +744,7 @@ namespace TastePassport.EditorTools
                     !(bool)selectMark.Invoke(run, new object[] { 0 }),
                 "festival accepted a repeated station or duplicate mark");
             Require(!(bool)selectDecoration.Invoke(run, new object[] { "unlisted" }) &&
+                    !(bool)selectDecoration.Invoke(run, new object[] { "postcard" }) &&
                     decorate.Invoke(run, new object[] { 0 }).ToString() == "MissingSelection" &&
                     (bool)selectDecoration.Invoke(run, new object[] { "paper-flower" }) &&
                     decorate.Invoke(run, new object[] { 0 }).ToString() == "Decorated" &&
@@ -565,15 +753,22 @@ namespace TastePassport.EditorTools
                 "festival station decoration validation or duplicate guard failed");
 
             var partialProfile = new PlayerProfile();
+            InventoryService.RecordHanjiCraft(partialProfile, "fan", "jade", "cloud");
             StoryProgressService.AddImprint(partialProfile, "festival-corner-hoian-ready");
             StoryProgressService.AddImprint(partialProfile, "festival-decor-hoian-paper-flower");
+            Require((bool)runType.GetMethod("RecordDecoration").Invoke(null,
+                    new object[] { partialProfile, 0, "paper-flower", InventoryService.GetLatestCraftedHanji(partialProfile) }),
+                "could not record the exact owned festival item");
             object restored = Activator.CreateInstance(runType, new object[] { partialProfile });
             Require((bool)isStationPlaced.Invoke(restored, new object[] { 0 }) &&
                     (bool)isStationDecorated.Invoke(restored, new object[] { 0 }) &&
                     (int)placedCount.GetValue(restored) == 1 && (int)decoratedCount.GetValue(restored) == 1,
                 "festival placement or decoration did not restore from saved imprints");
 
-            var fullRun = Activator.CreateInstance(runType, new object[] { new PlayerProfile() });
+            var fullProfile = new PlayerProfile();
+            InventoryService.RecordLanternCraft(fullProfile, "diamond", "gold");
+            InventoryService.RecordHanjiCraft(fullProfile, "flower", "vermilion", "stripe");
+            var fullRun = Activator.CreateInstance(runType, new object[] { fullProfile });
             int[] markByStation = { 0, 4, 1, 3, 2, 5, 6 };
             string[] stationIds = { "hoian", "jeonju", "food", "craft", "arts", "exchange", "memory" };
             for (int station = 0; station < markByStation.Length; station++)
@@ -581,10 +776,14 @@ namespace TastePassport.EditorTools
                 Require((bool)selectMark.Invoke(fullRun, new object[] { markByStation[station] }) &&
                         placeAt.Invoke(fullRun, new object[] { station }).ToString() == "Placed",
                     "festival could not place its matching mark at station " + station);
-                string decorationId = station % 3 == 0 ? "lantern" : station % 3 == 1 ? "paper-flower" : "postcard";
+                string decorationId = station % 2 == 0 ? "lantern" : "paper-flower";
                 Require((bool)selectDecoration.Invoke(fullRun, new object[] { decorationId }) &&
                         decorate.Invoke(fullRun, new object[] { station }).ToString() == "Decorated",
                     "festival could not decorate station " + station);
+                string exactItem = (string)runType.GetMethod("GetDecorationItemForStation").Invoke(fullRun, new object[] { station });
+                Require(FestivalPreparationRun.IsOwnedDecorationItem(fullProfile, exactItem) &&
+                        FestivalPreparationRun.RecordDecoration(fullProfile, station, decorationId, exactItem),
+                    "festival decoration did not retain the exact owned inventory item");
             }
             Require(selectVietnamActivity.Invoke(fullRun, new object[] { "chuacau" }).ToString() == "Selected" &&
                     selectKoreaActivity.Invoke(fullRun, new object[] { "bibimbap" }).ToString() == "Selected" &&
@@ -935,6 +1134,224 @@ namespace TastePassport.EditorTools
             return material;
         }
 
+        [MenuItem("Tools/Taste Passport/Validate World HUD")]
+        public static void RunWorldHudChecks()
+        {
+            // Catch oversized surfaces, hidden shortcut routes, stale NPC prompts and lost pointer capture.
+            string path = Path.Combine(Path.GetTempPath(), "taste_passport_hud_" + Guid.NewGuid().ToString("N") + ".json");
+            var owner = new GameObject("World HUD smoke");
+            var cameraObject = new GameObject("World HUD smoke camera", typeof(Camera));
+            cameraObject.tag = "MainCamera";
+            var camera = cameraObject.GetComponent<Camera>();
+            var session = owner.AddComponent<WalkableWorldSession>();
+            var originalInputSettings = InputSystem.settings;
+            var backupInputSettings = UnityEngine.Object.Instantiate(originalInputSettings);
+            var smokeInputSettings = UnityEngine.Object.Instantiate(originalInputSettings);
+            InputSystem.settings = smokeInputSettings;
+            // Editor-only updates don't maintain player frame-edge key state. Exercise real player updates.
+            smokeInputSettings.SetInternalFeatureFlag("RUN_PLAYER_UPDATES_IN_EDIT_MODE", true);
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            try
+            {
+                foreach (string language in new[] { "vi", "ko" })
+                {
+                    int passportRequests = 0;
+                    string requestedActivity = null;
+                    var profile = new PlayerProfile { created = true, language = language };
+                    var store = new ProfileStore(path);
+                    session.Open("hoian", profile, store, () => { }, activity => requestedActivity = activity, () => passportRequests++);
+                    var canvas = GetWorldField<Canvas>(session, "worldHudCanvas");
+                    var safe = canvas.transform.Find("World Safe Area").GetComponent<RectTransform>();
+                    RequireWorldButtonsFit(canvas, safe);
+                    canvas.GetComponent<RectTransform>().sizeDelta = new Vector2(720f, 1280f);
+                    InvokeWorldMethod(session, "LayoutOverlayCards");
+                    Canvas.ForceUpdateCanvases();
+                    var objective = FindWorldUi<RectTransform>(canvas, "World Objective Card");
+                    Require(objective.rect.height <= 128f, "world objective surface still crowds the 3D viewport");
+                    Require(objective.GetComponentsInChildren<Text>().Length == 2,
+                        "HUD must show only destination and one current objective");
+                    Require(session.CurrentObjectiveKey == "world_objective_find_nhung", "fresh world skips its first objective");
+                    var guide = FindWorldUi<RectTransform>(canvas, "Controls Guide Card");
+                    Require(guide.rect.height <= 400f, "first-visit help is not a short contextual step card");
+                    var guideCopy = FindWorldUi<Text>(canvas, "World Controls Guide Copy");
+                    Require(guideCopy.text.Length < 240 && guideCopy.text.Split('\n').Length <= 3,
+                        "help still presents the full control manual at first visit");
+                    Require(FindWorldUi<Image>(canvas, "World Controls Guide").color.a <= .2f &&
+                            FindWorldUi<Image>(canvas, "World Quest Journal Panel").color.a <= .2f,
+                        "help/journal obscure the world behind them");
+                    FindWorldUi<Button>(canvas, "Close World Controls Guide").onClick.Invoke();
+                    Require(StoryProgressService.HasFlag(store.Load(), "world-controls-guide-seen"),
+                        "dismissing contextual help did not persist its seen state");
+                    var navigation = FindWorldUi<RectTransform>(canvas, "World Navigation");
+                    Require(navigation.GetComponentsInChildren<Button>().Length == 4 &&
+                            FindWorldUi<Button>(canvas, "World Photo") != null,
+                        "world navigation does not expose the camera alongside map, journal and help");
+                    var action = FindWorldUi<Button>(canvas, "World Interaction");
+                    session.SetPlayerPosition(new Vector2(-6f, -1.8f));
+                    Require(!action.interactable && !action.GetComponentInChildren<Text>().text.Contains("Nhung"),
+                        "out-of-range action retains an NPC name");
+                    session.SetPlayerPosition(FindTarget(WorldCatalog.Get("hoian"), "nhung").Position);
+                    Require(action.interactable && action.GetComponentInChildren<Text>().text.Contains("Nhung"),
+                        "in-range action does not name its available NPC");
+                    RequireWorldButtonsFit(canvas, safe);
+                    Vector2 originalMin = safe.anchorMin;
+                    Vector2 originalMax = safe.anchorMax;
+                    safe.anchorMin = new Vector2(.16f, .04f);
+                    safe.anchorMax = new Vector2(.84f, .96f);
+                    InvokeWorldMethod(session, "LayoutOverlayCards");
+                    RequireWorldButtonsFit(canvas, safe);
+                    safe.anchorMin = originalMin;
+                    safe.anchorMax = originalMax;
+                    InvokeWorldMethod(session, "LayoutOverlayCards");
+                    var stick = GetWorldField<WorldTouchStick>(session, "touchStick");
+                    var stickRect = stick.GetComponent<RectTransform>();
+                    var actionRect = action.GetComponent<RectTransform>();
+                    Require(stickRect.anchoredPosition.x + stickRect.rect.width <
+                            safe.rect.width + actionRect.anchoredPosition.x - actionRect.rect.width,
+                        "lower-right action overlaps the touch stick");
+                    var pointer = new PointerEventData(EventSystem.current) { pointerId = 11,
+                        position = RectTransformUtility.WorldToScreenPoint(camera,
+                            stickRect.TransformPoint(stickRect.rect.center + Vector2.right * 30f)),
+                        pointerPressRaycast = new RaycastResult { module = canvas.GetComponent<GraphicRaycaster>() } };
+                    stick.OnPointerDown(pointer);
+                    var player = GetWorldField<WorldPlayerController>(session, "player");
+                    Require(GetWorldField<Vector2>(player, "touchInput").sqrMagnitude > 0f, "touch stick did not feed movement");
+                    PressWorldKey(session, keyboard, Key.H);
+                    Require(guide.gameObject.activeInHierarchy && stick.gameObject.activeInHierarchy,
+                        "help shortcut failed or deactivated an in-flight touch pointer");
+                    Require(!GetWorldField<bool>(player, "movementEnabled") &&
+                            GetWorldField<Vector2>(player, "touchInput") == Vector2.zero,
+                        "help does not suspend movement and reset the active direction");
+                    stick.OnPointerUp(pointer);
+                    Require(GetWorldField<int>(stick, "activePointerId") == int.MinValue,
+                        "hidden stick lost PointerUp capture");
+                    PressWorldKey(session, keyboard, Key.E);
+                    PressWorldKey(session, keyboard, Key.J);
+                    Require(FindWorldUi<RectTransform>(canvas, "Quest Journal Card").gameObject.activeInHierarchy,
+                        "J did not open the journal");
+                    Require(FindWorldUi<Text>(canvas, "World Quest Journal Current").text ==
+                            GameText.Get(language, session.CurrentObjectiveKey), "journal omits the current objective");
+                    Require(FindWorldUi<Text>(canvas, "World Quest Journal Progress").text.Contains("0"),
+                        "journal omits collection progress");
+                    RequireWorldButtonsFit(canvas, safe);
+                    FindWorldUi<Button>(canvas, "World Passport").onClick.Invoke();
+                    Require(passportRequests == 1, "journal book action lost the passport callback");
+                    PressWorldKey(session, keyboard, Key.Escape);
+                    PressWorldKey(session, keyboard, Key.P);
+                    Require(passportRequests == 2, "P lost the passport callback");
+                    PressWorldKey(session, keyboard, Key.E);
+                    Require(session.CurrentDialogueText.Contains("DẤU XỨ"),
+                        "E did not open NPC dialogue");
+                    Require(FindWorldUi<Image>(canvas, "Dialogue Portrait").gameObject.activeInHierarchy,
+                        "NPC conversation lost its portrait");
+                    RequireWorldButtonsFit(canvas, safe);
+                    var dialogueObjective = FindWorldUi<Text>(canvas, "Dialogue Objective");
+                    Require(dialogueObjective.text.Contains(GameText.Get(language, session.CurrentObjectiveKey)),
+                        "dialogue omits the updated current objective");
+                    Require(session.CurrentObjectiveKey == "world_objective_find_lan" &&
+                            StoryProgressService.HasFlag(store.Load(), "nhung-intro-seen"),
+                        "NPC dialogue does not persist story progress and advance the objective");
+                    PressWorldKey(session, keyboard, Key.Space);
+                    Require(GetWorldField<bool>(player, "movementEnabled"), "closing dialogue does not restore movement");
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.D));
+                    InputSystem.Update();
+                    InvokeWorldMethod(player, "Update");
+                    Vector2 movement = GetWorldField<Vector2>(player, "keyboardInput");
+                    Require(movement.x > .7f && movement.y > .7f && movement.magnitude <= 1.001f,
+                        "WASD movement route lost normalized diagonal input");
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                    InputSystem.Update();
+                    session.SetPlayerPosition(FindTarget(WorldCatalog.Get("hoian"), "chuacau").Position);
+                    PressWorldKey(session, keyboard, Key.E);
+                    Require(!FindWorldUi<Image>(canvas, "Dialogue Portrait").gameObject.activeInHierarchy &&
+                            FindWorldUi<Button>(canvas, "Dialogue Listen").gameObject.activeInHierarchy &&
+                            FindWorldUi<Button>(canvas, "Dialogue Activity").gameObject.activeInHierarchy &&
+                            !FindWorldUi<Button>(canvas, "Dialogue Ask More").gameObject.activeInHierarchy,
+                        "Chùa Cầu discovery does not expose narration and its real activity route");
+                    FindWorldUi<Button>(canvas, "Dialogue Activity").onClick.Invoke();
+                    Require(!session.IsOpen && requestedActivity == "hoian-chuacau",
+                        "Chùa Cầu discovery did not start its linked architecture activity");
+                    session.Open("hoian", profile, store, () => { }, activity => requestedActivity = activity, () => passportRequests++);
+                    canvas = GetWorldField<Canvas>(session, "worldHudCanvas");
+                    safe = canvas.transform.Find("World Safe Area").GetComponent<RectTransform>();
+                    requestedActivity = null;
+                    session.SetPlayerPosition(FindTarget(WorldCatalog.Get("hoian"), "lan").Position);
+                    PressWorldKey(session, keyboard, Key.E);
+                    int marksBeforeOptional = profile.worldImprints.Count;
+                    PressWorldKey(session, keyboard, Key.Q);
+                    Require(session.CurrentDialogueText == GameText.Get(language, "lan_optional") &&
+                            profile.worldImprints.Count == marksBeforeOptional,
+                        "Q optional conversation failed or mutated progress");
+                    RequireWorldButtonsFit(canvas, safe);
+                    PressWorldKey(session, keyboard, Key.E);
+                    Require(session.IsOpen && requestedActivity == null, "E unexpectedly starts the available activity");
+                    PressWorldKey(session, keyboard, Key.F);
+                    Require(!session.IsOpen && requestedActivity == "lantern-craft", "F lost the current activity route");
+                    session.Open("hoian", profile, store, () => { });
+                    Require(!FindWorldUi<RectTransform>(GetWorldField<Canvas>(session, "worldHudCanvas"), "Controls Guide Card").gameObject.activeInHierarchy,
+                        "seen guide returns after closing and reopening the world");
+                    session.Close();
+                }
+                Debug.Log("Dấu Xứ world HUD smoke PASS: compact objective/help, VI/KO contextual prompts, targets/safe area, journal/progress/passport, NPC portrait, keyboard routes, touch capture, and reopen");
+            }
+            finally
+            {
+                if (session.IsOpen) session.Close();
+                InputSystem.RemoveDevice(keyboard);
+                // The setter destroys automatically created, unsaved settings. Preserve an independent backup.
+                InputSystem.settings = originalInputSettings != null ? originalInputSettings : backupInputSettings;
+                if (originalInputSettings != null) UnityEngine.Object.DestroyImmediate(backupInputSettings);
+                if (smokeInputSettings != null) UnityEngine.Object.DestroyImmediate(smokeInputSettings);
+                UnityEngine.Object.DestroyImmediate(owner);
+                UnityEngine.Object.DestroyImmediate(cameraObject);
+                foreach (string file in new[] { path, path + ".bak", path + ".tmp", path + ".old" })
+                    if (File.Exists(file)) File.Delete(file);
+            }
+        }
+
+        private static T FindWorldUi<T>(Canvas canvas, string name) where T : Component
+        {
+            foreach (T component in canvas.GetComponentsInChildren<T>(true))
+                if (component.name == name) return component;
+            throw new InvalidOperationException("Missing world UI: " + name);
+        }
+
+        private static T GetWorldField<T>(object target, string name) =>
+            (T)target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
+
+        private static void InvokeWorldMethod(object target, string name) =>
+            target.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(target, null);
+
+        private static void PressWorldKey(WalkableWorldSession session, Keyboard keyboard, Key key)
+        {
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(key));
+            InputSystem.Update();
+            Require(Keyboard.current == keyboard && keyboard[key].wasPressedThisFrame,
+                "smoke keyboard event was not delivered: " + key + "; pressed=" + keyboard[key].isPressed);
+            InvokeWorldMethod(session, "Update");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+        }
+
+        private static void RequireWorldButtonsFit(Canvas canvas, RectTransform safe)
+        {
+            Canvas.ForceUpdateCanvases();
+            foreach (Button button in canvas.GetComponentsInChildren<Button>())
+            {
+                var rect = button.GetComponent<RectTransform>();
+                Require(rect.rect.width >= 64f && rect.rect.height >= 64f, "undersized world target: " + button.name);
+                var corners = new Vector3[4];
+                rect.GetWorldCorners(corners);
+                foreach (Vector3 corner in corners)
+                {
+                    Vector3 point = safe.InverseTransformPoint(corner);
+                    Require(point.x >= safe.rect.xMin - .1f && point.x <= safe.rect.xMax + .1f &&
+                            point.y >= safe.rect.yMin - .1f && point.y <= safe.rect.yMax + .1f,
+                        "world button leaves the safe area: " + button.name);
+                }
+            }
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Walkable World Session")]
         public static void RunWorldSessionChecks()
         {
@@ -984,10 +1401,28 @@ namespace TastePassport.EditorTools
                         StoryProgressService.HasImprint(afterFirst, "dau-xu-book-discovered"),
                     "the first interaction was not saved immediately");
 
-                session.DismissDialogue();
+                Canvas worldCanvas = GetWorldField<Canvas>(session, "worldHudCanvas");
+                Button skipOpeningButton = FindWorldUi<Button>(worldCanvas, "Dialogue Skip Opening");
+                Require(skipOpeningButton != null && skipOpeningButton.gameObject.activeInHierarchy,
+                    "the first Nhung conversation did not expose an explicit opening-story skip action");
+                Text skipOpeningLabel = skipOpeningButton.GetComponentInChildren<Text>();
+                Require(skipOpeningLabel != null && skipOpeningLabel.text.Contains("Bỏ qua"),
+                    "the opening-story skip action is not clearly labeled in Vietnamese");
+                Require(GameText.Get("ko", "world_skip_opening") != "world_skip_opening" &&
+                        GameText.Get("ko", "world_skip_opening").Contains("건너뛰기"),
+                    "the opening-story skip action is not clearly localized in Korean");
+                var dialoguePanel = typeof(WalkableWorldSession).GetField("dialoguePanel", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?.GetValue(session) as GameObject;
+                skipOpeningButton.onClick.Invoke();
+                Require(dialoguePanel != null && !dialoguePanel.activeSelf &&
+                        StoryProgressService.HasFlag(store.Load(), "nhung-intro-seen"),
+                    "choosing to skip the opening story did not close the dialogue while preserving the saved journey");
+
                 WorldInteractionResult repeat = session.InteractNearest();
                 Require(repeat != null && repeat.DialogueKey == "nhung_repeat" && !repeat.IsFirstVisit,
                     "Nhung's repeat interaction did not use the repeat dialogue");
+                Require(skipOpeningButton != null && !skipOpeningButton.gameObject.activeInHierarchy,
+                    "the opening-story skip action appeared again after the intro had already been handled");
                 var afterRepeat = store.Load();
                 Require(afterRepeat.storyFlags.Count == 1 && afterRepeat.worldImprints.Count == 1,
                     "repeated interaction duplicated a persistent mark");
@@ -1053,12 +1488,19 @@ namespace TastePassport.EditorTools
                 profile.lastWorldY = WorldCatalog.Get("jeonju").Interactables[0].Position.y;
                 profile.language = "vi";
                 Require(store.TrySave(profile), "could not seed a Jeonju world-session profile");
-                session.Open("jeonju", profile, store, () => closeCount++);
+                string requestedJeonjuActivity = null;
+                session.Open("jeonju", profile, store, () => closeCount++, activityId => requestedJeonjuActivity = activityId);
                 Require(session.InteractionButtonLabel == "Tương tác · Ga Bo (가보)", "Jeonju interaction prompt did not name Ga Bo");
                 session.SetPlayerPosition(FindTarget(WorldCatalog.Get("jeonju"), "hanok").Position);
                 Require(session.InteractionButtonLabel == "Tương tác · Làng Hanok", "Jeonju landmark prompt did not name the Hanok village");
-                session.Close();
-                Require(closeCount == 4, "Jeonju world session did not close exactly once");
+                session.InteractNearest();
+                var jeonjuCanvas = GetWorldField<Canvas>(session, "worldHudCanvas");
+                Require(FindWorldUi<Button>(jeonjuCanvas, "Dialogue Listen").gameObject.activeInHierarchy &&
+                        FindWorldUi<Button>(jeonjuCanvas, "Dialogue Activity").gameObject.activeInHierarchy,
+                    "Hanok discovery did not offer local narration and the assembly activity");
+                FindWorldUi<Button>(jeonjuCanvas, "Dialogue Activity").onClick.Invoke();
+                Require(!session.IsOpen && requestedJeonjuActivity == "jeonju-hanok" && closeCount == 4,
+                    "Hanok landmark did not start the linked assembly activity exactly once");
 
                 failedSavePath = Path.Combine(Path.GetTempPath(), "taste_passport_failed_save_" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(failedSavePath);

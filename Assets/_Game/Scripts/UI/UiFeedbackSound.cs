@@ -5,6 +5,8 @@ namespace TastePassport.UI
 {
     public static class StoryNarration
     {
+        public static string LastStatus { get; private set; } = "ready";
+
         public static bool IsSupported
         {
             get
@@ -17,22 +19,62 @@ namespace TastePassport.UI
             }
         }
 
-        public static void Speak(string language, string text)
+        public static string Speak(string language, string text)
         {
-            if (PlayerPrefs.GetInt("tp_sound", 1) != 1 || string.IsNullOrWhiteSpace(text)) return;
+            if (PlayerPrefs.GetInt("tp_sound", 1) != 1) return LastStatus = "muted";
+            if (string.IsNullOrWhiteSpace(text)) return LastStatus = "error";
 #if UNITY_ANDROID && !UNITY_EDITOR
-            using (var bridge = new AndroidJavaClass("com.tastepassport.tts.TastePassportTts"))
-                bridge.CallStatic("speak", language == "ko" ? "ko-KR" : "vi-VN", text);
+            try
+            {
+                using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                using (var bridge = new AndroidJavaClass("com.tastepassport.tts.TastePassportTts"))
+                {
+                    bridge.CallStatic("speak", activity, language == "ko" ? "ko-KR" : "vi-VN", text,
+                        GameAudioSettings.NarrationVolume);
+                    return LastStatus = bridge.CallStatic<string>("getStatus");
+                }
+            }
+            catch (System.Exception error)
+            {
+                Debug.LogWarning("Taste Passport Android narration failed: " + error.Message);
+                return LastStatus = "unavailable";
+            }
 #else
             Debug.Log("Taste Passport narration is available in Android builds; requested language: " + language);
+            return LastStatus = "pc_unavailable";
 #endif
         }
+
+        public static string GetStatus()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using (var bridge = new AndroidJavaClass("com.tastepassport.tts.TastePassportTts"))
+                    return LastStatus = bridge.CallStatic<string>("getStatus");
+            }
+            catch (System.Exception error)
+            {
+                Debug.LogWarning("Taste Passport Android narration status check failed: " + error.Message);
+                return LastStatus = "unavailable";
+            }
+#else
+            return LastStatus = "pc_unavailable";
+#endif
+        }
+
+        public static void SetVolume(float value) => GameAudioSettings.SetNarrationVolume(value);
 
         public static void Stop()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            using (var bridge = new AndroidJavaClass("com.tastepassport.tts.TastePassportTts"))
-                bridge.CallStatic("stop");
+            try
+            {
+                using (var bridge = new AndroidJavaClass("com.tastepassport.tts.TastePassportTts"))
+                    bridge.CallStatic("stop");
+            }
+            catch (System.Exception error) { Debug.LogWarning("Taste Passport Android narration stop failed: " + error.Message); }
 #endif
         }
     }

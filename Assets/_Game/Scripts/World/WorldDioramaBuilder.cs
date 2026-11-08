@@ -360,6 +360,7 @@ namespace TastePassport.World
             }
             bookmarkShape.gameObject.SetActive(false);
             flowerShape.gameObject.SetActive(false);
+            fanShape.gameObject.SetActive(false);
         }
 
         private void CreateLantern(Transform parent, string name, Vector3 position, float size, bool crafted = false)

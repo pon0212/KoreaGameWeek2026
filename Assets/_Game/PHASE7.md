@@ -1,30 +1,34 @@
-# Phase 7 — Kiểm thử và dựng bản phát hành
+# Giai đoạn 7 — Kiểm thử tích hợp và bản dựng
 
-## Kết quả kiểm thử
+## Phạm vi đã kiểm tra — 2026-11-09
 
-- Unity `6000.6.7f1`; `dotnet build TastePassport_KGW2026.sln -c Debug` — đạt, 0 cảnh báo và 0 lỗi.
-- `TastePassport.EditorTools.TastePassportSmoke.Run` — đạt trên scene MVP: tạo hồ sơ, sáu nhiệm vụ, phần thưởng và lưu tiến trình, hai hoạt động chế tác, ngày hội bảy trạm, chuyển Việt–Hàn, bưu thiếp có hoạt ảnh và khám phá tự do sau khi hoàn tất truyện.
-- `TastePassport.EditorTools.TastePassportWorldSmoke.RunPhaseSixAudioChecks` — đạt: ba kênh âm lượng, tắt tiếng và giới hạn giá trị.
-- `TastePassport.EditorTools.TastePassportWorldSmoke.RunAndroidGradleTempChecks` — đạt: xác nhận Unity dùng thư mục tạm của Windows cho lệnh Gradle khi Editor thoát.
-- Rà soát log build và smoke cuối: không thấy `MissingReferenceException`, `NullReferenceException` hoặc thông báo script tham chiếu bị thiếu.
-- Scene game được dựng là `Assets/_Game/Scenes/TastePassport_MVP.unity`. Không có Prefab độc lập trong `Assets`; các scene mẫu/template hiện có không nằm trong bản dựng MVP.
+- Scene chơi chính: `Assets/_Game/Scenes/TastePassport_MVP.unity`.
+- Unity Editor GUI smoke Direct3D11: tạo hồ sơ, di chuyển/collision/camera, vào hai world, chơi sáu hoạt động, chụp ảnh Hội An và Bibimbap, kiểm tra replay không cộng xu, chuẩn bị ngày hội, xem đoạn kết và tiếp tục Free Exploration.
+- World-session smoke: truyện mở đầu và nút bỏ qua, save/checkpoint, camera và các tương tác world.
+- Persistence/architecture smoke: ảnh JPEG và timeline, save migration/recovery, journal layout, inventory gating của festival và fallback narration.
+- Phase 4 smoke: hoạt động Jeonju/Hanji và vật thể trưng bày sau khi reload.
+- Phase 5 smoke: các cổng tiến trình, bảy trạm, ba liên kết giao lưu, lưu/tải festival, đoạn kết và Free Exploration.
+- Phase 6 smoke: ba kênh âm lượng, mute và giới hạn giá trị.
 
-## Bản dựng
+## Build và kiểm tra gói Android
 
-- **Windows:** `TastePassportBuild.BuildWindows` hoàn tất thành công; log `Logs/TastePassportPhase7WindowsBuildFinal.log`; tệp `Builds/Windows/TastePassport.exe`.
-- Đã khởi chạy bản Windows độc lập; menu hiện tên game, tagline tiếng Việt, lời giới thiệu và nút tiếp tục mà không gặp lỗi khởi động. Chưa chơi thủ công hết một hành trình dài trên Windows.
-- Quan sát nhanh tiến trình tại menu trong 5 giây trên máy phát triển: Working Set khoảng 237 MiB, bộ nhớ riêng khoảng 331,9 MiB; CPU time không tăng ở độ phân giải mẫu. Đây là số đo tức thời của phiên Windows, không phải phép đo FPS hay đại diện cho điện thoại.
-- **Android:** `TastePassportBuild.BuildAndroid` hoàn tất thành công từ môi trường mặc định của máy; log `Logs/TastePassportPhase7AndroidBuildFinal.log`; tệp `Builds/Android/TastePassport.apk` (49.870.122 byte).
-- APK có package `com.DefaultCompany.TastePassport_KGW2026`, orientation dọc, `minSdkVersion 26`, `targetSdkVersion 37`; chữ ký APK v2 được `apksigner` xác nhận.
-- Lỗi loopback của Gradle trên Windows đã được khắc phục bằng cách đặt `TEMP`/`TMP` an toàn trong tiến trình Unity trước build Android và khi Editor thoát. Thay đổi chỉ áp dụng cho tiến trình Unity hiện tại, không sửa biến môi trường hệ thống.
+- Solution C# build bằng Unity API profile .NET Framework 4.7.1: thành công, 0 lỗi, 3 cảnh báo MSB3277 về phiên bản assembly Unity/.NET.
+- APK dựng bằng Unity `6000.6.7f1` có Android Build Support: `Builds/Android/TastePassport.apk`, 50,199,086 byte.
+- Kiểm tra package: `com.DefaultCompany.TastePassport_KGW2026`, portrait, min SDK 26, target SDK 37, OpenGL ES 3.1; `apksigner` xác nhận chữ ký APK v2.
+- Có thể đọc log và kết quả chi tiết trong [báo cáo kiểm thử](../../docs/TEST_REPORT.md).
 
-## Giới hạn kiểm thử
+## Giới hạn Android thực tế
 
-- Đã cài APK bằng `adb install -r` lên AVD `TastePassportPhone`, không gỡ ứng dụng hoặc xóa dữ liệu trước đó. Emulator đồ họa phần mềm chỉ cung cấp OpenGL ES 3.0 trong khi APK yêu cầu OpenGL ES 3.1; Unity hiện cảnh báo phần cứng không đáp ứng và sau khi tiếp tục báo không khởi tạo được Graphics API.
-- Đã thử renderer GPU máy chủ AMD: SurfaceFlinger báo OpenGL ES 3.1 và Activity của game khởi chạy, nhưng không thu được khung hình menu ổn định để xác nhận gameplay Android. Vì vậy chưa tính cài đặt/điều khiển/âm thanh/TTS/tiếp tục save trên Android là kiểm thử đạt. Cấu hình AVD đã được khôi phục nguyên trạng sau thử nghiệm.
-- Không có điện thoại Android vật lý kết nối. Chưa có số đo FPS, CPU hoặc bộ nhớ trên thiết bị Android; không khẳng định hiệu năng mobile đã được đo.
-- Windows đã build thành công, menu tiếng Việt đã được mở trong bản độc lập và gameplay smoke đã chạy trong Unity Editor; chưa thực hiện một lượt chơi thủ công dài trên Windows.
+APK đã cài và activity khởi chạy trong AVD `TastePassportPhone`; process còn sống ở lần quan sát sau 5 giây. AVD báo OpenGL ES 3.0, thấp hơn yêu cầu ES 3.1 trong manifest. Logcat còn có `ClassNotFoundException` cho `com.google.android.play.core.assetpacks.AssetPackManager`; nguyên nhân/chức năng ảnh hưởng chưa xác định. Vì vậy lần chạy này **không** xác nhận được render, gameplay, audio, save/load hay TTS Android. Không có điện thoại vật lý kết nối.
 
-## Mở và kiểm tra
+## Phạm vi còn mở
 
-Mở project bằng Unity `6000.6.7f1`, chọn scene `Assets/_Game/Scenes/TastePassport_MVP.unity` rồi nhấn Play. Có thể dùng **Tools → Taste Passport → Build Windows MVP** để dựng Windows hoặc **Tools → Taste Passport → Build Android APK** để dựng APK dọc.
+- `Builds/Windows/TastePassport.exe` cũ hơn mã hiện tại; PC được kiểm tra qua Unity Editor, chưa dựng lại standalone Windows trong đợt này.
+- Chưa đo FPS, CPU hoặc bộ nhớ trên thiết bị Android.
+- TTS Android với voice vi-VN/ko-KR cần được kiểm tra trên thiết bị có engine và OpenGL ES tương thích.
+- UI tiếng Hàn và mỹ thuật cuối cần người bản ngữ/thiết bị thật duyệt.
+- Kết quả 39 Use Case: 38 DONE, 1 PARTIAL; không có MISSING/BROKEN theo [ma trận truy vết](../../docs/USECASE_TRACEABILITY.md).
+
+## Mở project
+
+Mở project bằng Unity `6000.6.7f1`, chọn scene `Assets/_Game/Scenes/TastePassport_MVP.unity` rồi nhấn **Play**. Để tạo lại APK, dùng menu **Tools → Taste Passport → Build Android APK** trong Unity Editor có Android Build Support.

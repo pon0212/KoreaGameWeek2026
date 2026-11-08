@@ -12,12 +12,17 @@ namespace TastePassport.Save
 
         public static bool HasStamp(PlayerProfile profile, string levelId) => Get(profile, levelId) != null;
 
-        public static void Record(PlayerProfile profile, string levelId, int score, int stars)
+        /// <summary>
+        /// Records every attempt and returns true only for the first successful completion.
+        /// One-time rewards must be granted from this return value, never from play count.
+        /// </summary>
+        public static bool Record(PlayerProfile profile, string levelId, int score, int stars)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
             if (string.IsNullOrEmpty(levelId)) throw new ArgumentException("Level ID is required", nameof(levelId));
             if (profile.levels == null) profile.levels = new System.Collections.Generic.List<LevelProgress>();
             var progress = Get(profile, levelId);
+            bool firstCompletion = progress == null;
             if (progress == null)
             {
                 progress = new LevelProgress { levelId = levelId };
@@ -26,6 +31,7 @@ namespace TastePassport.Save
             progress.playCount++;
             progress.bestScore = Math.Max(progress.bestScore, score);
             progress.bestStars = Math.Max(progress.bestStars, stars);
+            return firstCompletion;
         }
     }
 }

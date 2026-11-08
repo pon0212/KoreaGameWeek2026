@@ -1,5 +1,7 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Globalization;
 using TastePassport.Gameplay;
 using TastePassport.Localization;
 using TastePassport.Save;
@@ -9,13 +11,14 @@ using TastePassport.World;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.Events;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 namespace TastePassport.Core
 {
     public sealed class PassportApp : MonoBehaviour
     {
-        private enum Page { Menu, Language, Create, Passport, Postcard, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards }
+        private enum Page { Menu, Language, Create, Passport, Postcard, Journal, Map, Wardrobe, Settings, Dialogue, Explore, Assembly, Result, RecipeDialogue, RecipeGame, RecipeMix, RecipeFail, MatchDialogue, MatchGame, Finale, FinaleResult, LanternCraft, LanternResult, HanjiCraft, HanjiResult, Inventory, CultureCards }
         private static readonly Color Cream = GameUiTheme.Cream;
         private static readonly Color Lantern = GameUiTheme.Lantern;
         private static readonly Color Jade = GameUiTheme.Primary;
@@ -49,6 +52,8 @@ namespace TastePassport.Core
         private Rect lastCameraViewport;
         private ExplorationRun run;
         private bool[] placedFragments = new bool[3];
+        private int[] assembledPieceAtSlot = { -1, -1, -1 };
+        private int[] pieceRotations = { 0, 0, 0 };
         private int selectedFragment = -1;
         private FragmentDrag[] pieceViews = new FragmentDrag[3];
         private Transform[] slotViews = new Transform[3];
@@ -56,6 +61,8 @@ namespace TastePassport.Core
         private float recipeDeadline;
         private Text recipeTimer;
         private bool recipeResult;
+        private bool bibimbapPhotoCaptureInProgress;
+        private bool bibimbapPhotoCaptured;
         private MatchRun matchRun;
         private bool matchResult;
         private int postcardIndex;
@@ -77,6 +84,12 @@ namespace TastePassport.Core
         private RectTransform postcardCard;
         private Coroutine postcardFlip;
         private bool rebuildingPostcardForFlip;
+        private readonly List<UnityEngine.Object> transientPageAssets = new List<UnityEngine.Object>();
+        private int journalPageIndex;
+        private string selectedJournalPhotoId;
+        private string selectedJournalImprintId;
+        private string selectedJournalItemId;
+        private int selectedJournalLayout;
 
         private string T(string key, string place = null) => GameText.Get(profile.language, key, profile.playerName, place);
 
@@ -85,7 +98,6 @@ namespace TastePassport.Core
         public static bool IsFirstJourneyComplete(PlayerProfile target) =>
             ProgressService.HasStamp(target, LevelCatalog.HoiAn.Id) && ProgressService.HasStamp(target, LevelCatalog.Jeonju.Id) &&
             ProgressService.HasStamp(target, RecipeCatalog.CaoLau.Id) && ProgressService.HasStamp(target, RecipeCatalog.Bibimbap.Id) &&
-            ProgressService.HasStamp(target, MatchCatalog.HoiAn.Id) && ProgressService.HasStamp(target, MatchCatalog.Jeonju.Id) &&
             StoryProgressService.HasImprint(target, "lantern-display-ready") && StoryProgressService.HasImprint(target, "hanji-display-ready");
 
         private void Awake()
@@ -238,6 +250,9 @@ namespace TastePassport.Core
                 StopCoroutine(finaleReveal);
                 finaleReveal = null;
             }
+            foreach (UnityEngine.Object asset in transientPageAssets)
+                if (asset != null) Destroy(asset);
+            transientPageAssets.Clear();
             EnsureFont();
             WorldSpaceCanvasFitter.Configure(canvas, Camera.main);
             UpdateSafeArea();
@@ -328,6 +343,7 @@ namespace TastePassport.Core
                 case Page.Create: DrawCreate(content); break;
                 case Page.Passport: DrawPassport(content); break;
                 case Page.Postcard: DrawPostcard(content); break;
+                case Page.Journal: DrawJournal(content); break;
                 case Page.Map: DrawMap(content); break;
                 case Page.Wardrobe: DrawWardrobe(content); break;
                 case Page.Settings: DrawSettings(content); break;
@@ -715,10 +731,198 @@ namespace TastePassport.Core
                 CollectionCopy(postcard, T(unlocked ? "collection_unlocked" : "locked"), 26, unlocked ? Jade : Muted, TextAnchor.MiddleCenter, FontStyle.Bold);
                 CollectionCopy(postcard, T(definition.TitleKey), 28, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
                 if (unlocked) CompactButton(postcard, T("view_postcard"), Lantern, () => { postcardIndex = index; postcardBack = false; Navigate(Page.Postcard); }, Ink);
-                else CollectionCopy(postcard, T("collection_postcard_hint"), 26, Muted, TextAnchor.MiddleCenter);
+                else CollectionCopy(postcard, T(definition.Id == "chuacau" ? "postcard_chuacau_locked" : "collection_postcard_hint"), 26, Muted, TextAnchor.MiddleCenter);
             }
+            Button(parent, T("journal_title"), Jade, OpenJournal);
             CompactButton(parent, T("edit_profile"), Paper, () => OpenCharacterEditor(Page.Passport), Ink);
             CompactButton(parent, T("nav_back_menu"), Paper, () => Navigate(Page.Menu), Ink);
+        }
+
+        private string CurrentJournalPageId => journalPageIndex == 0 ? "hoian" : journalPageIndex == 1 ? "jeonju" : "shared";
+
+        private void OpenJournal()
+        {
+            JournalPageState saved = JournalService.GetPage(profile, CurrentJournalPageId);
+            selectedJournalPhotoId = saved?.photoId;
+            selectedJournalImprintId = saved?.imprintId;
+            selectedJournalItemId = saved?.itemId;
+            selectedJournalLayout = saved == null ? 1 : saved.layoutSlot;
+            Navigate(Page.Journal);
+        }
+
+        private void DrawJournal(Transform parent)
+        {
+            Header(parent, T("journal_title"));
+            CollectionCopy(parent, T("journal_hint"), 26, Muted, TextAnchor.MiddleCenter);
+            var pages = NewRect("Dấu Xứ journal pages", parent);
+            SetHeight(pages, GameUiTheme.ButtonHeight);
+            AddHorizontal(pages);
+            string[] pageIds = { "hoian", "jeonju", "shared" };
+            string[] pageKeys = { "journal_page_hoian", "journal_page_jeonju", "journal_page_shared" };
+            for (int i = 0; i < pageIds.Length; i++)
+            {
+                int pageIndex = i;
+                Button(pages, T(pageKeys[i]) + (journalPageIndex == i ? " ✓" : ""),
+                    journalPageIndex == i ? Jade : Paper,
+                    () =>
+                    {
+                        journalPageIndex = pageIndex;
+                        JournalPageState saved = JournalService.GetPage(profile, CurrentJournalPageId);
+                        selectedJournalPhotoId = saved?.photoId;
+                        selectedJournalImprintId = saved?.imprintId;
+                        selectedJournalItemId = saved?.itemId;
+                        selectedJournalLayout = saved == null ? 1 : saved.layoutSlot;
+                        Show();
+                    }, Ink);
+            }
+
+            CollectionCopy(parent, T("journal_photo_selection"), 28, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            MemoryPhotoRecord chosenPhoto = profile.memoryPhotos == null ? null :
+                profile.memoryPhotos.Find(photo => photo != null && photo.photoId == selectedJournalPhotoId);
+            var preview = JourneyCard(parent);
+            preview.name = "Dấu Xứ journal photo preview";
+            if (chosenPhoto == null && profile.memoryPhotos != null && profile.memoryPhotos.Count > 0)
+            {
+                chosenPhoto = profile.memoryPhotos[profile.memoryPhotos.Count - 1];
+                selectedJournalPhotoId = chosenPhoto.photoId;
+            }
+            if (chosenPhoto == null) CollectionCopy(preview, T("journal_empty"), 25, Muted, TextAnchor.MiddleCenter);
+            else
+            {
+                Texture2D texture = MemoryPhotoService.LoadTexture(chosenPhoto);
+                if (texture == null) CollectionCopy(preview, T("journal_photo_missing"), 25, Vermilion, TextAnchor.MiddleCenter);
+                else
+                {
+                    transientPageAssets.Add(texture);
+                    Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(.5f, .5f));
+                    transientPageAssets.Add(sprite);
+                    var photo = NewRect("Selected real memory photo", preview);
+                    SetHeight(photo, 320);
+                    var image = photo.gameObject.AddComponent<Image>();
+                    image.sprite = sprite;
+                    image.preserveAspect = true;
+                    image.raycastTarget = false;
+                }
+                CollectionCopy(preview, T(chosenPhoto.worldId) + " · " + PhotoLocationLabel(chosenPhoto), 24, Jade, TextAnchor.MiddleCenter);
+                CollectionCopy(preview, FormatTimestamp(chosenPhoto.capturedAtUtc), 21, Muted, TextAnchor.MiddleCenter);
+                if (!string.IsNullOrEmpty(selectedJournalImprintId))
+                    CollectionCopy(preview, "◆  " + T(ImprintNameKey(selectedJournalImprintId)), 24, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                if (!string.IsNullOrEmpty(selectedJournalItemId))
+                    CollectionCopy(preview, T("journal_item_selection") + ": " + InventoryItemLabel(selectedJournalItemId), 22, Ink, TextAnchor.MiddleCenter);
+                CollectionCopy(preview, T("journal_layout") + ": " + T("journal_layout_" + selectedJournalLayout), 22, Jade, TextAnchor.MiddleCenter);
+            }
+
+            if (profile.memoryPhotos == null || profile.memoryPhotos.Count == 0)
+                CollectionCopy(parent, T("journal_empty"), 24, Muted, TextAnchor.MiddleCenter);
+            else
+            {
+                for (int i = profile.memoryPhotos.Count - 1; i >= 0; i--)
+                {
+                    MemoryPhotoRecord photo = profile.memoryPhotos[i];
+                    if (photo == null) continue;
+                    string id = photo.photoId;
+                    bool selected = id == selectedJournalPhotoId;
+                    CompactButton(parent, (selected ? "◆  " : "○  ") + T(photo.worldId) + " · " +
+                        PhotoLocationLabel(photo) + " · " + FormatTimestamp(photo.capturedAtUtc),
+                        selected ? Lantern : Paper, () => { selectedJournalPhotoId = id; Show(); }, Ink);
+                }
+            }
+
+            CollectionCopy(parent, T("journal_seal_selection"), 26, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var imprints = profile.worldImprints ?? new List<string>();
+            if (imprints.Count == 0) CollectionCopy(parent, T("journal_no_seals"), 22, Muted);
+            foreach (string imprint in imprints)
+            {
+                string chosen = imprint;
+                CompactButton(parent, (selectedJournalImprintId == chosen ? "◆  " : "○  ") + T(ImprintNameKey(chosen)),
+                    selectedJournalImprintId == chosen ? Lantern : Paper,
+                    () => { selectedJournalImprintId = chosen; Show(); }, Ink);
+            }
+
+            CollectionCopy(parent, T("journal_item_selection"), 26, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var items = profile.inventoryItems ?? new List<string>();
+            if (items.Count == 0) CollectionCopy(parent, T("journal_no_items"), 22, Muted);
+            foreach (string item in items)
+            {
+                string chosen = item;
+                CompactButton(parent, (selectedJournalItemId == chosen ? "◆  " : "○  ") + InventoryItemLabel(chosen),
+                    selectedJournalItemId == chosen ? Lantern : Paper,
+                    () => { selectedJournalItemId = chosen; Show(); }, Ink);
+            }
+
+            CollectionCopy(parent, T("journal_layout"), 26, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            var layouts = NewRect("Journal image layout choices", parent);
+            SetHeight(layouts, GameUiTheme.ButtonHeight);
+            AddHorizontal(layouts);
+            for (int i = 0; i < 3; i++)
+            {
+                int slot = i;
+                Button(layouts, T("journal_layout_" + i) + (selectedJournalLayout == i ? " ✓" : ""),
+                    selectedJournalLayout == i ? Jade : Paper, () => { selectedJournalLayout = slot; Show(); }, Ink);
+            }
+            var savedPage = JournalService.GetPage(profile, CurrentJournalPageId);
+            var saveButton = Button(parent, T("journal_save_action"), Jade, SaveJournalPage);
+            saveButton.GetComponent<UnityEngine.UI.Button>().interactable = chosenPhoto != null;
+            if (savedPage != null)
+                CollectionCopy(parent, T("journal_saved"), 23, Jade, TextAnchor.MiddleCenter);
+
+            CollectionCopy(parent, T("journal_history"), 28, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            if (profile.journeyEvents == null || profile.journeyEvents.Count == 0)
+                CollectionCopy(parent, T("journal_no_history"), 22, Muted);
+            else
+            {
+                for (int i = profile.journeyEvents.Count - 1, shown = 0; i >= 0 && shown < 18; i--, shown++)
+                {
+                    JourneyEventRecord entry = profile.journeyEvents[i];
+                    if (entry == null) continue;
+                    string eventTitle = entry.eventId == "photo-captured" ? T("journal_photo_captured") : T(ImprintNameKey(entry.eventId));
+                    CollectionCopy(parent, FormatTimestamp(entry.createdAtUtc) + " · " + T(entry.worldId) + " · " + eventTitle,
+                        21, Muted, TextAnchor.MiddleLeft);
+                }
+            }
+            JourneyNavigation(parent, Page.Journal);
+        }
+
+        private void SaveJournalPage()
+        {
+            JournalSaveResult result = JournalService.TrySavePage(profile, store, CurrentJournalPageId,
+                selectedJournalPhotoId, selectedJournalImprintId, selectedJournalItemId, selectedJournalLayout);
+            if (result == JournalSaveResult.Saved) notice = T("journal_saved");
+            else if (result == JournalSaveResult.UnownedItem) notice = T("journal_no_items");
+            else if (result == JournalSaveResult.MissingImprint) notice = T("journal_no_seals");
+            else notice = T("save_error");
+            Show();
+        }
+
+        private string InventoryItemLabel(string itemId)
+        {
+            string shape = InventoryService.GetHanjiShapeId(itemId);
+            if (!string.IsNullOrEmpty(shape)) return HanjiVariantLabel(itemId);
+            string frame = InventoryService.GetLanternFrameId(itemId);
+            if (!string.IsNullOrEmpty(frame)) return LanternVariantLabel(itemId);
+            return T("inventory_unknown_item");
+        }
+
+        private string FestivalItemLabel(string itemId)
+        {
+            if (string.IsNullOrEmpty(itemId)) return T("inventory_unknown_item");
+            if (itemId.StartsWith("photo:", StringComparison.Ordinal))
+            {
+                string id = itemId.Substring("photo:".Length);
+                MemoryPhotoRecord photo = profile.memoryPhotos?.Find(entry => entry != null && entry.photoId == id);
+                return photo == null ? T("journal_photo_missing") : T(photo.worldId) + " · " + PhotoLocationLabel(photo);
+            }
+            return InventoryItemLabel(itemId);
+        }
+
+        private string PhotoLocationLabel(MemoryPhotoRecord photo) => photo == null ? T("journal_world_photo") :
+            T(photo.locationId == "street" ? "journal_world_photo" : photo.locationId == "bibimbap" ? "landmark_bibimbap" : "landmark_" + photo.locationId);
+
+        private static string FormatTimestamp(string value)
+        {
+            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTime date))
+                return date.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+            return "—";
         }
 
         private void StartLanternCraft()
@@ -1235,19 +1439,33 @@ namespace TastePassport.Core
             if (!postcardBack)
             {
                 CollectionCopy(card, T(definition.TitleKey), 31, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
-                var pair = NewRect("Two cultures", card);
-                SetHeight(pair, 235);
-                AddHorizontal(pair);
-                var left = NewRect("Vietnam picture", pair);
-                SetHeight(left, 220);
-                TravelArtwork.Draw(left, postcardIndex == 1 ? TravelArtworkKind.CaoLau : TravelArtworkKind.HoiAn);
-                HoiAnVisuals.Attach(left, postcardIndex == 1 ? TravelArtworkKind.CaoLau : TravelArtworkKind.HoiAn);
-                var right = NewRect("Korea picture", pair);
-                SetHeight(right, 220);
-                TravelArtwork.Draw(right, postcardIndex == 1 ? TravelArtworkKind.Bibimbap : TravelArtworkKind.Jeonju);
-                KoreaVisuals.Attach(right, postcardIndex == 1 ? TravelArtworkKind.Bibimbap : TravelArtworkKind.Jeonju);
-                AddJourneyThread(card);
-                CollectionCopy(card, T(definition.FrontLeftKey) + "  •  " + T(definition.FrontRightKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                if (definition.Id == "chuacau")
+                {
+                    var bridge = NewRect("Chùa Cầu picture", card);
+                    SetHeight(bridge, 235);
+                    TravelArtwork.Draw(bridge, TravelArtworkKind.HoiAn);
+                    HoiAnVisuals.Attach(bridge, TravelArtworkKind.HoiAn);
+                    AddJourneyThread(card);
+                    CollectionCopy(card, T(definition.FrontLeftKey) + "  •  " + T(definition.FrontRightKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                }
+                else
+                {
+                    var pair = NewRect("Two cultures", card);
+                    SetHeight(pair, 235);
+                    AddHorizontal(pair);
+                    TravelArtworkKind leftKind = definition.Id == "flavors" ? TravelArtworkKind.CaoLau : TravelArtworkKind.HoiAn;
+                    TravelArtworkKind rightKind = definition.Id == "flavors" ? TravelArtworkKind.Bibimbap : TravelArtworkKind.Jeonju;
+                    var left = NewRect("Vietnam picture", pair);
+                    SetHeight(left, 220);
+                    TravelArtwork.Draw(left, leftKind);
+                    HoiAnVisuals.Attach(left, leftKind);
+                    var right = NewRect("Korea picture", pair);
+                    SetHeight(right, 220);
+                    TravelArtwork.Draw(right, rightKind);
+                    KoreaVisuals.Attach(right, rightKind);
+                    AddJourneyThread(card);
+                    CollectionCopy(card, T(definition.FrontLeftKey) + "  •  " + T(definition.FrontRightKey), 26, Ink, TextAnchor.MiddleCenter, FontStyle.Bold);
+                }
                 Label(card, "◆  ◆  ◆", 28, 44, Vermilion, TextAnchor.MiddleCenter);
             }
             else
@@ -1257,7 +1475,8 @@ namespace TastePassport.Core
                 Rule(card);
                 Label(card, T("culture_note"), 27, 54, Jade, TextAnchor.MiddleCenter, FontStyle.Bold, true);
                 CollectionCopy(card, T(definition.FactKey), 26, Ink);
-                CollectionCopy(card, T("tomorrow_clue_" + (postcardIndex + 1)), 26, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                if (definition.Id != "chuacau")
+                    CollectionCopy(card, T("tomorrow_clue_" + (postcardIndex + 1)), 26, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
                 NarrationButtons(parent, T(definition.StoryKey));
             }
             Button(parent, T("flip_postcard"), Jade, StartPostcardFlip);
@@ -1327,14 +1546,13 @@ namespace TastePassport.Core
             CollectionCopy(objectiveCard, T(nextObjective.DescriptionKey), 26, Muted, TextAnchor.MiddleCenter);
             Button(objectiveCard, T(nextObjective.ActionLabelKey), Jade, () => RunMapObjective(nextObjective));
             CollectionCopy(parent, T("journey_destinations") + " · " + T("journey_progress") + " " +
-                JourneyStampCount(LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id,
-                    LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id) + "/6",
+                (CoreMissionCount("hoian") + CoreMissionCount("jeonju")) + "/6",
                 28, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
             var hoian = JourneyCard(parent);
             hoian.name = "Hoi An destination surface";
             Label(hoian, T("hoian"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             CollectionCopy(hoian, T("hoian_desc"), 26, Muted, TextAnchor.MiddleCenter);
-            DestinationProgress(hoian, LevelCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, MatchCatalog.HoiAn.Id);
+            DestinationProgress(hoian, CoreMissionCount("hoian"));
             CompactButton(hoian, T(showHoiAnActivities ? "journey_hide_activities" : "journey_show_activities"), Paper,
                 () => { showHoiAnActivities = !showHoiAnActivities; Show(); }, Ink);
             if (showHoiAnActivities)
@@ -1343,17 +1561,17 @@ namespace TastePassport.Core
                 Label(hoian, T("journey_explore_craft"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
                 CompactButton(hoian, T("explore_hoian"), Paper, () => OpenWorld("hoian"), Ink);
                 CompactButton(hoian, MissionLabel("journey_hoian_architecture", LevelCatalog.HoiAn.Id), Paper, () => StartLevel(LevelCatalog.HoiAn), Ink);
-                CompactButton(hoian, T("lantern_craft_map"), Paper, StartLanternCraft, Ink);
+                CompactButton(hoian, CoreMissionLabel("lantern_craft_map", "lantern-display-ready"), Paper, StartLanternCraft, Ink);
                 Label(hoian, T("journey_food_exchange"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-                JourneyMissionButton(hoian, "cao_lau", RecipeCatalog.CaoLau.Id, LevelCatalog.HoiAn.Id, "journey_hoian_architecture", () => StartRecipe(RecipeCatalog.CaoLau));
-                JourneyMissionButton(hoian, "hoian_exchange", MatchCatalog.HoiAn.Id, RecipeCatalog.CaoLau.Id, "cao_lau", () => StartMatch(MatchCatalog.HoiAn));
+                CompactButton(hoian, MissionLabel("cao_lau", RecipeCatalog.CaoLau.Id), Paper, () => StartRecipe(RecipeCatalog.CaoLau), Ink);
+                CompactButton(hoian, MissionLabel("hoian_exchange", MatchCatalog.HoiAn.Id), Paper, () => StartMatch(MatchCatalog.HoiAn), Ink);
             }
             HoiAnVisuals.DecorateLocationCard(hoian);
             var jeonju = JourneyCard(parent);
             jeonju.name = "Jeonju destination surface";
             Label(jeonju, T("jeonju"), 38, 48, Ink, TextAnchor.MiddleCenter, FontStyle.Bold, true);
             CollectionCopy(jeonju, T("jeonju_desc"), 26, Muted, TextAnchor.MiddleCenter);
-            DestinationProgress(jeonju, LevelCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, MatchCatalog.Jeonju.Id);
+            DestinationProgress(jeonju, CoreMissionCount("jeonju"));
             bool jeonjuUnlocked = IsJeonjuUnlocked(profile);
             if (!jeonjuUnlocked) CollectionCopy(jeonju, T("locked") + " · " + T("journey_jeonju_requirement"), 26, Muted, TextAnchor.MiddleCenter);
             CompactButton(jeonju, T(showJeonjuActivities ? "journey_hide_activities" : "journey_show_activities"), Paper,
@@ -1365,13 +1583,20 @@ namespace TastePassport.Core
                 CompactButton(jeonju, T("explore_jeonju") + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
                     jeonjuUnlocked ? () => OpenWorld("jeonju") : () => Toast(T("jeonju_not_unlocked")), Ink)
                     .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
-                JourneyMissionButton(jeonju, "journey_jeonju_architecture", LevelCatalog.Jeonju.Id, MatchCatalog.HoiAn.Id, "hoian_exchange", () => StartLevel(LevelCatalog.Jeonju));
+                CompactButton(jeonju, jeonjuUnlocked ? MissionLabel("journey_jeonju_architecture", LevelCatalog.Jeonju.Id)
+                        : "○  " + T("journey_jeonju_architecture") + " · " + T("locked"),
+                    jeonjuUnlocked ? Paper : Border, jeonjuUnlocked ? () => StartLevel(LevelCatalog.Jeonju) : () => Toast(T("jeonju_not_unlocked")), Ink)
+                    .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
                 CompactButton(jeonju, T("hanji_craft_map") + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
                     jeonjuUnlocked ? StartHanjiCraft : () => Toast(T("jeonju_not_unlocked")), Ink)
                     .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
                 Label(jeonju, T("journey_food_exchange"), 28, 52, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-                JourneyMissionButton(jeonju, "bibimbap", RecipeCatalog.Bibimbap.Id, LevelCatalog.Jeonju.Id, "journey_jeonju_architecture", () => StartRecipe(RecipeCatalog.Bibimbap));
-                JourneyMissionButton(jeonju, "jeonju_exchange", MatchCatalog.Jeonju.Id, RecipeCatalog.Bibimbap.Id, "bibimbap", () => StartMatch(MatchCatalog.Jeonju));
+                CompactButton(jeonju, MissionLabel("bibimbap", RecipeCatalog.Bibimbap.Id) + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
+                    jeonjuUnlocked ? () => StartRecipe(RecipeCatalog.Bibimbap) : () => Toast(T("jeonju_not_unlocked")), Ink)
+                    .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
+                CompactButton(jeonju, MissionLabel("jeonju_exchange", MatchCatalog.Jeonju.Id) + (jeonjuUnlocked ? "" : " · " + T("locked")), jeonjuUnlocked ? Paper : Border,
+                    jeonjuUnlocked ? () => StartMatch(MatchCatalog.Jeonju) : () => Toast(T("jeonju_not_unlocked")), Ink)
+                    .GetComponent<UnityEngine.UI.Button>().interactable = jeonjuUnlocked;
             }
             KoreaVisuals.DecorateLocationCard(jeonju);
             JourneyNavigation(parent, Page.Map);
@@ -1400,10 +1625,31 @@ namespace TastePassport.Core
             return count;
         }
 
-        private void DestinationProgress(Transform parent, params string[] missionIds)
+        private void DestinationProgress(Transform parent, int done)
         {
-            Label(parent, T("journey_destination_progress") + "  " + JourneyStampCount(missionIds) + "/3", 26, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            Label(parent, T("journey_destination_progress") + "  " + done + "/3", 26, 48, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
         }
+
+        private int CoreMissionCount(string worldId)
+        {
+            int count = 0;
+            if (worldId == "hoian")
+            {
+                if (ProgressService.HasStamp(profile, LevelCatalog.HoiAn.Id)) count++;
+                if (StoryProgressService.HasImprint(profile, "lantern-display-ready")) count++;
+                if (ProgressService.HasStamp(profile, RecipeCatalog.CaoLau.Id)) count++;
+            }
+            else if (worldId == "jeonju")
+            {
+                if (ProgressService.HasStamp(profile, LevelCatalog.Jeonju.Id)) count++;
+                if (StoryProgressService.HasImprint(profile, "hanji-display-ready")) count++;
+                if (ProgressService.HasStamp(profile, RecipeCatalog.Bibimbap.Id)) count++;
+            }
+            return count;
+        }
+
+        private string CoreMissionLabel(string titleKey, string imprintId) =>
+            T(titleKey) + (StoryProgressService.HasImprint(profile, imprintId) ? "  ✓" : "");
 
         private void JourneyMissionButton(Transform parent, string titleKey, string missionId, string prerequisiteId, string prerequisiteTitleKey, Action action)
         {
@@ -1498,6 +1744,8 @@ namespace TastePassport.Core
         {
             if (activityId == "lantern-craft") StartLanternCraft();
             else if (activityId == "hanji-craft") StartHanjiCraft();
+            else if (activityId == "hoian-chuacau") StartLevel(LevelCatalog.HoiAn);
+            else if (activityId == "jeonju-hanok") StartLevel(LevelCatalog.Jeonju);
         }
 
         private bool IsJeonjuUnlocked(PlayerProfile target) =>
@@ -1505,8 +1753,7 @@ namespace TastePassport.Core
 
         private static bool HasHoiAnStoryMilestone(PlayerProfile target) =>
             ProgressService.HasStamp(target, LevelCatalog.HoiAn.Id) &&
-            ProgressService.HasStamp(target, RecipeCatalog.CaoLau.Id) &&
-            ProgressService.HasStamp(target, MatchCatalog.HoiAn.Id);
+            ProgressService.HasStamp(target, RecipeCatalog.CaoLau.Id);
 
         private void MigrateWorldUnlockFromExistingProgress(PlayerProfile target)
         {
@@ -1632,6 +1879,7 @@ namespace TastePassport.Core
             AudioVolumeSlider(sound, T("settings_music_volume"), audioManager.MusicVolume, audioManager.SetMusicVolume);
             AudioVolumeSlider(sound, T("settings_sfx_volume"), audioManager.SfxVolume, audioManager.SetSfxVolume);
             AudioVolumeSlider(sound, T("settings_ambience_volume"), audioManager.AmbienceVolume, audioManager.SetAmbienceVolume);
+            AudioVolumeSlider(sound, T("settings_narration_volume"), audioManager.NarrationVolume, audioManager.SetNarrationVolume);
             CompactButton(sound, T(audioManager.Muted ? "sound_muted" : "sound_unmuted"), Lantern, () =>
             {
                 bool mute = !audioManager.Muted;
@@ -1760,13 +2008,18 @@ namespace TastePassport.Core
             var decorations = NewRect("Festival decoration choices", decorationCard);
             SetHeight(decorations, 92);
             AddHorizontal(decorations);
-            for (int i = 0; i < FestivalPreparationRun.DecorationCount; i++)
+            for (int i = 0; i < festivalRun.AvailableDecorationCount; i++)
             {
-                string decorationId = FestivalPreparationRun.GetDecorationId(i);
+                string decorationId = festivalRun.GetAvailableDecorationId(i);
                 bool selected = festivalRun.SelectedDecorationId == decorationId;
-                Button(decorations, T("festival_decoration_" + decorationId) + (selected ? " ✓" : ""),
+                Button(decorations, T("festival_decoration_" + decorationId) + "\n" +
+                    FestivalItemLabel(festivalRun.SelectedDecorationId == decorationId
+                        ? festivalRun.SelectedDecorationItemId : FestivalPreparationRun.GetOwnedDecorationItemId(profile, decorationId)) +
+                    (selected ? " ✓" : ""),
                     selected ? Lantern : Paper, () => SelectFestivalDecoration(decorationId), Ink);
             }
+            if (festivalRun.AvailableDecorationCount == 0)
+                CollectionCopy(decorationCard, T("festival_select_owned_item"), 23, Muted, TextAnchor.MiddleCenter);
 
             for (int station = 0; station < FestivalPreparationRun.StationCount; station++)
                 DrawFestivalStation(parent, station);
@@ -1803,6 +2056,8 @@ namespace TastePassport.Core
             {
                 CollectionCopy(card, T("festival_station_decorated") + ": " +
                     T("festival_decoration_" + festivalRun.GetDecorationForStation(stationIndex)), 23, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(card, FestivalItemLabel(festivalRun.GetDecorationItemForStation(stationIndex)),
+                    21, Ink, TextAnchor.MiddleCenter);
             }
             else
             {
@@ -1822,6 +2077,7 @@ namespace TastePassport.Core
             festivalGroup.alpha = 0f;
             CollectionCopy(festivalCard, T("festival_scene_title"), 31, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             CollectionCopy(festivalCard, T("festival_corners_complete"), 25, Ink, TextAnchor.MiddleCenter);
+            DrawFestivalDisplayChoices(parent);
 
             var friendsCard = JourneyCard(parent);
             var friendsGroup = friendsCard.gameObject.AddComponent<CanvasGroup>();
@@ -1844,6 +2100,45 @@ namespace TastePassport.Core
             Button(parent, T("continue_free_exploration"), Jade, () => Navigate(Page.Map));
             CompactButton(parent, T("passport"), Paper, () => Navigate(Page.Passport), Ink);
             finaleReveal = StartCoroutine(RevealFestivalEnding(festivalGroup, friendsGroup, endingGroup));
+        }
+
+        private void DrawFestivalDisplayChoices(Transform parent)
+        {
+            if (profile.festivalDecorations == null) return;
+            foreach (FestivalDecorationRecord record in profile.festivalDecorations)
+            {
+                if (record == null || !FestivalPreparationRun.IsOwnedDecorationItem(profile, record.itemId)) continue;
+                var station = JourneyCard(parent);
+                CollectionCopy(station, T("festival_station_" + record.stationId), 27, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+                CollectionCopy(station, T("festival_decoration_" + record.decorationId) + " · " + FestivalItemLabel(record.itemId),
+                    23, Ink, TextAnchor.MiddleCenter);
+                if (record.itemId.StartsWith("photo:", StringComparison.Ordinal))
+                    DrawSavedPhotoPreview(station, record.itemId.Substring("photo:".Length), 150);
+                else if (InventoryService.GetLanternFrameId(record.itemId) != null)
+                    DrawLanternPreview(station, 110, InventoryService.GetLanternColorId(record.itemId));
+                else if (InventoryService.GetHanjiShapeId(record.itemId) != null)
+                    DrawHanjiPreview(station, 140, InventoryService.GetHanjiShapeId(record.itemId), InventoryService.GetHanjiColorId(record.itemId));
+            }
+        }
+
+        private void DrawSavedPhotoPreview(Transform parent, string photoId, float height)
+        {
+            MemoryPhotoRecord record = profile.memoryPhotos?.Find(photo => photo != null && photo.photoId == photoId);
+            Texture2D texture = MemoryPhotoService.LoadTexture(record);
+            if (texture == null)
+            {
+                CollectionCopy(parent, T("journal_photo_missing"), 22, Muted, TextAnchor.MiddleCenter);
+                return;
+            }
+            transientPageAssets.Add(texture);
+            Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(.5f, .5f));
+            transientPageAssets.Add(sprite);
+            var photo = NewRect("Saved festival photo choice", parent);
+            SetHeight(photo, height);
+            var image = photo.gameObject.AddComponent<Image>();
+            image.sprite = sprite;
+            image.preserveAspect = true;
+            image.raycastTarget = false;
         }
 
         private void AddFestivalFriend(Transform parent, string nameKey, string spritePath)
@@ -1956,7 +2251,9 @@ namespace TastePassport.Core
 
         private void SelectFestivalDecoration(string decorationId)
         {
-            if (festivalRun != null && festivalRun.SelectDecoration(decorationId)) Show();
+            if (festivalRun == null) return;
+            if (festivalRun.SelectDecoration(decorationId)) Show();
+            else { notice = T("festival_select_owned_item"); Show(); }
         }
 
         private void DecorateFestivalStation(int stationIndex)
@@ -1968,7 +2265,8 @@ namespace TastePassport.Core
             if (result != FestivalDecorationResult.Decorated) { notice = T("festival_station_already_ready"); Show(); return; }
             string decorationId = festivalRun.GetDecorationForStation(stationIndex);
             if (!SaveFestivalProgress(FestivalPreparationRun.GetDecorationStoryFlagId(stationIndex, decorationId),
-                    FestivalPreparationRun.GetDecorationImprintId(stationIndex, decorationId))) return;
+                    FestivalPreparationRun.GetDecorationImprintId(stationIndex, decorationId), stationIndex,
+                    decorationId, festivalRun.GetDecorationItemForStation(stationIndex))) return;
             notice = T("festival_decor_placed");
             Show();
         }
@@ -2032,11 +2330,19 @@ namespace TastePassport.Core
             }
         }
 
-        private bool SaveFestivalProgress(string storyFlag, string imprint)
+        private bool SaveFestivalProgress(string storyFlag, string imprint, int stationIndex = -1,
+            string decorationId = null, string itemId = null)
         {
             var candidate = new PlayerProfile();
             candidate.CopyFrom(profile);
             StoryProgressService.RecordInteraction(candidate, storyFlag, imprint);
+            if (stationIndex >= 0 && !FestivalPreparationRun.RecordDecoration(candidate, stationIndex, decorationId, itemId))
+            {
+                festivalRun = new FestivalPreparationRun(profile);
+                notice = T("festival_select_owned_item");
+                Show();
+                return false;
+            }
             if (!store.TrySave(candidate))
             {
                 festivalRun = new FestivalPreparationRun(profile);
@@ -2077,14 +2383,53 @@ namespace TastePassport.Core
             audioManager?.SetEnvironment(koreanBackdrop);
             PlayStageAudio(1, koreanBackdrop);
             placedFragments = new bool[3];
+            assembledPieceAtSlot = new[] { -1, -1, -1 };
+            pieceRotations = new[] { 0, 0, 0 };
             selectedFragment = -1;
             Navigate(Page.Dialogue);
         }
 
         private void NarrationButtons(Transform parent, string text)
         {
-            Button(parent, T("read_story"), Jade, () => StoryNarration.Speak(profile.language, text));
+            Button(parent, T("read_story"), Jade, () => SpeakNarration(text));
             Button(parent, T("stop_voice"), Paper, StoryNarration.Stop, Ink);
+        }
+
+        private void SpeakNarration(string text)
+        {
+            string status = StoryNarration.Speak(profile.language, text);
+            string key = NarrationStatusMessageKey(status);
+            if (!string.IsNullOrEmpty(key))
+            {
+                notice = T(key);
+                Show();
+            }
+            if (status == "initializing") StartCoroutine(WatchNarrationStatus());
+        }
+
+        private IEnumerator WatchNarrationStatus()
+        {
+            for (int attempt = 0; attempt < 12; attempt++)
+            {
+                yield return new WaitForSecondsRealtime(.25f);
+                string status = StoryNarration.GetStatus();
+                if (status == "initializing") continue;
+                string key = NarrationStatusMessageKey(status);
+                if (string.IsNullOrEmpty(key)) yield break;
+                notice = T(key);
+                Show();
+                yield break;
+            }
+        }
+
+        private static string NarrationStatusMessageKey(string status)
+        {
+            if (status == "pc_unavailable") return "voice_pc_unavailable";
+            if (status == "initializing") return "voice_initializing";
+            if (status == "language_unavailable") return "voice_language_unavailable";
+            if (status == "unavailable" || status == "error") return "voice_unavailable";
+            if (status == "muted") return "voice_muted";
+            return null;
         }
 
         private RectTransform ActivityGuide(Transform parent, string phaseKey, string hintKey)
@@ -2100,7 +2445,7 @@ namespace TastePassport.Core
             var row = NewRect("Activity narration", parent);
             SetHeight(row, 74);
             AddHorizontal(row);
-            CompactButton(row, T("read_story"), Paper, () => StoryNarration.Speak(profile.language, text), Ink);
+            CompactButton(row, T("read_story"), Paper, () => SpeakNarration(text), Ink);
             CompactButton(row, T("stop_voice"), Paper, StoryNarration.Stop, Ink);
         }
 
@@ -2148,7 +2493,9 @@ namespace TastePassport.Core
         {
             InspectResult result = run.Inspect(index);
             if (run.SearchComplete) { Navigate(Page.Assembly); return; }
-            notice = T(result == InspectResult.Fragment ? "fragment_found" : result == InspectResult.Empty ? "empty_spot" : "already_searched");
+            notice = result == InspectResult.Fragment
+                ? T("architecture_detail_found").Replace("{detail}", T(run.Level.ObjectKeys[index]))
+                : T(result == InspectResult.Empty ? "empty_spot" : "already_searched");
             Show();
         }
 
@@ -2158,7 +2505,9 @@ namespace TastePassport.Core
             ActivityGuide(parent, "activity_assemble_phase", "assemble_hint");
             ProgressStrip(parent, (placedFragments[0] ? 1 : 0) + (placedFragments[1] ? 1 : 0) + (placedFragments[2] ? 1 : 0), 3, T("activity_pieces_placed"));
             Artwork(parent, run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 140);
-            CollectionCopy(parent, selectedFragment >= 0 ? T("activity_selected_piece") + " " + (selectedFragment + 1) : T("activity_select_piece"), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+            CollectionCopy(parent, selectedFragment >= 0
+                ? T("activity_selected_piece") + ": " + T(run.Level.ObjectKeys[run.FoundObjectIndexAt(selectedFragment)])
+                : T("activity_select_piece"), 26, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
             pieceViews = new FragmentDrag[3];
             slotViews = new Transform[3];
             var pieces = NewRect("Fragments", parent);
@@ -2167,11 +2516,21 @@ namespace TastePassport.Core
             for (int i = 0; i < 3; i++)
             {
                 int index = i;
-                if (placedFragments[i]) { Spacer(pieces, 112); continue; }
-                var piece = Button(pieces, T("piece") + " " + (i + 1) + (selectedFragment == i ? " ✓" : ""), selectedFragment == i ? Lantern : Paper, () => { selectedFragment = index; Show(); }, Ink);
+                if (Array.IndexOf(assembledPieceAtSlot, index) >= 0) { Spacer(pieces, 112); continue; }
+                string objectKey = run.Level.ObjectKeys[run.FoundObjectIndexAt(i)];
+                string orientation = run.Level == LevelCatalog.Jeonju ? " · " + pieceRotations[index] + "°" : string.Empty;
+                var piece = Button(pieces, T(objectKey) + orientation + (selectedFragment == i ? " ✓" : ""), selectedFragment == i ? Lantern : Paper, () => { selectedFragment = index; Show(); }, Ink);
                 SetHeight(piece.GetComponent<RectTransform>(), 112);
                 pieceViews[i] = piece.AddComponent<FragmentDrag>();
                 pieceViews[i].PieceIndex = i;
+            }
+            if (run.Level == LevelCatalog.Jeonju)
+            {
+                CollectionCopy(parent, T("hanok_orientation_hint") + (selectedFragment >= 0 ? " · " + pieceRotations[selectedFragment] + "°" : string.Empty),
+                    22, Muted, TextAnchor.MiddleCenter);
+                var rotate = CompactButton(parent, T("hanok_rotate_piece") + " ↻ 90°", selectedFragment >= 0 ? Jade : Border,
+                    RotateSelectedPiece, Ink);
+                rotate.GetComponent<UnityEngine.UI.Button>().interactable = selectedFragment >= 0;
             }
             var slots = NewRect("Postcard slots", parent);
             SetHeight(slots, 128);
@@ -2179,7 +2538,9 @@ namespace TastePassport.Core
             for (int i = 0; i < 3; i++)
             {
                 int index = i;
-                var slot = Button(slots, placedFragments[i] ? "✓" : T("slot") + " " + (i + 1), placedFragments[i] ? Jade : Paper,
+                string requiredObjectKey = run.Level.ObjectKeys[run.Level.RequiredObjectIndices[index]];
+                string slotLabel = placedFragments[i] ? "✓  " + T(requiredObjectKey) : T("slot") + " · " + T(run.Level.AssemblySlotKeys[i]);
+                var slot = Button(slots, slotLabel, placedFragments[i] ? Jade : Paper,
                     () => TryPlace(index, null), placedFragments[i] ? Color.white : Ink);
                 slotViews[i] = slot.transform;
                 SetHeight(slot.GetComponent<RectTransform>(), 112);
@@ -2347,18 +2708,35 @@ namespace TastePassport.Core
 
         private void TryPlace(int slotIndex, FragmentDrag dragged)
         {
+            if (slotIndex < 0 || slotIndex >= placedFragments.Length) return;
             int pieceIndex = dragged == null ? selectedFragment : dragged.PieceIndex;
-            if (placedFragments[slotIndex] || pieceIndex < 0) return;
-            if (pieceIndex != slotIndex)
+            if (pieceIndex < 0 || pieceIndex >= run.FoundCount || placedFragments[slotIndex] ||
+                Array.IndexOf(assembledPieceAtSlot, pieceIndex) >= 0) return;
+            int foundObjectIndex = run.FoundObjectIndexAt(pieceIndex);
+            if (foundObjectIndex != run.Level.RequiredObjectIndices[slotIndex])
             {
                 notice = T("wrong_slot");
                 StartCoroutine(RefreshAfterInput(false));
                 return;
             }
+            if (pieceRotations[pieceIndex] != run.Level.RequiredRotations[slotIndex])
+            {
+                notice = T("wrong_orientation");
+                StartCoroutine(RefreshAfterInput(false));
+                return;
+            }
             placedFragments[slotIndex] = true;
+            assembledPieceAtSlot[slotIndex] = pieceIndex;
             selectedFragment = -1;
             (dragged == null ? pieceViews[pieceIndex] : dragged)?.Accept(slotViews[slotIndex]);
             StartCoroutine(RefreshAfterInput(true));
+        }
+
+        private void RotateSelectedPiece()
+        {
+            if (run == null || run.Level != LevelCatalog.Jeonju || selectedFragment < 0 || selectedFragment >= run.FoundCount) return;
+            pieceRotations[selectedFragment] = (pieceRotations[selectedFragment] + 90) % 360;
+            Show();
         }
 
         private IEnumerator RefreshAfterInput(bool checkCompletion)
@@ -2373,9 +2751,9 @@ namespace TastePassport.Core
             if (resultCommitted) return;
             resultCommitted = true;
             var saved = JsonUtility.FromJson<PlayerProfile>(JsonUtility.ToJson(profile));
-            ProgressService.Record(saved, run.Level.Id, run.Score, run.Stars);
+            bool firstCompletion = ProgressService.Record(saved, run.Level.Id, run.Score, run.Stars);
             RecordMissionWorldMark(saved, run.Level.Id);
-            saved.coins += 20 + run.Stars * 5;
+            if (firstCompletion) saved.coins += 20 + run.Stars * 5;
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
             audioManager?.PlayCue(GameSoundCue.Stamp);
@@ -2393,6 +2771,11 @@ namespace TastePassport.Core
             ActivityGuide(parent, "activity_saved", "activity_result_hint");
             if (FirstJourneyComplete()) CollectionCopy(parent, T("first_journey_complete"), 28, Vermilion, TextAnchor.MiddleCenter, FontStyle.Bold);
             Artwork(parent, matchResult ? TravelArtworkKind.Friendship : recipeResult ? (recipeRun.Recipe == RecipeCatalog.Bibimbap ? TravelArtworkKind.Bibimbap : TravelArtworkKind.CaoLau) : run.Level == LevelCatalog.HoiAn ? TravelArtworkKind.HoiAn : TravelArtworkKind.Jeonju, 210);
+            if (recipeResult && recipeRun.Recipe == RecipeCatalog.Bibimbap)
+            {
+                if (bibimbapPhotoCaptured) CollectionCopy(parent, T("photo_saved"), 27, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
+                else CompactButton(parent, T("save_bibimbap_photo"), Lantern, BeginBibimbapPhotoCapture, Ink);
+            }
             var card = JourneyCard(parent);
             CollectionCopy(card, T("activity_result_completed", T(subjectKey)), 29, Ink, TextAnchor.MiddleCenter);
             CollectionCopy(card, T("score") + ": " + score, 35, Jade, TextAnchor.MiddleCenter, FontStyle.Bold);
@@ -2413,6 +2796,7 @@ namespace TastePassport.Core
         {
             StoryNarration.Stop();
             resultCommitted = false;
+            bibimbapPhotoCaptured = false;
             koreanBackdrop = recipe == RecipeCatalog.Bibimbap;
             matchResult = false;
             recipeRun = new RecipeRun(recipe, Environment.TickCount);
@@ -2521,15 +2905,60 @@ namespace TastePassport.Core
             if (resultCommitted) return;
             resultCommitted = true;
             var saved = JsonUtility.FromJson<PlayerProfile>(JsonUtility.ToJson(profile));
-            ProgressService.Record(saved, recipeRun.Recipe.Id, recipeRun.Score, recipeRun.Stars);
+            bool firstCompletion = ProgressService.Record(saved, recipeRun.Recipe.Id, recipeRun.Score, recipeRun.Stars);
             RecordMissionWorldMark(saved, recipeRun.Recipe.Id);
-            saved.coins += 20 + recipeRun.Stars * 5;
+            if (firstCompletion) saved.coins += 20 + recipeRun.Stars * 5;
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
             audioManager?.PlayCue(GameSoundCue.Stamp);
             recipeResult = true;
             matchResult = false;
             Navigate(Page.Result);
+        }
+
+        private void BeginBibimbapPhotoCapture()
+        {
+            if (bibimbapPhotoCaptureInProgress || bibimbapPhotoCaptured || page != Page.Result ||
+                !recipeResult || recipeRun == null || recipeRun.Recipe != RecipeCatalog.Bibimbap)
+                return;
+            StartCoroutine(CaptureBibimbapResultPhoto());
+        }
+
+        private IEnumerator CaptureBibimbapResultPhoto()
+        {
+            bibimbapPhotoCaptureInProgress = true;
+            yield return new WaitForEndOfFrame();
+            Texture2D capture = null;
+            bool saved = false;
+            try
+            {
+                if (page == Page.Result && SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null)
+                {
+                    capture = ScreenCapture.CaptureScreenshotAsTexture();
+                    if (capture != null)
+                    {
+                        byte[] jpeg = capture.EncodeToJPG(72);
+                        saved = MemoryPhotoService.TryStoreJpeg(profile, store, "jeonju", "bibimbap", jpeg, out _);
+                        if (!saved) Debug.LogWarning("DẤU XỨ: Bibimbap JPEG rejected: " + capture.width + "x" + capture.height + ", " +
+                            (jpeg == null ? 0 : jpeg.Length) + " bytes, saved photos=" + (profile.memoryPhotos == null ? -1 : profile.memoryPhotos.Count));
+                    }
+                    else Debug.LogWarning("DẤU XỨ: Unity did not return a screenshot texture for the Bibimbap result.");
+                }
+                else Debug.LogWarning("DẤU XỨ: Bibimbap screenshot skipped because the result page or graphics device is unavailable.");
+            }
+            catch (Exception error)
+            {
+                Debug.LogWarning("DẤU XỨ: Bibimbap photo capture failed: " + error.Message);
+            }
+            finally
+            {
+                if (capture != null) Destroy(capture);
+                bibimbapPhotoCaptureInProgress = false;
+            }
+
+            bibimbapPhotoCaptured = saved;
+            notice = T(saved ? "photo_saved" : "photo_failed");
+            if (page == Page.Result) Show();
         }
 
         private void StartMatch(MatchDefinition definition)
@@ -2595,9 +3024,9 @@ namespace TastePassport.Core
             if (resultCommitted) return;
             resultCommitted = true;
             var saved = JsonUtility.FromJson<PlayerProfile>(JsonUtility.ToJson(profile));
-            ProgressService.Record(saved, matchRun.Definition.Id, matchRun.Score, matchRun.Stars);
+            bool firstCompletion = ProgressService.Record(saved, matchRun.Definition.Id, matchRun.Score, matchRun.Stars);
             RecordMissionWorldMark(saved, matchRun.Definition.Id);
-            saved.coins += 20 + matchRun.Stars * 5;
+            if (firstCompletion) saved.coins += 20 + matchRun.Stars * 5;
             if (!store.TrySave(saved)) { resultCommitted = false; notice = T("save_error"); Show(); return; }
             profile = saved;
             audioManager?.PlayCue(GameSoundCue.Stamp);

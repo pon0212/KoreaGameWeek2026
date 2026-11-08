@@ -1,38 +1,32 @@
-# Hộ Chiếu Vị Giác — Taste Passport
+# Dấu Xứ Việt Hàn — Tales of Two Lands
 
-A cozy, single-player Unity adventure about cultural exchange between Hội An, Việt Nam and Jeonju, South Korea. The project targets Android portrait first and can also be opened in the Windows Unity Editor.
+Một game phiêu lưu văn hóa 2D/2.5D phong cách truyện tranh giấy thủ công, đưa người chơi đi bộ khám phá Hội An và Jeonju.
 
-## Project
+## Mở và chạy
 
-- Unity: 6.6.7f1
-- Render pipeline: Universal Render Pipeline (2D)
-- Main scene: `Assets/_Game/Scenes/TastePassport_MVP.unity`
-- Runtime UI and flow: `Assets/_Game/Scripts/Core/PassportApp.cs`
-- Localized text: `Assets/_Game/Scripts/Localization/GameText.cs`
-- Korean/Vietnamese content data: `Assets/_Game/Scripts/Gameplay/`
-- Local profile and progress: `Assets/_Game/Scripts/Save/`
+- Engine: Unity `6000.6.7f1`, URP.
+- Scene chính: `Assets/_Game/Scenes/TastePassport_MVP.unity`.
+- Mở project trong Unity Hub bằng Unity `6000.6.7f1`, mở scene trên rồi nhấn **Play**. Chọn tỉ lệ Game view dọc, chẳng hạn 9:16.
+- PC dùng bàn phím/chuột; Android dùng điều khiển chạm. Bản Android mới nhất đã dựng tại `Builds/Android/TastePassport.apk`.
 
-## Open and play in Unity
+Lần đầu chơi, người chơi chọn ngôn ngữ, tạo hồ sơ và chọn nhân vật. Những lần sau có thể tiếp tục từ checkpoint đã lưu. Save nằm cục bộ trên thiết bị; ảnh kỷ niệm được lưu thành tệp JPEG riêng và được liên kết từ Sổ Dấu Xứ.
 
-1. Open the existing project in Unity Hub with Unity 6.6.7f1.
-2. In the Project window, open `Assets/_Game/Scenes/TastePassport_MVP.unity`.
-3. Set the Game view to a portrait aspect ratio (for example, 9:16 Aspect). Do not use a 9 × 16 pixel resolution.
-4. Press Play. The first run offers language and character setup; later runs can continue the saved journey.
+## Nội dung đã triển khai
 
-The game includes six replayable mission loops: exploration and postcard assembly in both locations, Cao Lầu and Bibimbap ingredient challenges, and cultural matching. Completing missions saves stamps and unlocks three collectible postcards. Profiles are stored locally; no account or network service is required.
+- Hai khu vực đi bộ có va chạm, camera follow, NPC, điểm tương tác và nhiệm vụ: Hội An và Jeonju.
+- Sáu hoạt động có thao tác và điều kiện hoàn thành riêng: khám phá/lắp ghép Chùa Cầu, chế tác đèn lồng, nấu Cao Lầu, lắp Hanok, chế tác Hanji và chuẩn bị Bibimbap.
+- Tiến trình, vật phẩm, dấu ấn văn hóa, bưu thiếp hai mặt, ảnh, nhật ký và bố cục trang được lưu qua các phiên.
+- Đèn lồng và sản phẩm Hanji đã chế tác xuất hiện trong thế giới sau khi tải lại. Ngày hội chỉ mở theo tiến trình; gian trưng bày kiểm tra vật phẩm người chơi sở hữu. Sau đoạn kết, có thể tiếp tục khám phá và chơi lại.
+- Giao diện tiếng Việt/tiếng Hàn, phụ đề, âm lượng nhạc/hiệu ứng/ambience và lời dẫn. Android gọi Text-to-Speech theo ngôn ngữ; khi không có voice, phụ đề vẫn hiển thị.
 
-## Language and narration
+## Tài liệu
 
-The UI supports Vietnamese and Korean. Android builds include a native Android TextToSpeech bridge: the selected UI language requests `vi-VN` or `ko-KR`. On the home screen and story/dialogue cards, use **Nghe lời thoại / 대사 듣기** to speak the story, and **Dừng giọng đọc / 음성 멈추기** to stop. Android must have a compatible speech engine and the requested language voice data installed. Availability and pronunciation depend on the device's TTS engine.
+- [Ma trận truy vết Use Case](docs/USECASE_TRACEABILITY.md)
+- [Báo cáo kiểm thử](docs/TEST_REPORT.md)
+- [Kiến trúc hiện tại](docs/ARCHITECTURE.md)
+- [Quyết định triển khai](docs/IMPLEMENTATION_DECISIONS.md)
+- [Báo cáo giai đoạn 7](Assets/_Game/PHASE7.md)
 
-Ambient chapter audio is generated at runtime and changes with the chapter and destination. It is a lightweight prototype, not a recorded cultural-instrument soundtrack. The Settings sound toggle controls game audio and stops active narration.
+## Trạng thái kiểm thử
 
-## Verification status
-
-A Unity batch smoke run reported PASS for the six mission loops, replay, local progress, the three postcards, postcard flip, and switching the UI to Korean. That existing smoke flow plays the missions in Vietnamese before switching the UI language; it does not verify every mission fully in Korean. Runtime and Editor C# assemblies have also been compiled with `dotnet build` against the Unity API profile.
-
-Android APK creation, Android device playback, Korean/Vietnamese TTS voice availability, and visual Play Mode checks are not claimed as verified by this README. Test these in Unity Editor/Android Build Profiles before release.
-
-## Content and assets
-
-Project artwork and fonts are stored under `Assets/_Game/Resources/` and `Assets/_Game/Art/`. Refer to the nearby `*_SOURCE.md`, `ASSET_PROVENANCE.md`, and font license files for source and licensing details.
+Ngày 2026-11-09, Unity GUI smoke trên Direct3D11 và các smoke theo từng phân hệ đạt; solution C# build được với 0 lỗi và 3 cảnh báo xung đột assembly của .NET/Unity. APK Android tạo thành công và chữ ký được xác nhận. AVD hiện chỉ cung cấp OpenGL ES 3.0 trong khi APK khai báo ES 3.1, nên chưa nghiệm thu hình ảnh/gameplay/TTS trên Android. Không có thiết bị Android vật lý trong lần kiểm tra này. Chi tiết và log được liệt kê trong [báo cáo kiểm thử](docs/TEST_REPORT.md).

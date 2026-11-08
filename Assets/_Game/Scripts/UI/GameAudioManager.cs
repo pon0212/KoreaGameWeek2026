@@ -20,16 +20,19 @@ namespace TastePassport.UI
         private const string MusicKey = "tp_music_volume";
         private const string SfxKey = "tp_sfx_volume";
         private const string AmbienceKey = "tp_ambience_volume";
+        private const string NarrationKey = "tp_narration_volume";
         private const string MuteKey = "tp_sound";
 
         public static float MusicVolume => PlayerPrefs.GetFloat(MusicKey, .48f);
         public static float SfxVolume => PlayerPrefs.GetFloat(SfxKey, .62f);
         public static float AmbienceVolume => PlayerPrefs.GetFloat(AmbienceKey, .28f);
+        public static float NarrationVolume => PlayerPrefs.GetFloat(NarrationKey, .78f);
         public static bool Muted => PlayerPrefs.GetInt(MuteKey, 1) == 0;
 
         public static void SetMusicVolume(float value) => PlayerPrefs.SetFloat(MusicKey, Mathf.Clamp01(value));
         public static void SetSfxVolume(float value) => PlayerPrefs.SetFloat(SfxKey, Mathf.Clamp01(value));
         public static void SetAmbienceVolume(float value) => PlayerPrefs.SetFloat(AmbienceKey, Mathf.Clamp01(value));
+        public static void SetNarrationVolume(float value) => PlayerPrefs.SetFloat(NarrationKey, Mathf.Clamp01(value));
         public static void SetMuted(bool value) => PlayerPrefs.SetInt(MuteKey, value ? 0 : 1);
     }
 
@@ -53,6 +56,7 @@ namespace TastePassport.UI
         public float MusicVolume => GameAudioSettings.MusicVolume;
         public float SfxVolume => GameAudioSettings.SfxVolume;
         public float AmbienceVolume => GameAudioSettings.AmbienceVolume;
+        public float NarrationVolume => GameAudioSettings.NarrationVolume;
         public bool Muted => GameAudioSettings.Muted;
 
         public static GameAudioManager For(GameObject owner)
@@ -116,6 +120,13 @@ namespace TastePassport.UI
             GameAudioSettings.SetAmbienceVolume(value);
             ScheduleSave();
             if (ambienceTransition == null) ApplyAmbienceVolume();
+        }
+
+        public void SetNarrationVolume(float value)
+        {
+            GameAudioSettings.SetNarrationVolume(value);
+            StoryNarration.SetVolume(value);
+            ScheduleSave();
         }
 
         public void SetMuted(bool value)

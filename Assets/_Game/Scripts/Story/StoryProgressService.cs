@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using TastePassport.Save;
 
 namespace TastePassport.Story
@@ -19,6 +21,7 @@ namespace TastePassport.Story
             bool changed = false;
             if (!string.IsNullOrWhiteSpace(storyFlag)) changed |= AddFlag(profile, storyFlag);
             if (!string.IsNullOrWhiteSpace(imprintId)) changed |= AddImprint(profile, imprintId);
+            if (changed) RecordJourneyEvent(profile, !string.IsNullOrWhiteSpace(imprintId) ? imprintId : storyFlag);
             return changed;
         }
 
@@ -47,7 +50,29 @@ namespace TastePassport.Story
             }
             changed |= AddFlag(profile, "main-story-completed");
             changed |= AddImprint(profile, "festival-completed");
+            if (changed) RecordJourneyEvent(profile, "festival-completed");
             return changed;
+        }
+
+        private static void RecordJourneyEvent(PlayerProfile profile, string eventId)
+        {
+            if (profile.journeyEvents == null) profile.journeyEvents = new List<JourneyEventRecord>();
+            if (profile.journeyEvents.Count >= 128 || string.IsNullOrWhiteSpace(eventId)) return;
+            profile.journeyEvents.Add(new JourneyEventRecord
+            {
+                eventId = eventId.Trim(),
+                worldId = InferWorld(eventId),
+                createdAtUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)
+            });
+        }
+
+        private static string InferWorld(string eventId)
+        {
+            if (eventId.StartsWith("festival-", StringComparison.Ordinal) || eventId.Contains("shared")) return "shared";
+            if (eventId.StartsWith("jeonju", StringComparison.Ordinal) || eventId.Contains("hanji") ||
+                eventId.Contains("hanok") || eventId.Contains("bibimbap") || eventId.Contains("gabo") ||
+                eventId.Contains("gyeonggijeon") || eventId.Contains("pansori")) return "jeonju";
+            return "hoian";
         }
 
         private static bool Contains(List<string> values, string id) =>
