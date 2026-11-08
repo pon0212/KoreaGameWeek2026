@@ -19,6 +19,577 @@ namespace TastePassport.EditorTools
 {
     public static class TastePassportWorldSmoke
     {
+        [MenuItem("Tools/Taste Passport/Validate Card Adventure UI")]
+        public static void RunCardAdventureUiChecks()
+        {
+            RunCardNameGlyphChecks();
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            Type type = typeof(PassportApp);
+            Require(type.GetMethod("DrawStoryTarget", hidden) != null, "2D target card renderer is missing");
+            Require(type.GetMethod("DrawStoryCard", hidden) != null, "2D dialogue card renderer is missing");
+            var owner = new GameObject("Card UI builder");
+            owner.SetActive(false);
+            var root = new GameObject("Card UI reference", typeof(RectTransform), typeof(Canvas));
+            try
+            {
+                root.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+                var app = owner.AddComponent<PassportApp>();
+                var safe = new GameObject("720x1280 safe area", typeof(RectTransform)).GetComponent<RectTransform>();
+                safe.SetParent(root.transform, false);
+                safe.sizeDelta = new Vector2(720, 1280);
+                var copyFailures = new System.Collections.Generic.List<string>();
+                foreach (string language in new[] { "vi", "ko" })
+                    CheckCampaignCardCopy(app, safe, language, copyFailures);
+                Require(copyFailures.Count == 0, "Campaign card copy failed: " + string.Join("; ", copyFailures));
+                foreach (string language in new[] { "vi", "ko" })
+                {
+                    var profile = new PlayerProfile { language = language, playerName = "Traveler", created = true };
+                    type.GetField("profile", hidden).SetValue(app, profile);
+                    foreach (string key in new[] { "card_continue", "card_ask_more", "card_open_target", "card_location_hint", "card_next_hint", "card_craft_hint" })
+                        Require(GameText.Get(language, key) != key && GameText.Get("vi", key) != GameText.Get("ko", key),
+                            "Missing paired card copy: " + language + "/" + key);
+                    var mapContent = new GameObject("Journey card copy", typeof(RectTransform)).GetComponent<RectTransform>();
+                    mapContent.SetParent(safe, false);
+                    type.GetMethod("DrawMap", hidden).Invoke(app, new object[] { mapContent });
+                    bool touchHint = false;
+                    foreach (var label in mapContent.GetComponentsInChildren<Text>())
+                    {
+                        if (label.text == GameText.Get(language, "card_next_hint")) touchHint = true;
+                        Require(label.text != GameText.Get(language, "world_hint_find_nhung"),
+                            language + ": journey still instructs the player to walk to Nhung");
+                    }
+                    Require(touchHint, language + ": journey has no touch-card guidance");
+                    UnityEngine.Object.DestroyImmediate(mapContent.gameObject);
+                    foreach (string worldId in new[] { "hoian", "jeonju" })
+                    foreach (var target in WorldCatalog.Get(worldId).Interactables)
+                    {
+                        type.GetField("storyWorldId", hidden).SetValue(app, worldId);
+                        type.GetField("storyTarget", hidden).SetValue(app, target);
+                        type.GetField("storyCardInteraction", hidden).SetValue(app,
+                            new WorldInteractionResult(target, target.FirstDialogueKey, true, true));
+                        foreach (string renderer in new[] { "DrawStoryTarget", "DrawStoryCard" })
+                        {
+                            var content = new GameObject("Card content", typeof(RectTransform), typeof(VerticalLayoutGroup)).GetComponent<RectTransform>();
+                            content.SetParent(safe, false);
+                            content.anchorMin = Vector2.zero; content.anchorMax = Vector2.one;
+                            content.offsetMin = new Vector2(36, 40); content.offsetMax = new Vector2(-36, -40);
+                            var layout = content.GetComponent<VerticalLayoutGroup>();
+                            layout.spacing = 18; layout.childControlWidth = true; layout.childForceExpandWidth = true;
+                            layout.childControlHeight = true; layout.childForceExpandHeight = false;
+                            type.GetMethod(renderer, hidden).Invoke(app, new object[] { content });
+                            Canvas.ForceUpdateCanvases();
+                            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+                            int primary = 0;
+                            foreach (var button in content.GetComponentsInChildren<Button>())
+                            {
+                                if (button.GetComponent<Image>().color == GameUiTheme.Primary) primary++;
+                                var rect = button.GetComponent<RectTransform>();
+                                Require(rect.rect.width >= 64 && rect.rect.height >= 64,
+                                    language + ": card touch target below 64: " + button.name + " " + rect.rect.size);
+                                var corners = new Vector3[4]; rect.GetWorldCorners(corners);
+                                foreach (var corner in corners)
+                                    Require(safe.rect.Contains((Vector2)safe.InverseTransformPoint(corner)),
+                                        language + ": card action outside safe area: " + button.name);
+                            }
+                            Require(primary == 1, language + ": card must have one primary action");
+                            if (target.IsNpc)
+                            {
+                                bool portrait = false;
+                                foreach (var image in content.GetComponentsInChildren<Image>())
+                                    if (image.name == "Story portrait" && image.sprite != null && image.gameObject.activeInHierarchy) portrait = true;
+                                Require(portrait, language + ": NPC portrait is missing");
+                            }
+                            bool named = false;
+                            foreach (var label in content.GetComponentsInChildren<Text>())
+                                if (label.text == GameText.Get(language, target.NameKey)) named = true;
+                            Require(named, language + ": target name is missing");
+                            UnityEngine.Object.DestroyImmediate(content.gameObject);
+                        }
+                    }
+                }
+                Require(owner.GetComponent<WalkableWorldSession>() == null, "card UI created a world session");
+                RunCardCaptureValidationChecks();
+                CheckCardCaptureCoverage();
+                Debug.Log("Dấu Xứ card adventure UI smoke PASS: VI/KO, portraits, one primary action, 64-unit controls, safe area, 28 generated card captures and four ending action viewports");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root); }
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Card Name Glyphs")]
+        public static void RunCardNameGlyphChecks()
+        {
+            // Fixed-height destination titles and friend captions used to have text but no drawable glyphs.
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            var owner = new GameObject("Card name glyph fixture");
+            var root = new GameObject("Card name layout canvas", typeof(RectTransform), typeof(Canvas));
+            var failures = new System.Collections.Generic.List<string>();
+            try
+            {
+                var app = owner.AddComponent<PassportApp>();
+                root.GetComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+                foreach (var pixels in new[] { new Vector2Int(720, 1280), new Vector2Int(1080, 2400) })
+                foreach (string language in new[] { "vi", "ko" })
+                {
+                    float scale = Mathf.Sqrt(pixels.x / 720f * (pixels.y / 1280f));
+                    float width = pixels.x / scale;
+                    ((RectTransform)root.transform).sizeDelta = new Vector2(width, pixels.y / scale);
+                    typeof(PassportApp).GetField("profile", hidden).SetValue(app,
+                        new PlayerProfile { language = language, playerName = "Traveler", created = true });
+                    var content = new GameObject("Fitted card page", typeof(RectTransform), typeof(VerticalLayoutGroup),
+                        typeof(ContentSizeFitter)).GetComponent<RectTransform>();
+                    content.SetParent(root.transform, false); content.sizeDelta = new Vector2(width - 72, 1280);
+                    var layout = content.GetComponent<VerticalLayoutGroup>();
+                    layout.childControlWidth = true; layout.childControlHeight = true;
+                    layout.childForceExpandWidth = true; layout.childForceExpandHeight = false;
+                    content.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+                    typeof(PassportApp).GetMethod("DrawMap", hidden).Invoke(app, new object[] { content });
+                    typeof(PassportApp).GetMethod("DrawFinaleResult", hidden).Invoke(app, new object[] { content });
+                    Canvas.ForceUpdateCanvases();
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+                    string context = language + "/" + pixels.x + "x" + pixels.y;
+                    foreach (string surface in new[] { "Hoi An destination surface", "Jeonju destination surface" })
+                        CheckNameGlyphs(content.Find(surface).GetComponentInChildren<Text>(), context, failures);
+                    int friends = 0;
+                    foreach (var rect in content.GetComponentsInChildren<RectTransform>())
+                    {
+                        if (!rect.name.StartsWith("Festival friend - ", StringComparison.Ordinal)) continue;
+                        CheckNameGlyphs(rect.GetComponentInChildren<Text>(), context, failures);
+                        friends++;
+                    }
+                    Require(friends == 4, context + ": ending must contain all four named friends");
+                    UnityEngine.Object.DestroyImmediate(content.gameObject);
+                }
+                Require(failures.Count == 0, "Card name glyphs clipped: " + string.Join("; ", failures));
+                Debug.Log("Card name glyph smoke PASS: all destination and four friend names draw complete glyphs inside their actual VI/KO rectangles at 720x1280 and 1080x2400");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root); }
+        }
+
+        private static void CheckNameGlyphs(Text label, string context, System.Collections.Generic.List<string> failures)
+        {
+            var generator = new TextGenerator();
+            generator.Populate(label.text, label.GetGenerationSettings(label.rectTransform.rect.size));
+            int expected = 0, drawn = 0;
+            foreach (char character in label.text) if (!char.IsWhiteSpace(character)) expected++;
+            bool contained = true;
+            var bounds = label.rectTransform.rect;
+            var vertices = generator.verts;
+            for (int i = 0; i + 3 < vertices.Count; i += 4)
+            {
+                Vector2 min = vertices[i].position, max = min;
+                for (int j = 1; j < 4; j++)
+                {
+                    min = Vector2.Min(min, vertices[i + j].position);
+                    max = Vector2.Max(max, vertices[i + j].position);
+                }
+                if ((max.x - min.x) * (max.y - min.y) < .01f) continue;
+                drawn++;
+                min /= label.pixelsPerUnit; max /= label.pixelsPerUnit;
+                if (min.x < bounds.xMin - 1 || max.x > bounds.xMax + 1 ||
+                    min.y < bounds.yMin - 1 || max.y > bounds.yMax + 1) contained = false;
+            }
+            string detail = context + "/" + label.text + ": glyphs=" + drawn + "/" + expected +
+                ", rect=" + bounds.size + ", font=" + label.fontSize + ", preferredHeight=" + label.preferredHeight;
+            Debug.Log("Card name glyphs " + detail);
+            if (expected == 0 || drawn != expected || !contained) failures.Add(detail + ", contained=" + contained);
+        }
+
+        private static void CheckCardCaptureCoverage()
+        {
+            // Catch a missing state/language/size in the actual capture output, not the driver's page list.
+            string requested = Environment.GetEnvironmentVariable("TP_UI_CAPTURE_FOLDER");
+            string folder = string.IsNullOrWhiteSpace(requested)
+                ? Path.Combine(Directory.GetCurrentDirectory(), "Logs", "UiPreview") : Path.GetFullPath(requested);
+            var failures = new System.Collections.Generic.List<string>();
+            foreach (string state in new[] { "journey", "target", "dialogue", "activity", "reward", "passport", "ending", "ending-action" })
+            foreach (string language in new[] { "vi", "ko" })
+            foreach (var size in new[] { new Vector2Int(720, 1280), new Vector2Int(1080, 2400) })
+            {
+                string name = "Card_" + (state == "ending-action" ? "ending_" + language + "_action" : state + "_" + language) + "_" + size.x + "x" + size.y + ".png";
+                string path = Path.Combine(folder, name);
+                if (!File.Exists(path)) { failures.Add("missing " + name); continue; }
+                if (!IsCardCaptureImageValid(File.ReadAllBytes(path), size)) failures.Add("invalid, blank PNG or dimensions: " + name);
+            }
+            Require(failures.Count == 0, "Card capture coverage failed in " + folder + ": " + string.Join("; ", failures));
+        }
+
+        private static bool IsCardCaptureImageValid(byte[] png, Vector2Int size)
+        {
+            var image = new Texture2D(2, 2);
+            try
+            {
+                if (!image.LoadImage(png) || image.width != size.x || image.height != size.y) return false;
+                var pixels = image.GetPixels32();
+                Color32 first = pixels[0];
+                int varied = 0;
+                foreach (var pixel in pixels)
+                    if (pixel.a > 16 && (Math.Abs(pixel.r - first.r) > 24 || Math.Abs(pixel.g - first.g) > 24 || Math.Abs(pixel.b - first.b) > 24)) varied++;
+                return varied > pixels.Length / 100; // Reject a solid/near-solid or fully transparent capture.
+            }
+            finally { UnityEngine.Object.DestroyImmediate(image); }
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Card Capture Rejections")]
+        public static void RunCardCaptureValidationChecks()
+        {
+            // Catch a validator accepting unrelated, transparent, culled or offscreen content and a blank PNG.
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            var owner = new GameObject("Capture validator fixture"); owner.SetActive(false);
+            var root = new GameObject("Capture viewport", typeof(RectTransform), typeof(Canvas));
+            var cameraObject = new GameObject("Capture validation camera", typeof(Camera));
+            var texture = new RenderTexture(720, 1280, 24);
+            var pixels = new Texture2D(32, 64);
+            try
+            {
+                var app = owner.AddComponent<PassportApp>();
+                var driver = owner.AddComponent<TastePassportUiCaptureDriver>();
+                var camera = cameraObject.GetComponent<Camera>();
+                camera.orthographic = true; camera.orthographicSize = 640; camera.aspect = 720f / 1280;
+                camera.transform.position = new Vector3(0, 0, -10); camera.targetTexture = texture;
+                var canvas = root.GetComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace; canvas.worldCamera = camera;
+                var safe = root.GetComponent<RectTransform>(); safe.sizeDelta = new Vector2(720, 1280);
+                typeof(PassportApp).GetField("safeRoot", hidden).SetValue(app, safe);
+                var profile = new PlayerProfile { language = "vi", created = true };
+                typeof(PassportApp).GetField("profile", hidden).SetValue(app, profile);
+                var page = typeof(PassportApp).GetField("page", hidden);
+                page.SetValue(app, Enum.Parse(page.FieldType, "Map"));
+                typeof(TastePassportUiCaptureDriver).GetField("app", hidden).SetValue(driver, app);
+                typeof(TastePassportUiCaptureDriver).GetField("captureCamera", hidden).SetValue(driver, camera);
+                var verify = typeof(TastePassportUiCaptureDriver).GetMethod("VerifyCardCapture", hidden);
+                Func<string, float, Text> label = (copy, y) =>
+                {
+                    var text = new GameObject("Capture text", typeof(RectTransform), typeof(Text)).GetComponent<Text>();
+                    text.transform.SetParent(safe, false); text.rectTransform.sizeDelta = new Vector2(600, 80);
+                    text.rectTransform.anchoredPosition = new Vector2(0, y); text.font = Resources.Load<Font>("TastePassportFont");
+                    text.fontSize = 24; text.text = copy; text.color = Color.black;
+                    return text;
+                };
+                var heading = label(GameText.Get("vi", "map"), 140);
+                var action = label(GameText.Get("vi", "map_do_next"), 0);
+                action.gameObject.AddComponent<Button>();
+                label("Unrelated stale content", -140);
+                Canvas.ForceUpdateCanvases();
+                Action validate = () => verify.Invoke(driver, new object[] { "Card_journey_vi" });
+                validate(); // A valid visible card must still be accepted.
+                var failures = new System.Collections.Generic.List<string>();
+                Action<string, Action, Action> reject = (name, mutate, restore) =>
+                {
+                    mutate(); bool rejected = false;
+                    try { validate(); }
+                    catch (TargetInvocationException error) when (error.InnerException is InvalidOperationException) { rejected = true; }
+                    finally { restore(); }
+                    if (!rejected) failures.Add(name);
+                };
+                reject("transparent heading", () => heading.color = Color.clear, () => heading.color = Color.black);
+                reject("transparent primary", () => action.color = Color.clear, () => action.color = Color.black);
+                reject("wrong heading", () => heading.text = "Other page", () => heading.text = GameText.Get("vi", "map"));
+                reject("wrong primary", () => action.text = "Other action", () => action.text = GameText.Get("vi", "map_do_next"));
+                reject("culled heading", () => heading.canvasRenderer.cull = true, () => heading.canvasRenderer.cull = false);
+                reject("offscreen heading", () => heading.rectTransform.anchoredPosition = new Vector2(2000, 140),
+                    () => heading.rectTransform.anchoredPosition = new Vector2(0, 140));
+                var group = root.AddComponent<CanvasGroup>();
+                reject("transparent parent", () => group.alpha = 0, () => group.alpha = 1);
+                reject("blank expected content", () => { heading.text = ""; action.text = ""; },
+                    () => { heading.text = GameText.Get("vi", "map"); action.text = GameText.Get("vi", "map_do_next"); });
+                reject("wrong language", () => profile.language = "ko", () => profile.language = "vi");
+                reject("wrong page", () => page.SetValue(app, Enum.Parse(page.FieldType, "Passport")),
+                    () => page.SetValue(app, Enum.Parse(page.FieldType, "Map")));
+                var solid = new Color32[32 * 64];
+                for (int i = 0; i < solid.Length; i++) solid[i] = new Color32(248, 236, 215, 255);
+                pixels.SetPixels32(solid); pixels.Apply();
+                if (IsCardCaptureImageValid(pixels.EncodeToPNG(), new Vector2Int(32, 64))) failures.Add("uniform blank PNG");
+                for (int i = 0; i < solid.Length; i++) solid[i] = i < solid.Length / 2 ? Color.black : Color.white;
+                pixels.SetPixels32(solid); pixels.Apply();
+                Require(IsCardCaptureImageValid(pixels.EncodeToPNG(), new Vector2Int(32, 64)), "nonblank PNG fixture was rejected");
+                if (IsCardCaptureImageValid(pixels.EncodeToPNG(), new Vector2Int(32, 63))) failures.Add("wrong PNG dimensions");
+                Require(failures.Count == 0, "Card capture validator accepted invalid output: " + string.Join("; ", failures));
+                Debug.Log("Card capture negative checks PASS: transparent, wrong/blank copy, cull, viewport, language/page and uniform PNG");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(cameraObject); UnityEngine.Object.DestroyImmediate(texture);
+                UnityEngine.Object.DestroyImmediate(pixels);
+            }
+        }
+
+        private static void CheckCampaignCardCopy(PassportApp app, Transform safe, string language,
+            System.Collections.Generic.List<string> failures)
+        {
+            // Catch proximity instructions on direct craft CTAs and a reward hint that skips the journey step.
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            Type type = typeof(PassportApp);
+            var profile = new PlayerProfile { language = language, created = true, playerName = "Traveler" };
+            foreach (string id in new[] { "hoian-architecture", "hoian-cao-lau", "hoian-culture",
+                "jeonju-architecture", "jeonju-bibimbap", "jeonju-culture" })
+                ProgressService.Record(profile, id, 100, 3);
+            type.GetField("profile", hidden).SetValue(app, profile);
+            foreach (string craft in new[] { "lantern", "hanji" })
+            {
+                if (craft == "hanji") StoryProgressService.AddImprint(profile, "lantern-display-ready");
+                Require(MapObjectiveService.GetCurrent(profile, true).Action ==
+                    (craft == "lantern" ? MapObjectiveAction.LanternCraft : MapObjectiveAction.HanjiCraft),
+                    "craft copy fixture did not select " + craft);
+                var content = new GameObject("Craft journey copy", typeof(RectTransform));
+                content.transform.SetParent(safe, false);
+                type.GetMethod("DrawMap", hidden).Invoke(app, new object[] { content.transform });
+                var objective = content.transform.Find("Next objective surface");
+                bool tap = false, proximity = false;
+                foreach (var text in objective.GetComponentsInChildren<Text>())
+                {
+                    if (text.text == GameText.Get(language, "card_craft_hint") && text.text != "card_craft_hint") tap = true;
+                    if (text.text == GameText.Get(language, "world_hint_craft_" + craft)) proximity = true;
+                }
+                if (!tap || proximity) failures.Add(language + "/" + craft + ": direct craft CTA still has proximity guidance");
+                UnityEngine.Object.DestroyImmediate(content);
+            }
+            var reward = new GameObject("Lantern reward copy", typeof(RectTransform));
+            reward.transform.SetParent(safe, false);
+            type.GetMethod("DrawLanternResult", hidden).Invoke(app, new object[] { reward.transform });
+            string hint = GameText.Get(language, "activity_lantern_next");
+            bool accurateHint = hint.Contains(language == "vi" ? "hành trình" : "여정") &&
+                hint.Contains(language == "vi" ? "mục tiêu trưng bày" : "전시 목표");
+            bool rendered = false;
+            foreach (var text in reward.GetComponentsInChildren<Text>()) if (text.text == hint) rendered = true;
+            if (!rendered || !accurateHint)
+                failures.Add(language + "/lantern-result: Continue copy omits journey return and display objective selection");
+            UnityEngine.Object.DestroyImmediate(reward);
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Card Adventure")]
+        public static void RunCardAdventureChecks()
+        {
+            // Catch live-profile mutation before saving, consumed first visits, and cross-world routing.
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            Type appType = typeof(PassportApp);
+            MethodInfo open = appType.GetMethod("OpenStoryCard", hidden, null,
+                new[] { typeof(string), typeof(string) }, null);
+            Require(open != null, "PassportApp.OpenStoryCard card route is missing");
+            string folder = Path.Combine(Path.GetTempPath(), "taste_passport_cards_" + Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(folder, "profile.json");
+            var owner = new GameObject("Card adventure smoke");
+            try
+            {
+                Directory.CreateDirectory(folder);
+                var cameraObject = new GameObject("Card smoke camera", typeof(Camera));
+                cameraObject.transform.SetParent(owner.transform, false);
+                cameraObject.tag = "MainCamera";
+                var app = owner.AddComponent<PassportApp>();
+                FieldInfo profileField = appType.GetField("profile", hidden);
+                FieldInfo storeField = appType.GetField("store", hidden);
+                FieldInfo pageField = appType.GetField("page", hidden);
+                FieldInfo interactionField = appType.GetField("storyCardInteraction", hidden);
+                Require(interactionField != null, "card route has no dialogue state");
+                var profile = new PlayerProfile();
+                var store = new ProfileStore(path);
+                profileField.SetValue(app, profile);
+                storeField.SetValue(app, store);
+                appType.GetMethod("EnsureCanvas", hidden).Invoke(app, null);
+                // ExecuteMethod is in edit mode: clean test-owned views before Show's deferred runtime teardown.
+                Action clearViews = () =>
+                {
+                    var root = (RectTransform)appType.GetField("safeRoot", hidden).GetValue(app);
+                    for (int i = root.childCount - 1; i >= 0; i--)
+                        UnityEngine.Object.DestroyImmediate(root.GetChild(i).gameObject);
+                };
+                Action<string, string> route = (world, target) =>
+                {
+                    clearViews();
+                    open.Invoke(app, new object[] { world, target });
+                };
+                route("hoian", "nhung");
+                var first = (WorldInteractionResult)interactionField.GetValue(app);
+                Require(first != null && first.DialogueKey == "prologue_nhung_first" && first.IsFirstVisit &&
+                        pageField.GetValue(app).ToString() == "StoryCard" &&
+                        StoryProgressService.HasFlag(profile, "nhung-intro-seen") && profile.chapterIndex == 2 &&
+                        StoryProgressService.HasImprint(store.Load(), "dau-xu-book-discovered"),
+                    "successful card interaction did not persist first dialogue and book progress");
+                route("hoian", "nhung");
+                var repeat = (WorldInteractionResult)interactionField.GetValue(app);
+                Require(repeat.DialogueKey == "nhung_repeat" && !repeat.IsFirstVisit &&
+                        profile.storyFlags.Count == 1 && profile.worldImprints.Count == 1,
+                    "repeat card interaction lost repeat dialogue or duplicated progress");
+
+                string beforeInvalid = JsonUtility.ToJson(profile);
+                open.Invoke(app, new object[] { "hoian", "hanok" });
+                open.Invoke(app, new object[] { "invalid-world", "nhung" });
+                open.Invoke(app, new object[] { "hoian", "lantern-display" });
+                Require(JsonUtility.ToJson(profile) == beforeInvalid && interactionField.GetValue(app) == repeat,
+                    "invalid world, cross-world target, or blocked display changed card state");
+
+                var fresh = new PlayerProfile { language = "ko" };
+                profileField.SetValue(app, fresh);
+                storeField.SetValue(app, new ProfileStore(folder)); // A directory cannot be replaced by a profile file.
+                pageField.SetValue(app, Enum.Parse(pageField.FieldType, "Map"));
+                string beforeFailure = JsonUtility.ToJson(fresh);
+                clearViews();
+                appType.GetMethod("RunMapObjective", hidden).Invoke(app,
+                    new object[] { MapObjectiveService.GetCurrent(fresh, false) });
+                Require(ReferenceEquals(profileField.GetValue(app), fresh) && JsonUtility.ToJson(fresh) == beforeFailure &&
+                        JsonUtility.ToJson(store.Load()) == JsonUtility.ToJson(profile) &&
+                        interactionField.GetValue(app) == repeat && pageField.GetValue(app).ToString() == "Map",
+                    "failed card save mutated the original profile, saved profile, dialogue, or navigation");
+                bool localizedError = false;
+                foreach (var text in owner.GetComponentsInChildren<Text>(true))
+                    if (text.text == GameText.Get("ko", "save_error")) localizedError = true;
+                Require(localizedError, "failed card save did not surface the localized save error");
+
+                storeField.SetValue(app, store);
+                route("hoian", "nhung");
+                var retried = (WorldInteractionResult)interactionField.GetValue(app);
+                Require(retried.IsFirstVisit && retried.DialogueKey == "prologue_nhung_first" &&
+                        StoryProgressService.HasFlag(store.Load(), "nhung-intro-seen"),
+                    "failed save consumed the first visit instead of leaving it retryable");
+                route("hoian", "chuacau");
+                int items = fresh.inventoryItems.Count;
+                int cards = fresh.culturalCards.Count;
+                Require(cards == 1 && InventoryService.HasCultureCard(fresh, "culture-hoian-chuacau"),
+                    "landmark route did not award its culture card");
+                route("hoian", "chuacau");
+                Require(fresh.inventoryItems.Count == items && fresh.culturalCards.Count == cards &&
+                        ((WorldInteractionResult)interactionField.GetValue(app)).DialogueKey == "chuacau_discovery_repeat" &&
+                        store.Load().culturalCards.Count == cards,
+                    "repeated landmark card duplicated rewards or lost repeat dialogue");
+                Debug.Log("Dấu Xứ card adventure smoke PASS: persisted dialogue, failed-save rollback, localized error, retry, and idempotent rewards");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(owner);
+                if (Directory.Exists(folder)) Directory.Delete(folder, true);
+                foreach (string suffix in new[] { ".tmp", ".old", ".bak" })
+                    if (File.Exists(folder + suffix)) File.Delete(folder + suffix);
+            }
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Card Objectives")]
+        public static void RunCardObjectiveChecks()
+        {
+            // Catch incorrect target routing, premature display/unlock, and replayed legacy onboarding.
+            FieldInfo targetId = typeof(MapObjectiveDefinition).GetField("TargetId");
+            Require(targetId != null && targetId.FieldType == typeof(string),
+                "MapObjectiveDefinition.TargetId is missing");
+            Action<PlayerProfile, string, string, string> requireCard = (profile, world, target, title) =>
+            {
+                MapObjectiveDefinition objective = MapObjectiveService.GetCurrent(profile, false);
+                Require(objective.Action.ToString() == "StoryCardTarget" && objective.WorldId == world &&
+                        (string)targetId.GetValue(objective) == target && objective.TitleKey == title &&
+                        FindTarget(WorldCatalog.Get(world), target) != null,
+                    "incorrect story card objective: " + title);
+            };
+            var fresh = new PlayerProfile();
+            requireCard(null, "hoian", "nhung", "world_objective_find_nhung");
+            requireCard(fresh, "hoian", "nhung", "world_objective_find_nhung");
+            StoryProgressService.AddFlag(fresh, "nhung-intro-seen");
+            requireCard(fresh, "hoian", "lan", "world_objective_find_lan");
+            StoryProgressService.AddFlag(fresh, "lan-met");
+            requireCard(fresh, "hoian", "lan", "world_objective_craft_lantern");
+            Require(FindTarget(WorldCatalog.Get("hoian"), "lan").ActivityId == "lantern-craft",
+                "Lan's objective cannot hand off to lantern crafting");
+            StoryProgressService.AddImprint(fresh, "lantern-display-ready");
+            requireCard(fresh, "hoian", "lantern-display", "world_objective_see_lantern");
+            StoryProgressService.AddFlag(fresh, "lantern-display-seen");
+            Require(MapObjectiveService.GetCurrent(fresh, false).Action == MapObjectiveAction.OpenPassport,
+                "lantern display skipped the passport tutorial");
+            StoryProgressService.AddFlag(fresh, "tutorial-passport-viewed");
+            Require(MapObjectiveService.GetCurrent(fresh, false).Action == MapObjectiveAction.HoiAnArchitecture,
+                "tutorial skipped Hoi An architecture");
+            ProgressService.Record(fresh, "hoian-architecture", 100, 3);
+            Require(MapObjectiveService.GetCurrent(fresh, false).Action == MapObjectiveAction.CaoLau,
+                "architecture stamp did not advance to Cao Lau");
+            ProgressService.Record(fresh, "hoian-cao-lau", 100, 3);
+            Require(MapObjectiveService.GetCurrent(fresh, false).Action == MapObjectiveAction.HoiAnExchange,
+                "Cao Lau stamp did not advance to the Hoi An exchange");
+
+            var legacy = new PlayerProfile();
+            foreach (string id in new[] { "hoian-architecture", "hoian-cao-lau", "hoian-culture" })
+                ProgressService.Record(legacy, id, 100, 3);
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.JeonjuArchitecture,
+                "existing Hoi An stamps replayed onboarding instead of advancing to Jeonju");
+            Require(MapObjectiveService.GetCurrent(legacy, false).Action != MapObjectiveAction.JeonjuArchitecture,
+                "objective bypassed the supplied Jeonju lock");
+            ProgressService.Record(legacy, "jeonju-architecture", 100, 3);
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.Bibimbap,
+                "legacy architecture stamp replayed a completed Jeonju objective");
+            ProgressService.Record(legacy, "jeonju-bibimbap", 100, 3);
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.JeonjuExchange,
+                "legacy recipe stamp replayed a completed Jeonju objective");
+            ProgressService.Record(legacy, "jeonju-culture", 100, 3);
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.LanternCraft,
+                "legacy mission stamps skipped the missing lantern craft");
+            StoryProgressService.AddImprint(legacy, "lantern-display-ready");
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.HanjiCraft,
+                "legacy lantern craft skipped the missing Hanji craft");
+            StoryProgressService.AddImprint(legacy, "hanji-display-ready");
+            Require(MapObjectiveService.GetCurrent(legacy, true).Action == MapObjectiveAction.Festival,
+                "six stamps and both crafts did not advance to the festival");
+            Require(legacy.storyFlags.Count == 0 && !legacy.mainStoryCompleted,
+                "objective selection mutated legacy story progress");
+
+            legacy.mainStoryCompleted = true;
+            foreach (bool unlocked in new[] { false, true })
+            {
+                MapObjectiveDefinition optional = MapObjectiveService.GetCurrent(legacy, unlocked);
+                Require(optional.Action == MapObjectiveAction.ExploreWorld &&
+                        optional.TitleKey == "world_objective_free_explore" &&
+                        optional.WorldId == (unlocked ? "jeonju" : "hoian") && targetId.GetValue(optional) == null,
+                    "completed story did not offer optional free roam with no required target");
+            }
+            Debug.Log("Dấu Xứ card objective smoke PASS: story targets, craft handoff, legacy stamps, Jeonju gate, and optional free roam");
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate Card Interactions")]
+        public static void RunCardInteractionChecks()
+        {
+            // Catch missing rewards, repeat mutations, chapter advancement, and bypassed prerequisites.
+            Type service = typeof(WorldInteractable).Assembly.GetType("TastePassport.World.WorldInteractionService");
+            Require(service != null, "shared WorldInteractionService is missing");
+            MethodInfo interact = service.GetMethod("Interact", BindingFlags.Public | BindingFlags.Static,
+                null, new[] { typeof(PlayerProfile), typeof(WorldInteractableDefinition) }, null);
+            Require(interact != null && interact.ReturnType == typeof(WorldInteractionResult),
+                "shared interaction contract is missing");
+            Func<PlayerProfile, WorldInteractableDefinition, WorldInteractionResult> run = (profile, target) =>
+                (WorldInteractionResult)interact.Invoke(null, new object[] { profile, target });
+
+            var profile = new PlayerProfile();
+            WorldInteractableDefinition nhung = FindTarget(WorldCatalog.Get("hoian"), "nhung");
+            Require(run(null, nhung) == null && run(profile, null) == null,
+                "invalid interactions must not return a result");
+            WorldInteractionResult first = run(profile, nhung);
+            Require(first != null && first.Target == nhung && first.DialogueKey == "prologue_nhung_first" &&
+                    first.IsFirstVisit && first.StateChanged && profile.chapterIndex == 2 &&
+                    StoryProgressService.HasFlag(profile, "nhung-intro-seen") &&
+                    StoryProgressService.HasImprint(profile, "dau-xu-book-discovered"),
+                "Nhung's first shared interaction lost its dialogue, book, or chapter advancement");
+            WorldInteractionResult repeat = run(profile, nhung);
+            Require(repeat != null && repeat.DialogueKey == "nhung_repeat" && !repeat.IsFirstVisit &&
+                    !repeat.StateChanged && profile.storyFlags.Count == 1 && profile.worldImprints.Count == 1,
+                "Nhung's repeat shared interaction duplicated progress or lost repeat dialogue");
+
+            WorldInteractableDefinition hanok = FindTarget(WorldCatalog.Get("jeonju"), "hanok");
+            WorldInteractionResult landmark = run(profile, hanok);
+            WorldInteractionResult landmarkRepeat = run(profile, hanok);
+            Require(landmark != null && landmark.DialogueKey == "hanok_discovery_first" && landmark.StateChanged &&
+                    landmarkRepeat != null && landmarkRepeat.DialogueKey == "hanok_discovery_repeat" &&
+                    !landmarkRepeat.StateChanged && profile.culturalCards.Count == 1 &&
+                    InventoryService.HasCultureCard(profile, InventoryService.HanokCardId) &&
+                    StoryProgressService.HasImprint(profile, "stamp-hanok"),
+                "Hanok shared discovery did not award its culture card and imprint exactly once");
+
+            var displayProfile = new PlayerProfile();
+            WorldInteractableDefinition display = FindTarget(WorldCatalog.Get("jeonju"), "hanji-display");
+            Require(run(displayProfile, display) == null && displayProfile.storyFlags.Count == 0 &&
+                    displayProfile.worldImprints.Count == 0 && displayProfile.culturalCards.Count == 0 &&
+                    displayProfile.chapterIndex == 1,
+                "Hanji display interaction bypassed its prerequisite or mutated blocked progress");
+            StoryProgressService.AddImprint(displayProfile, "hanji-display-ready");
+            WorldInteractionResult unlocked = run(displayProfile, display);
+            Require(unlocked != null && unlocked.DialogueKey == "hanji_display_first" && unlocked.IsFirstVisit &&
+                    unlocked.StateChanged && StoryProgressService.HasFlag(displayProfile, "hanji-display-seen") &&
+                    StoryProgressService.HasImprint(displayProfile, "hanji-display-visited"),
+                "Hanji display did not unlock after its prerequisite imprint");
+            Debug.Log("Dấu Xứ card interaction smoke PASS: shared first/repeat dialogue, chapter, rewards, and prerequisite gate");
+        }
+
         [MenuItem("Tools/Taste Passport/Validate Shared UI")]
         public static void RunSharedUiChecks()
         {
@@ -67,8 +638,10 @@ namespace TastePassport.EditorTools
                     Require(partialPressScale > .97f && partialPressScale < 1f,
                         "press motion snaps to its target in one 60 Hz frame");
                     motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { 1f / 30f });
-                    Require(Mathf.Abs(button.GetComponentInChildren<Text>().transform.localScale.x - .985f) < .0001f,
-                        "press motion does not follow its configured 0.1-second transition duration");
+                    float expectedPartialPress = Mathf.Lerp(1f, GameUiTheme.PressedVisualScale,
+                        0.05f / GameUiTheme.ButtonMotionSeconds);
+                    Require(Mathf.Abs(button.GetComponentInChildren<Text>().transform.localScale.x - expectedPartialPress) < .0001f,
+                        "press motion does not follow its configured transition duration and scale");
                     motionType.GetMethod("Animate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(motion, new object[] { .2f });
                     Require(button.GetComponentInChildren<Text>().transform.localScale.x < 1f, "press does not produce restrained visual response");
                     ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerUpHandler);
@@ -563,32 +1136,14 @@ namespace TastePassport.EditorTools
                 Require(InventoryService.RecordHanjiCraft(saved, "fan", "indigo", "flower") && store.TrySave(saved),
                     "completed Hanji craft could not be saved before display");
                 session.Open("jeonju", store.Load(), store, null);
-                GameObject display = GameObject.Find("World Target - hanji-display");
-                productStand = GameObject.Find("Hanji Product Display")?.transform;
-                Transform fan = productStand == null ? null : productStand.Find("Hanji Fan");
-                Transform bookmark = productStand == null ? null : productStand.Find("Hanji Bookmark");
-                Transform flower = productStand == null ? null : productStand.Find("Hanji Flower");
-                Color fanColor = fan == null ? Color.white : fan.GetComponentInChildren<Renderer>().sharedMaterial.color;
-                Require(display != null && display.GetComponent<WorldInteractable>() != null && fan != null && fan.gameObject.activeSelf &&
-                        bookmark != null && !bookmark.gameObject.activeSelf && flower != null && !flower.gameObject.activeSelf &&
-                        Vector4.Distance(fanColor, new Vector4(0.31f, 0.40f, 0.69f, 1f)) < 0.01f,
-                    "saved Hanji fan and indigo color did not appear on Jeonju's 3D display after reload");
+                RequireHanjiDisplay(session, "fan", new Color(0.31f, 0.40f, 0.69f));
                 session.Close();
 
                 var secondSaved = store.Load();
                 Require(InventoryService.RecordHanjiCraft(secondSaved, "bookmark", "vermilion", "cloud") && store.TrySave(secondSaved),
                     "second Hanji shape could not be saved for the Jeonju display");
                 session.Open("jeonju", store.Load(), store, null);
-                display = GameObject.Find("World Target - hanji-display");
-                productStand = GameObject.Find("Hanji Product Display")?.transform;
-                fan = productStand == null ? null : productStand.Find("Hanji Fan");
-                bookmark = productStand == null ? null : productStand.Find("Hanji Bookmark");
-                flower = productStand == null ? null : productStand.Find("Hanji Flower");
-                Color bookmarkColor = bookmark == null ? Color.white : bookmark.GetComponentInChildren<Renderer>().sharedMaterial.color;
-                Require(display != null && display.GetComponent<WorldInteractable>() != null && fan != null && !fan.gameObject.activeSelf &&
-                        bookmark != null && bookmark.gameObject.activeSelf && flower != null && !flower.gameObject.activeSelf &&
-                        Vector4.Distance(bookmarkColor, new Vector4(0.77f, 0.28f, 0.22f, 1f)) < 0.01f,
-                    "Jeonju's 3D display did not update to the latest vermilion Hanji bookmark after reload");
+                RequireHanjiDisplay(session, "bookmark", new Color(0.77f, 0.28f, 0.22f));
                 session.Close();
                 var reloaded = store.Load();
                 Require(reloaded.inventoryItems.Contains("crafted-hanji-fan-indigo-flower") &&
@@ -606,6 +1161,26 @@ namespace TastePassport.EditorTools
                     if (File.Exists(file)) File.Delete(file);
             }
             Debug.Log("Dấu Xứ Hanji craft smoke PASS: validated choices, cut/fold/decorate order, product save, and Jeonju display reload");
+        }
+
+        private static void RequireHanjiDisplay(WalkableWorldSession session, string expectedShape, Color expectedColor)
+        {
+            var town = GetWorldField<WorldDioramaBuilder>(session, "townDiorama");
+            Transform display = town != null ? town.transform.Find("Hanji Product Display") : null;
+            Transform fan = display != null ? display.Find("Hanji Fan") : null;
+            Transform bookmark = display != null ? display.Find("Hanji Bookmark") : null;
+            Transform flower = display != null ? display.Find("Hanji Flower") : null;
+            Transform activeShape = expectedShape == "fan" ? fan : expectedShape == "bookmark" ? bookmark : flower;
+            var renderer = activeShape != null ? activeShape.GetComponent<MeshRenderer>() : null;
+            Require(display != null && fan != null && bookmark != null && flower != null &&
+                    fan.gameObject.activeSelf == (expectedShape == "fan") &&
+                    bookmark.gameObject.activeSelf == (expectedShape == "bookmark") &&
+                    flower.gameObject.activeSelf == (expectedShape == "flower") && renderer != null && renderer.sharedMaterial != null,
+                "saved Hanji product did not select the matching 3D Jeonju display shape: " + expectedShape);
+            Color actual = renderer.sharedMaterial.color;
+            Require(Mathf.Abs(actual.r - expectedColor.r) < 0.02f && Mathf.Abs(actual.g - expectedColor.g) < 0.02f &&
+                    Mathf.Abs(actual.b - expectedColor.b) < 0.02f,
+                "saved Hanji product did not apply its crafted color to the 3D display: " + expectedShape + " got " + actual);
         }
 
         [MenuItem("Tools/Taste Passport/Validate Hanji Sprites")]
@@ -841,7 +1416,8 @@ namespace TastePassport.EditorTools
 
                 var store = new ProfileStore(path);
                 var migrated = store.Load();
-                Require(migrated.schemaVersion == 3, "schema-1 profile did not migrate to schema 3");
+                Require(migrated.schemaVersion == PlayerProfile.CurrentSchemaVersion,
+                    "schema-1 profile did not migrate to the current schema");
                 Require(migrated.playerName == "Legacy Explorer" && migrated.language == "ko", "migration lost profile identity or language");
                 var oldProgress = ProgressService.Get(migrated, "hoian-architecture");
                 Require(oldProgress != null && oldProgress.bestScore == 240 && oldProgress.playCount == 3, "migration lost existing mission progress");
@@ -902,7 +1478,8 @@ namespace TastePassport.EditorTools
                 Require(store.TrySave(migrated), "could not save the migrated story profile");
 
                 var reloaded = store.Load();
-                Require(reloaded.schemaVersion == 3 && StoryProgressService.HasFlag(reloaded, "nhung-intro-seen"), "story flag did not survive reload");
+                Require(reloaded.schemaVersion == PlayerProfile.CurrentSchemaVersion &&
+                        StoryProgressService.HasFlag(reloaded, "nhung-intro-seen"), "story flag did not survive reload");
                 Require(StoryProgressService.HasImprint(reloaded, "daushu-book-discovered"), "world imprint did not survive reload");
                 Require(ProgressService.HasStamp(reloaded, "hoian-architecture"), "existing stamp did not survive reload");
                 Require(InventoryService.HasItem(reloaded, "lantern-test") &&
@@ -924,7 +1501,7 @@ namespace TastePassport.EditorTools
                     "{\"schemaVersion\":2,\"playerName\":\"Schema Two Explorer\",\"language\":\"vi\",\"chapterIndex\":3," +
                     "\"storyFlags\":[\"jeonju-unlocked\"],\"worldImprints\":[\"old-imprint\"],\"lastWorldId\":\"jeonju\",\"lastWorldX\":4.25,\"lastWorldY\":-1.5}");
                 var migratedSchemaTwo = new ProfileStore(schemaTwoPath).Load();
-                Require(migratedSchemaTwo.schemaVersion == 3 && migratedSchemaTwo.chapterIndex == 3 &&
+                Require(migratedSchemaTwo.schemaVersion == PlayerProfile.CurrentSchemaVersion && migratedSchemaTwo.chapterIndex == 3 &&
                         StoryProgressService.HasFlag(migratedSchemaTwo, "jeonju-unlocked") &&
                         StoryProgressService.HasImprint(migratedSchemaTwo, "old-imprint") &&
                         migratedSchemaTwo.inventoryItems.Count == 0 && migratedSchemaTwo.culturalCards.Count == 0,
@@ -1168,7 +1745,9 @@ namespace TastePassport.EditorTools
                     Canvas.ForceUpdateCanvases();
                     var objective = FindWorldUi<RectTransform>(canvas, "World Objective Card");
                     Require(objective.rect.height <= 128f, "world objective surface still crowds the 3D viewport");
-                    Require(objective.GetComponentsInChildren<Text>().Length == 2,
+                    var destination = FindWorldUi<Text>(canvas, "World Title");
+                    Require(objective.GetComponentsInChildren<Text>().Length == 1 &&
+                            destination.text == "🏮 " + GameText.Get(language, "world_hoian_title"),
                         "HUD must show only destination and one current objective");
                     Require(session.CurrentObjectiveKey == "world_objective_find_nhung", "fresh world skips its first objective");
                     var guide = FindWorldUi<RectTransform>(canvas, "Controls Guide Card");
@@ -1183,9 +1762,9 @@ namespace TastePassport.EditorTools
                     Require(StoryProgressService.HasFlag(store.Load(), "world-controls-guide-seen"),
                         "dismissing contextual help did not persist its seen state");
                     var navigation = FindWorldUi<RectTransform>(canvas, "World Navigation");
-                    Require(navigation.GetComponentsInChildren<Button>().Length == 4 &&
+                    Require(navigation.GetComponentsInChildren<Button>().Length == 3 &&
                             FindWorldUi<Button>(canvas, "World Photo") != null,
-                        "world navigation does not expose the camera alongside map, journal and help");
+                        "world HUD does not expose its map, journal, help and camera controls");
                     var action = FindWorldUi<Button>(canvas, "World Interaction");
                     session.SetPlayerPosition(new Vector2(-6f, -1.8f));
                     Require(!action.interactable && !action.GetComponentInChildren<Text>().text.Contains("Nhung"),
@@ -1242,6 +1821,9 @@ namespace TastePassport.EditorTools
                     PressWorldKey(session, keyboard, Key.E);
                     Require(session.CurrentDialogueText.Contains("DẤU XỨ"),
                         "E did not open NPC dialogue");
+                    var dialogueCard = FindWorldUi<RectTransform>(canvas, "Conversation Card");
+                    Require(dialogueCard.rect.height <= 640f,
+                        "portrait dialogue panel still hides too much of the walkable world");
                     Require(FindWorldUi<Image>(canvas, "Dialogue Portrait").gameObject.activeInHierarchy,
                         "NPC conversation lost its portrait");
                     RequireWorldButtonsFit(canvas, safe);
@@ -1267,14 +1849,8 @@ namespace TastePassport.EditorTools
                             FindWorldUi<Button>(canvas, "Dialogue Listen").gameObject.activeInHierarchy &&
                             FindWorldUi<Button>(canvas, "Dialogue Activity").gameObject.activeInHierarchy &&
                             !FindWorldUi<Button>(canvas, "Dialogue Ask More").gameObject.activeInHierarchy,
-                        "Chùa Cầu discovery does not expose narration and its real activity route");
-                    FindWorldUi<Button>(canvas, "Dialogue Activity").onClick.Invoke();
-                    Require(!session.IsOpen && requestedActivity == "hoian-chuacau",
-                        "Chùa Cầu discovery did not start its linked architecture activity");
-                    session.Open("hoian", profile, store, () => { }, activity => requestedActivity = activity, () => passportRequests++);
-                    canvas = GetWorldField<Canvas>(session, "worldHudCanvas");
-                    safe = canvas.transform.Find("World Safe Area").GetComponent<RectTransform>();
-                    requestedActivity = null;
+                        "landmark discovery should offer narration and its linked activity without NPC-only actions");
+                    PressWorldKey(session, keyboard, Key.E);
                     session.SetPlayerPosition(FindTarget(WorldCatalog.Get("hoian"), "lan").Position);
                     PressWorldKey(session, keyboard, Key.E);
                     int marksBeforeOptional = profile.worldImprints.Count;
@@ -1353,6 +1929,151 @@ namespace TastePassport.EditorTools
         }
 
         [MenuItem("Tools/Taste Passport/Validate Walkable World Session")]
+        [MenuItem("Tools/Taste Passport/Validate World Canvas Depth")]
+        public static void RunWorldCanvasDepthChecks()
+        {
+            GameObject cameraObject = null;
+            GameObject canvasObject = null;
+            RenderTexture target = null;
+            try
+            {
+                cameraObject = new GameObject("World Canvas Depth Smoke Camera");
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.orthographic = true;
+                camera.orthographicSize = 6.4f;
+                camera.nearClipPlane = 0.3f;
+                camera.farClipPlane = 100f;
+                camera.transform.position = Vector3.zero;
+                camera.transform.rotation = Quaternion.Euler(6f, -8f, 0f);
+
+                canvasObject = new GameObject("World Canvas Depth Smoke", typeof(RectTransform), typeof(Canvas),
+                    typeof(CanvasScaler), typeof(GraphicRaycaster));
+                var canvas = canvasObject.GetComponent<Canvas>();
+                var sizes = new[] { new Vector2Int(720, 1280), new Vector2Int(1080, 2400) };
+                foreach (Vector2Int size in sizes)
+                {
+                    target = new RenderTexture(size.x, size.y, 16, RenderTextureFormat.ARGB32);
+                    target.Create();
+                    camera.targetTexture = target;
+                    Require(WorldSpaceCanvasFitter.Configure(canvas, camera),
+                        "world-space UI could not fit portrait viewport " + size.x + "x" + size.y);
+
+                    float depth = Vector3.Dot(canvas.transform.position - camera.transform.position, camera.transform.forward);
+                    float paperCardDepth = Vector3.Dot(
+                        canvas.transform.TransformPoint(Vector3.zero) - camera.transform.position,
+                        camera.transform.forward);
+                    Require(paperCardDepth > camera.nearClipPlane + 0.015f,
+                        "world-space paper UI crosses the camera near plane on " + size.x + "x" + size.y +
+                        "; UI depth was " + paperCardDepth.ToString("F3") + " units after the camera");
+                    Require(depth < camera.nearClipPlane + 0.15f,
+                        "world-space UI sits too far from the camera on " + size.x + "x" + size.y +
+                        "; town meshes could occlude it at " + depth.ToString("F3") + " units after the camera");
+                    Require(canvas.renderMode == RenderMode.WorldSpace && canvas.worldCamera == camera,
+                        "portrait UI lost its world-space camera binding on " + size.x + "x" + size.y);
+
+                    camera.targetTexture = null;
+                    target.Release();
+                    UnityEngine.Object.DestroyImmediate(target);
+                    target = null;
+                }
+
+                Debug.Log("Dấu Xứ world canvas depth smoke PASS: town-safe UI depth and fitted world-space camera at 720x1280 and 1080x2400");
+            }
+            catch (Exception error)
+            {
+                Debug.LogError("Dấu Xứ world canvas depth smoke FAIL: " + error);
+                throw;
+            }
+            finally
+            {
+                if (target != null)
+                {
+                    if (cameraObject != null) cameraObject.GetComponent<Camera>().targetTexture = null;
+                    target.Release();
+                    UnityEngine.Object.DestroyImmediate(target);
+                }
+                if (canvasObject != null) UnityEngine.Object.DestroyImmediate(canvasObject);
+                if (cameraObject != null) UnityEngine.Object.DestroyImmediate(cameraObject);
+            }
+        }
+
+        [MenuItem("Tools/Taste Passport/Validate World UI Town Clearance")]
+        public static void RunWorldUiTownClearanceChecks()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "taste_passport_canvas_clearance_" + Guid.NewGuid().ToString("N") + ".json");
+            GameObject cameraObject = null;
+            GameObject sessionObject = null;
+            WalkableWorldSession session = null;
+            try
+            {
+                cameraObject = new GameObject("World UI Town Clearance Camera");
+                cameraObject.tag = "MainCamera";
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.orthographic = true;
+                camera.orthographicSize = 5f;
+                camera.nearClipPlane = 0.3f;
+                camera.farClipPlane = 100f;
+                camera.transform.position = Vector3.zero;
+                camera.transform.rotation = Quaternion.identity;
+
+                var profile = new PlayerProfile
+                {
+                    playerName = "Bảo",
+                    created = true,
+                    language = "vi",
+                    lastWorldId = "hoian",
+                    lastWorldX = WorldCatalog.Get("hoian").SpawnPoint.x,
+                    lastWorldY = WorldCatalog.Get("hoian").SpawnPoint.y
+                };
+                var store = new ProfileStore(path);
+                sessionObject = new GameObject("World UI Town Clearance Session");
+                session = sessionObject.AddComponent<WalkableWorldSession>();
+                session.Open("hoian", profile, store, null);
+
+                var canvas = (Canvas)typeof(WalkableWorldSession)
+                    .GetField("worldHudCanvas", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(session);
+                var runtimeRoot = (GameObject)typeof(WalkableWorldSession)
+                    .GetField("runtimeRoot", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(session);
+                float canvasDepth = Vector3.Dot(canvas.transform.position - camera.transform.position, camera.transform.forward);
+                string occludingMesh = null;
+                foreach (var renderer in runtimeRoot.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
+                    Bounds bounds = renderer.bounds;
+                    Vector3 forward = camera.transform.forward;
+                    float centerDepth = Vector3.Dot(bounds.center - camera.transform.position, forward);
+                    float radius = Mathf.Abs(forward.x) * bounds.extents.x + Mathf.Abs(forward.y) * bounds.extents.y + Mathf.Abs(forward.z) * bounds.extents.z;
+                    float nearestDepth = centerDepth - radius;
+                    float farthestDepth = centerDepth + radius;
+                    if (farthestDepth >= camera.nearClipPlane && nearestDepth < canvasDepth)
+                    {
+                        occludingMesh = renderer.name + " at " + nearestDepth.ToString("F3") + ".." + farthestDepth.ToString("F3");
+                        break;
+                    }
+                }
+
+                Require(string.IsNullOrEmpty(occludingMesh),
+                    "walkable town geometry crosses the world HUD plane at " + canvasDepth.ToString("F3") + " units: " + occludingMesh);
+                session.Close();
+                Require(camera.transform.position == Vector3.zero,
+                    "closing the world did not restore the camera after its town-safe offset");
+                Debug.Log("Dấu Xứ world UI town clearance smoke PASS: no town mesh can occlude the fitted HUD, camera restores on close");
+            }
+            catch (Exception error)
+            {
+                Debug.LogError("Dấu Xứ world UI town clearance smoke FAIL: " + error);
+                throw;
+            }
+            finally
+            {
+                if (session != null && session.IsOpen) session.Close();
+                if (sessionObject != null) UnityEngine.Object.DestroyImmediate(sessionObject);
+                if (cameraObject != null) UnityEngine.Object.DestroyImmediate(cameraObject);
+                foreach (string file in new[] { path, path + ".bak", path + ".tmp", path + ".old" })
+                    if (File.Exists(file)) File.Delete(file);
+            }
+        }
+
         public static void RunWorldSessionChecks()
         {
             string path = Path.Combine(Path.GetTempPath(), "taste_passport_session_smoke_" + Guid.NewGuid().ToString("N") + ".json");

@@ -8,6 +8,8 @@ namespace TastePassport.Gameplay
         public readonly string PlaceKey;
         public readonly string GuideKey;
         public readonly string[] ObjectKeys;
+        public int DifficultyTier => 0;
+        public string DifficultyTierKey => "journey_tier_familiar";
         public readonly int[] RequiredObjectIndices;
         public readonly string[] AssemblySlotKeys;
         public readonly int[] RequiredRotations;

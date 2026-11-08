@@ -3,9 +3,32 @@ using UnityEngine.UI;
 
 namespace TastePassport.UI
 {
+    public enum AudioMood { Journey, Learning, Tension }
+
     public static class StoryNarration
     {
         public static string LastStatus { get; private set; } = "ready";
+
+        public static bool IsSpeaking
+        {
+            get
+            {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                try
+                {
+                    using (var bridge = new AndroidJavaClass("com.tastepassport.tts.TastePassportTts"))
+                        return bridge.CallStatic<bool>("isSpeaking");
+                }
+                catch (System.Exception error)
+                {
+                    Debug.LogWarning("Taste Passport narration status is unavailable: " + error.Message);
+                    return false;
+                }
+#else
+                return false;
+#endif
+            }
+        }
 
         public static bool IsSupported
         {
@@ -37,7 +60,7 @@ namespace TastePassport.UI
             }
             catch (System.Exception error)
             {
-                Debug.LogWarning("Taste Passport Android narration failed: " + error.Message);
+                Debug.LogWarning("Taste Passport narration could not start: " + error.Message);
                 return LastStatus = "unavailable";
             }
 #else
@@ -74,7 +97,10 @@ namespace TastePassport.UI
                 using (var bridge = new AndroidJavaClass("com.tastepassport.tts.TastePassportTts"))
                     bridge.CallStatic("stop");
             }
-            catch (System.Exception error) { Debug.LogWarning("Taste Passport Android narration stop failed: " + error.Message); }
+            catch (System.Exception error)
+            {
+                Debug.LogWarning("Taste Passport narration could not stop: " + error.Message);
+            }
 #endif
         }
     }
@@ -199,7 +225,16 @@ namespace TastePassport.UI
     {
         private AudioSource source;
         private AudioClip currentClip;
+        private AudioClip bundledTheme;
+        private AudioClip learningTheme;
+        private AudioClip tensionTheme;
+        private string currentSignature;
         private Coroutine transition;
+        private AudioMood currentMood = AudioMood.Journey;
+        private int currentStage = 1;
+        private bool currentLanguageKorean;
+        public bool IsMusicPlaying => source != null && source.isPlaying && source.clip != null;
+        public string MusicClipName => source != null && source.clip != null ? source.clip.name : string.Empty;
 
         public static StageAudioDirector For(GameObject owner)
         {
@@ -214,17 +249,62 @@ namespace TastePassport.UI
             source.playOnAwake = false;
             source.loop = true;
             source.spatialBlend = 0f;
+            source.mute = false;
             source.volume = 0f;
+            bundledTheme = Resources.Load<AudioClip>("Audio/TastePassportTheme");
+            if (bundledTheme == null)
+            {
+                Debug.LogWarning("Taste Passport background track is missing at Resources/Audio/TastePassportTheme.wav; using generated fallback music.");
+            }
+            var listeners = FindObjectsByType<AudioListener>();
+            if (listeners.Length == 0) Debug.LogWarning("Taste Passport has no active AudioListener; background music cannot be heard.");
+            else if (listeners.Length > 1) Debug.LogWarning("Taste Passport has " + listeners.Length + " AudioListeners; Unity may report duplicate listener audio.");
         }
 
         public void PlayStage(int stage, bool korean)
         {
             stage = Mathf.Clamp(stage, 1, 3);
+            bool wasJourneyTheme = currentMood == AudioMood.Journey;
+            currentStage = stage;
+            currentLanguageKorean = korean;
+            currentMood = AudioMood.Journey;
             string signature = (korean ? "ko" : "vi") + "-chapter-" + stage;
-            if (currentClip != null && currentClip.name == signature) return;
-            currentClip = CreateTheme(signature, stage, korean);
+            if (wasJourneyTheme && currentSignature == signature && source != null && source.isPlaying) return;
+            currentSignature = signature;
+            // The imported travel score is one continuous loop. Chapter and language
+            // changes update scene ambience without restarting its playback position.
+            if (bundledTheme != null && source != null && source.clip == bundledTheme && source.isPlaying) return;
+            currentClip = bundledTheme != null ? bundledTheme : CreateTheme(signature, stage, korean);
             if (transition != null) StopCoroutine(transition);
             transition = StartCoroutine(SwapTheme(currentClip));
+        }
+
+        /// <summary>Switches music mood with a short crossfade.</summary>
+        public void SetMood(AudioMood mood)
+        {
+            if (source == null) return;
+            if (mood == AudioMood.Journey)
+            {
+                PlayStage(currentStage, currentLanguageKorean);
+                return;
+            }
+            if (currentMood == mood && source.isPlaying) return;
+
+            currentMood = mood;
+            AudioClip next;
+            if (mood == AudioMood.Learning)
+            {
+                if (learningTheme == null) learningTheme = CreateLearningTheme();
+                next = learningTheme;
+            }
+            else
+            {
+                if (tensionTheme == null) tensionTheme = CreateTheme("Taste Passport tension", currentStage, currentLanguageKorean);
+                next = tensionTheme;
+            }
+            currentClip = next;
+            if (transition != null) StopCoroutine(transition);
+            transition = StartCoroutine(SwapTheme(next));
         }
 
         private System.Collections.IEnumerator SwapTheme(AudioClip next)
@@ -238,12 +318,13 @@ namespace TastePassport.UI
             source.Stop();
             source.clip = next;
             source.Play();
+            float targetVolume = .78f * GameAudioSettings.MusicVolume;
             for (float t = 0; t < .7f; t += Time.unscaledDeltaTime)
             {
-                source.volume = Mathf.Lerp(0f, .14f, t / .7f);
+                source.volume = Mathf.Lerp(0f, targetVolume, t / .7f);
                 yield return null;
             }
-            source.volume = .14f;
+            source.volume = targetVolume;
             transition = null;
         }
 
@@ -275,10 +356,35 @@ namespace TastePassport.UI
             return clip;
         }
 
+        private static AudioClip CreateLearningTheme()
+        {
+            const int rate = 22050;
+            const int seconds = 8;
+            int count = rate * seconds;
+            float[] samples = new float[count];
+            float[] notes = { 392f, 440f, 523.25f, 440f, 349.23f, 392f, 440f, 523.25f };
+            for (int i = 0; i < count; i++)
+            {
+                float time = i / (float)rate;
+                float beat = time % 1f;
+                float frequency = notes[(int)(time % notes.Length)];
+                float envelope = Mathf.Exp(-beat * 2.6f) * Mathf.Min(1f, time * 3f, (seconds - time) * 3f);
+                float tone = Mathf.Sin(2f * Mathf.PI * frequency * time);
+                float overtone = Mathf.Sin(2f * Mathf.PI * frequency * 2f * time) * .16f;
+                float softBed = Mathf.Sin(2f * Mathf.PI * 130.81f * time) * .08f;
+                samples[i] = (tone * .28f + overtone + softBed) * envelope * .13f;
+            }
+            var clip = AudioClip.Create("Taste Passport learning theme", count, 1, rate, false);
+            clip.SetData(samples, 0);
+            return clip;
+        }
+
         private void OnDestroy()
         {
             if (source != null) source.Stop();
-            if (currentClip != null) Destroy(currentClip);
+            if (currentClip != null && currentClip != bundledTheme) Destroy(currentClip);
+            if (learningTheme != null && learningTheme != currentClip) Destroy(learningTheme);
+            if (tensionTheme != null && tensionTheme != currentClip && tensionTheme != learningTheme) Destroy(tensionTheme);
         }
     }
 }

@@ -12,9 +12,13 @@ namespace TastePassport.Save
         public string playerName = "";
         public string language = "vi";
         public int avatarIndex;
+        public int faceStyle;
+        public int hairStyle;
+        public int bodyStyle;
+        public int accessoryStyle;
         public int coins;
         public int outfitId;
-        public List<int> ownedOutfits = new List<int> { 0, 1 };
+        public List<int> ownedOutfits = new List<int> { 0, 1, 2 };
         public bool created;
         public List<LevelProgress> levels = new List<LevelProgress>();
         public int chapterIndex = 1;
@@ -23,6 +27,7 @@ namespace TastePassport.Save
         public List<string> worldImprints = new List<string>();
         public List<string> inventoryItems = new List<string>();
         public List<string> culturalCards = new List<string>();
+        public List<string> learnedVocabulary = new List<string>();
         public List<MemoryPhotoRecord> memoryPhotos = new List<MemoryPhotoRecord>();
         public List<JourneyEventRecord> journeyEvents = new List<JourneyEventRecord>();
         public List<JournalPageState> journalPages = new List<JournalPageState>();
@@ -38,6 +43,10 @@ namespace TastePassport.Save
             playerName = source.playerName;
             language = source.language;
             avatarIndex = source.avatarIndex;
+            faceStyle = source.faceStyle;
+            hairStyle = source.hairStyle;
+            bodyStyle = source.bodyStyle;
+            accessoryStyle = source.accessoryStyle;
             coins = source.coins;
             outfitId = source.outfitId;
             ownedOutfits = source.ownedOutfits == null ? new List<int>() : new List<int>(source.ownedOutfits);
@@ -55,6 +64,7 @@ namespace TastePassport.Save
             worldImprints = source.worldImprints == null ? new List<string>() : new List<string>(source.worldImprints);
             inventoryItems = source.inventoryItems == null ? new List<string>() : new List<string>(source.inventoryItems);
             culturalCards = source.culturalCards == null ? new List<string>() : new List<string>(source.culturalCards);
+            learnedVocabulary = source.learnedVocabulary == null ? new List<string>() : new List<string>(source.learnedVocabulary);
             memoryPhotos = new List<MemoryPhotoRecord>();
             if (source.memoryPhotos != null)
                 foreach (MemoryPhotoRecord photo in source.memoryPhotos)
@@ -90,6 +100,25 @@ namespace TastePassport.Save
             lastWorldY = source.lastWorldY;
         }
 
+        public int GetTotalStars()
+        {
+            int total = 0;
+            if (levels != null)
+            {
+                foreach (var lvl in levels)
+                {
+                    if (lvl != null) total += lvl.bestStars;
+                }
+            }
+            return total;
+        }
+
+        public int GetLevelStars(string levelId)
+        {
+            if (levels == null || string.IsNullOrEmpty(levelId)) return 0;
+            var lvl = levels.Find(l => l != null && l.levelId == levelId);
+            return lvl != null ? lvl.bestStars : 0;
+        }
     }
 
     [Serializable]
@@ -147,10 +176,21 @@ namespace TastePassport.Save
                 profile.lastWorldY = -1.8f;
             }
 
+            // Version 3 profiles predate the independent appearance controls.
+            // Zero is the neutral, classic look and preserves the old avatar safely.
+            if (profile.schemaVersion <= 3)
+            {
+                profile.faceStyle = 0;
+                profile.hairStyle = 0;
+                profile.bodyStyle = 0;
+                profile.accessoryStyle = 0;
+            }
+
             if (profile.storyFlags == null) profile.storyFlags = new List<string>();
             if (profile.worldImprints == null) profile.worldImprints = new List<string>();
             if (profile.inventoryItems == null) profile.inventoryItems = new List<string>();
             if (profile.culturalCards == null) profile.culturalCards = new List<string>();
+            if (profile.learnedVocabulary == null) profile.learnedVocabulary = new List<string>();
             if (profile.memoryPhotos == null) profile.memoryPhotos = new List<MemoryPhotoRecord>();
             if (profile.journeyEvents == null) profile.journeyEvents = new List<JourneyEventRecord>();
             if (profile.journalPages == null) profile.journalPages = new List<JournalPageState>();
@@ -159,11 +199,16 @@ namespace TastePassport.Save
             profile.worldImprints = NormalizeIds(profile.worldImprints);
             profile.inventoryItems = NormalizeIds(profile.inventoryItems);
             profile.culturalCards = NormalizeIds(profile.culturalCards);
+            profile.learnedVocabulary = NormalizeIds(profile.learnedVocabulary);
             NormalizePhotos(profile);
             NormalizeEvents(profile);
             NormalizeJournalPages(profile);
             NormalizeFestivalDecorations(profile);
             profile.chapterIndex = profile.mainStoryCompleted ? 4 : Math.Max(1, Math.Min(4, profile.chapterIndex));
+            profile.faceStyle = Math.Max(0, Math.Min(2, profile.faceStyle));
+            profile.hairStyle = Math.Max(0, Math.Min(2, profile.hairStyle));
+            profile.bodyStyle = Math.Max(0, Math.Min(2, profile.bodyStyle));
+            profile.accessoryStyle = Math.Max(0, Math.Min(2, profile.accessoryStyle));
             profile.lastWorldId = profile.lastWorldId == "jeonju" ? "jeonju" : "hoian";
             if (!IsFinite(profile.lastWorldX)) profile.lastWorldX = -5.1f;
             if (!IsFinite(profile.lastWorldY)) profile.lastWorldY = -1.8f;

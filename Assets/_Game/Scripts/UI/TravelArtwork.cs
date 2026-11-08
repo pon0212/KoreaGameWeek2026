@@ -3,7 +3,7 @@ using UnityEngine.UI;
 
 namespace TastePassport.UI
 {
-    public enum TravelArtworkKind { HoiAn, Jeonju, VietnamJourney, KoreaJourney, CaoLau, Bibimbap, Passport, Friendship, VietnamMap, KoreaMap }
+    public enum TravelArtworkKind { HoiAn, Jeonju, VietnamJourney, KoreaJourney, CaoLau, Bibimbap, Passport, Friendship, VietnamMap, KoreaMap, LocationHoiAnCaoLau, LocationJeonjuBibimbap }
 
     // Original, resolution-independent illustrations built from UI shapes.
     // All children ignore raycasts so artwork never blocks the game controls.
@@ -18,15 +18,15 @@ namespace TastePassport.UI
 
         public static void Draw(Transform parent, TravelArtworkKind kind)
         {
-            if (kind == TravelArtworkKind.HoiAn || kind == TravelArtworkKind.Jeonju || kind == TravelArtworkKind.VietnamJourney || kind == TravelArtworkKind.KoreaJourney || kind == TravelArtworkKind.CaoLau || kind == TravelArtworkKind.Bibimbap)
+            if (kind == TravelArtworkKind.HoiAn || kind == TravelArtworkKind.Jeonju || kind == TravelArtworkKind.VietnamJourney || kind == TravelArtworkKind.KoreaJourney || kind == TravelArtworkKind.CaoLau || kind == TravelArtworkKind.Bibimbap || kind == TravelArtworkKind.LocationHoiAnCaoLau || kind == TravelArtworkKind.LocationJeonjuBibimbap)
             {
-                string path = kind == TravelArtworkKind.HoiAn ? "Art/HoiAn" : kind == TravelArtworkKind.Jeonju ? "Art/Jeonju" : kind == TravelArtworkKind.VietnamJourney ? "Art/VietnamJourney" : kind == TravelArtworkKind.KoreaJourney ? "Art/KoreaJourney" : kind == TravelArtworkKind.CaoLau ? "Art/CaoLau" : "Art/Bibimbap";
+                string path = kind == TravelArtworkKind.HoiAn ? "Art/HoiAn" : kind == TravelArtworkKind.Jeonju ? "Art/Jeonju" : kind == TravelArtworkKind.VietnamJourney ? "Art/VietnamJourney" : kind == TravelArtworkKind.KoreaJourney ? "Art/KoreaJourney" : kind == TravelArtworkKind.CaoLau ? "Art/CaoLau" : kind == TravelArtworkKind.Bibimbap ? "Art/Bibimbap" : kind == TravelArtworkKind.LocationHoiAnCaoLau ? "Art/LocationHoiAnCaoLau" : "Art/LocationJeonjuBibimbap";
                 Sprite painting = Resources.Load<Sprite>(path);
                 if (painting != null)
                 {
-                    var frame = parent.gameObject.AddComponent<RectMask2D>();
+                    var frame = parent.gameObject.GetComponent<RectMask2D>() ?? parent.gameObject.AddComponent<RectMask2D>();
                     frame.padding = Vector4.zero;
-                    var printFrame = parent.gameObject.AddComponent<Outline>();
+                    var printFrame = parent.gameObject.GetComponent<Outline>() ?? parent.gameObject.AddComponent<Outline>();
                     printFrame.effectColor = ColorOf("#8A6748");
                     printFrame.effectDistance = new Vector2(2, -2);
                     var picture = Box(parent, "Original location painting", Color.white, 0, 0, 1, 1).GetComponent<Image>();
@@ -34,9 +34,11 @@ namespace TastePassport.UI
                     picture.type = Image.Type.Simple;
                     picture.raycastTarget = false;
                     var fit = picture.gameObject.AddComponent<AspectRatioFitter>();
-                    fit.aspectMode = kind == TravelArtworkKind.CaoLau || kind == TravelArtworkKind.Bibimbap
+                    fit.aspectMode = kind == TravelArtworkKind.CaoLau || kind == TravelArtworkKind.Bibimbap || kind == TravelArtworkKind.LocationHoiAnCaoLau || kind == TravelArtworkKind.LocationJeonjuBibimbap
                         ? AspectRatioFitter.AspectMode.FitInParent : AspectRatioFitter.AspectMode.EnvelopeParent;
                     fit.aspectRatio = painting.rect.width / painting.rect.height;
+                    if (kind == TravelArtworkKind.LocationHoiAnCaoLau || kind == TravelArtworkKind.LocationJeonjuBibimbap)
+                        picture.gameObject.AddComponent<LocationPaintingMotion>().Initialize(kind == TravelArtworkKind.LocationJeonjuBibimbap);
                     return;
                 }
             }
@@ -204,5 +206,110 @@ namespace TastePassport.UI
         }
 
         private static Color ColorOf(string hex) { ColorUtility.TryParseHtmlString(hex, out var color); return color; }
+    }
+
+    /// <summary>Subtle, low-cost motion on the combined place-and-food travel paintings.</summary>
+    public sealed class LocationPaintingMotion : MonoBehaviour
+    {
+        private RectTransform art;
+        private RectTransform[] accents;
+        private Vector2[] anchorPoints;
+        private bool korean;
+
+        public void Initialize(bool isKorean)
+        {
+            art = transform as RectTransform;
+            korean = isKorean;
+            int count = korean ? 3 : 4;
+            accents = new RectTransform[count];
+            anchorPoints = new Vector2[count];
+            for (int i = 0; i < count; i++)
+            {
+                var glowObject = new GameObject(korean ? "Hanji petal drift" : i < 2 ? "Lantern light pulse" : "Hoai River ripple", typeof(RectTransform), typeof(Image));
+                glowObject.transform.SetParent(transform, false);
+                var rect = glowObject.GetComponent<RectTransform>();
+                rect.anchorMin = rect.anchorMax = GetAnchor(i);
+                rect.sizeDelta = GetSize(i);
+                var image = glowObject.GetComponent<Image>();
+                image.sprite = Disc();
+                image.color = GetColor(i);
+                image.raycastTarget = false;
+                accents[i] = rect;
+                anchorPoints[i] = rect.anchoredPosition;
+            }
+        }
+
+        private void Update()
+        {
+            if (art == null) return;
+            float time = Time.unscaledTime;
+            art.localScale = Vector3.one * (1f + Mathf.Sin(time * .72f) * .0025f);
+            for (int i = 0; i < accents.Length; i++)
+            {
+                if (accents[i] == null) continue;
+                var image = accents[i].GetComponent<Image>();
+                float phase = time * (korean ? .7f : .52f) + i * 1.9f;
+                if (!korean && i >= 2)
+                {
+                    accents[i].anchoredPosition = anchorPoints[i] + new Vector2(Mathf.Sin(phase) * 14f, Mathf.Cos(phase * .7f) * 2f);
+                    accents[i].localScale = new Vector3(1.15f + .18f * Mathf.Sin(phase), .18f, 1f);
+                    image.color = new Color(.37f, .72f, .75f, .18f + .04f * Mathf.Sin(phase));
+                }
+                else
+                {
+                    float pulse = .78f + .22f * Mathf.Sin(phase);
+                    accents[i].localScale = Vector3.one * pulse;
+                    if (korean) accents[i].anchoredPosition = anchorPoints[i] + Vector2.down * Mathf.Repeat(time * 17f + i * 31f, 46f);
+                    var color = GetColor(i);
+                    color.a *= korean ? .74f : pulse;
+                    image.color = color;
+                }
+            }
+        }
+
+        private Vector2 GetAnchor(int i)
+        {
+            if (korean) return i == 0 ? new Vector2(.84f,.72f) : i == 1 ? new Vector2(.20f,.80f) : new Vector2(.70f,.88f);
+            return i == 0 ? new Vector2(.20f,.83f) : i == 1 ? new Vector2(.81f,.69f) : i == 2 ? new Vector2(.38f,.47f) : new Vector2(.65f,.44f);
+        }
+
+        private Vector2 GetSize(int i) => korean ? new Vector2(11, 16) : i < 2 ? new Vector2(56, 56) : new Vector2(68, 7);
+        private Color GetColor(int i) => korean ? new Color(.91f,.56f,.62f,.45f) : i < 2 ? new Color(1f,.67f,.22f,.14f) : new Color(.37f,.72f,.75f,.18f);
+
+        private static Sprite Disc()
+        {
+            const int size = 32;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.filterMode = FilterMode.Bilinear;
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float distance = Vector2.Distance(new Vector2(x, y), new Vector2(15.5f, 15.5f));
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Clamp01((16f - distance) / 9f)));
+            }
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0,0,size,size), new Vector2(.5f,.5f), 100f);
+        }
+    }
+
+    /// <summary>Short, unscaled crossfade when the selected location painting changes.</summary>
+    public sealed class LocationBackdropTransition : MonoBehaviour
+    {
+        private System.Collections.IEnumerator Start()
+        {
+            var group = GetComponent<CanvasGroup>();
+            if (group == null) group = gameObject.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            const float duration = .24f;
+            float elapsed = 0f;
+            while (elapsed < duration && group != null)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / duration);
+                group.alpha = t * t * (3f - 2f * t);
+                yield return null;
+            }
+            if (group != null) group.alpha = 1f;
+        }
     }
 }

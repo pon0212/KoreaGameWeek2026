@@ -123,7 +123,8 @@ namespace TastePassport.Save
 
             profile.coins = Mathf.Clamp(profile.coins, 0, MaxCoins);
             if (profile.ownedOutfits == null) profile.ownedOutfits = new List<int>();
-            var outfits = new List<int> { 0, 1 };
+            // The shared traveler look and both cultural base outfits are free defaults.
+            var outfits = new List<int> { 0, 1, 2 };
             var seenOutfits = new HashSet<int>(outfits);
             foreach (int outfit in profile.ownedOutfits)
                 if (outfit >= 0 && outfit <= 4 && seenOutfits.Add(outfit)) outfits.Add(outfit);

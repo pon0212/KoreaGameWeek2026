@@ -23,7 +23,7 @@ namespace TastePassport.UI
         private const string NarrationKey = "tp_narration_volume";
         private const string MuteKey = "tp_sound";
 
-        public static float MusicVolume => PlayerPrefs.GetFloat(MusicKey, .48f);
+        public static float MusicVolume => PlayerPrefs.GetFloat(MusicKey, .68f);
         public static float SfxVolume => PlayerPrefs.GetFloat(SfxKey, .62f);
         public static float AmbienceVolume => PlayerPrefs.GetFloat(AmbienceKey, .28f);
         public static float NarrationVolume => PlayerPrefs.GetFloat(NarrationKey, .78f);
@@ -40,7 +40,9 @@ namespace TastePassport.UI
     public sealed class GameAudioManager : MonoBehaviour
     {
         private const int SampleRate = 22050;
-        private const float ChapterMusicBaseVolume = .14f;
+        // The music was previously mixed at roughly 7% of full output. Keep the saved
+        // player slider meaningful while making the default laptop mix clearly audible.
+        private const float ChapterMusicBaseVolume = .78f;
         private readonly Dictionary<GameSoundCue, AudioClip> cues = new Dictionary<GameSoundCue, AudioClip>();
         private AudioSource musicSource;
         private AudioSource sfxSource;
