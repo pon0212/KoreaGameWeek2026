@@ -295,7 +295,8 @@ namespace TastePassport.Core
             bool pageVisible = safeRoot.gameObject.activeSelf;
             bool useActivityDiorama = activityPage && activityDiorama != null && activityDiorama.StageTexture != null;
             activityDiorama?.SetVisible(pageVisible && useActivityDiorama && !introBookPage);
-            dioramaStage?.SetStageVisible(pageVisible && !useActivityDiorama && !introBookPage && !mapPage);
+            bool culturalArtworkPage = page == Page.Menu || page == Page.Language || page == Page.Create || mapPage || page == Page.Passport || page == Page.Postcard || page == Page.StoryCard;
+            dioramaStage?.SetStageVisible(pageVisible && !useActivityDiorama && !introBookPage && !culturalArtworkPage);
             var previousScroll = safeRoot.Find("Page Scroll")?.GetComponent<ScrollRect>();
             float savedScroll = resetScroll || previousScroll == null ? 1f : previousScroll.verticalNormalizedPosition;
             for (int i = safeRoot.childCount - 1; i >= 0; i--)
@@ -306,7 +307,7 @@ namespace TastePassport.Core
                 Destroy(oldPage);
             }
             Panel("Destination Background", safeRoot, introBookPage ? Hex("#35271F") : Cream, true);
-            if (mapPage)
+            if (culturalArtworkPage)
             {
                 string artworkPath = selectedMapKorea ? "Art/LocationJeonjuBibimbap" : "Art/LocationHoiAnCaoLau";
                 Sprite artwork = Resources.Load<Sprite>(artworkPath);
@@ -325,7 +326,7 @@ namespace TastePassport.Core
                     background.gameObject.AddComponent<LocationBackdropTransition>();
                 }
             }
-            Texture backdropTexture = introBookPage || mapPage ? null : useActivityDiorama ? activityDiorama.StageTexture : dioramaStage?.StageTexture;
+            Texture backdropTexture = introBookPage || culturalArtworkPage ? null : useActivityDiorama ? activityDiorama.StageTexture : dioramaStage?.StageTexture;
             if (backdropTexture != null)
             {
                 var surface = NewRect("3D destination stage", safeRoot);
@@ -747,7 +748,6 @@ namespace TastePassport.Core
             Label(showcaseCard, outfitName, 22, 34, Vermilion, TextAnchor.MiddleCenter, FontStyle.Italic);
             var showcaseStage = NewRect("Showcase stage", showcaseCard);
             SetHeight(showcaseStage, 330);
-            showcaseStage.gameObject.AddComponent<CharacterPreviewBobbing>();
             DrawFullBodyTraveler(showcaseStage, draftAvatar, previewOutfitId, draftFaceStyle, draftHairStyle, draftBodyStyle, draftAccessoryStyle);
 
             var profileStep = JourneyCard(parent);
@@ -757,7 +757,7 @@ namespace TastePassport.Core
             field.onValueChanged.AddListener(value => draftName = value);
             Label(profileStep, T("avatar_label"), 29, 58, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
             var row = NewRect("Avatar choices", profileStep);
-            SetHeight(row, 184);
+            SetHeight(row, 196);
             var horizontal = row.gameObject.AddComponent<HorizontalLayoutGroup>();
             horizontal.spacing = 12;
             horizontal.childAlignment = TextAnchor.MiddleCenter;
@@ -769,13 +769,22 @@ namespace TastePassport.Core
             {
                 int chosen = i;
                 var avatar = Button(row, T("avatar_" + i) + (draftAvatar == i ? " · " + T("selected_state") : ""), draftAvatar == i ? Lantern : Paper, () => { draftAvatar = chosen; Show(); }, Ink);
-                SetHeight(avatar.GetComponent<RectTransform>(), 174);
+                SetHeight(avatar.GetComponent<RectTransform>(), 188);
                 var caption = avatar.transform.Find("Text") as RectTransform;
-                caption.anchorMin = new Vector2(0, 0);
-                caption.anchorMax = new Vector2(1, 0);
-                caption.pivot = new Vector2(0.5f, 0);
-                caption.offsetMin = Vector2.zero;
-                caption.offsetMax = new Vector2(0, 55);
+                if (caption != null)
+                {
+                    caption.anchorMin = new Vector2(0f, 0f);
+                    caption.anchorMax = new Vector2(1f, 0.26f);
+                    caption.pivot = new Vector2(0.5f, 0.5f);
+                    caption.offsetMin = new Vector2(4f, 2f);
+                    caption.offsetMax = new Vector2(-4f, -2f);
+                    var captionText = caption.GetComponent<Text>();
+                    if (captionText != null)
+                    {
+                        captionText.fontSize = 18;
+                        captionText.alignment = TextAnchor.MiddleCenter;
+                    }
+                }
                 int previewOutfit = draftOutfit < 0 ? profile.outfitId : draftOutfit;
                 DrawAvatar(avatar.transform, i, previewOutfit, draftFaceStyle, draftHairStyle, draftBodyStyle, draftAccessoryStyle);
             }
@@ -869,32 +878,45 @@ namespace TastePassport.Core
         private void AppearanceChoices(Transform parent, string titleKey, string[] optionKeys, int selected, Action<int> choose)
         {
             var section = NewRect("Appearance selector " + titleKey, parent);
-            SetHeight(section, 112f);
-            var title = Label(section, T(titleKey), 26, 38f, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
-            var titleRect = title.rectTransform;
-            titleRect.anchorMin = new Vector2(0f, 1f);
-            titleRect.anchorMax = new Vector2(1f, 1f);
-            titleRect.pivot = new Vector2(.5f, 1f);
-            titleRect.anchoredPosition = Vector2.zero;
+            var sectionLayout = section.gameObject.AddComponent<VerticalLayoutGroup>();
+            sectionLayout.padding = new RectOffset(0, 0, 4, 4);
+            sectionLayout.spacing = 6;
+            sectionLayout.childAlignment = TextAnchor.UpperLeft;
+            sectionLayout.childControlWidth = true;
+            sectionLayout.childControlHeight = true;
+            sectionLayout.childForceExpandWidth = true;
+            sectionLayout.childForceExpandHeight = false;
+
+            SetHeight(section, 116f);
+
+            var title = Label(section, T(titleKey), 25, 30f, Ink, TextAnchor.MiddleLeft, FontStyle.Bold);
+            SetHeight(title.rectTransform, 30f);
+
             var row = NewRect("Appearance options " + titleKey, section);
-            row.anchorMin = new Vector2(0f, 0f);
-            row.anchorMax = new Vector2(1f, 1f);
-            row.offsetMin = new Vector2(0f, 0f);
-            row.offsetMax = new Vector2(0f, -40f);
+            SetHeight(row, 66f);
             var layout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
-            layout.spacing = 10f;
+            layout.spacing = 8f;
             layout.childAlignment = TextAnchor.MiddleCenter;
             layout.childControlWidth = true;
             layout.childControlHeight = true;
             layout.childForceExpandWidth = true;
             layout.childForceExpandHeight = false;
+
             for (int i = 0; i < optionKeys.Length; i++)
             {
                 int option = i;
                 bool isSelected = selected == i;
                 var button = Button(row, T(optionKeys[i]) + (isSelected ? " · " + T("selected_state") : ""),
                     isSelected ? Lantern : Paper, () => choose(option), Ink);
-                SetHeight(button.GetComponent<RectTransform>(), 70f);
+                SetHeight(button.GetComponent<RectTransform>(), 62f);
+                var btnTxt = button.GetComponentInChildren<Text>();
+                if (btnTxt != null)
+                {
+                    btnTxt.fontSize = 20;
+                    btnTxt.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    btnTxt.rectTransform.offsetMin = new Vector2(4f, 0f);
+                    btnTxt.rectTransform.offsetMax = new Vector2(-4f, 0f);
+                }
             }
         }
 
@@ -3753,7 +3775,10 @@ namespace TastePassport.Core
             if (charSprite != null)
             {
                 var portraitBox = NewRect("Face", parent);
-                Stretch(portraitBox);
+                portraitBox.anchorMin = new Vector2(0.04f, 0.28f);
+                portraitBox.anchorMax = new Vector2(0.96f, 0.98f);
+                portraitBox.offsetMin = Vector2.zero;
+                portraitBox.offsetMax = Vector2.zero;
                 var charImg = portraitBox.gameObject.AddComponent<Image>();
                 charImg.sprite = charSprite;
                 charImg.preserveAspect = true;
@@ -3763,23 +3788,23 @@ namespace TastePassport.Core
                 if (outfitId == 1)
                 {
                     var badge = NewRect("Avatar outfit tag", parent);
-                    badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0f);
-                    badge.sizeDelta = new Vector2(80, 22);
-                    badge.anchoredPosition = new Vector2(0, 12);
+                    badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0.28f);
+                    badge.sizeDelta = new Vector2(76, 20);
+                    badge.anchoredPosition = new Vector2(0, 10);
                     var bImg = badge.gameObject.AddComponent<Image>();
                     bImg.color = Hex("#A94A42");
-                    var bTxt = Label(badge, "Áo dài", 14, 22, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold);
+                    var bTxt = Label(badge, "Áo dài", 12, 20, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold);
                     Stretch(bTxt.rectTransform);
                 }
                 else if (outfitId == 2)
                 {
                     var badge = NewRect("Avatar outfit tag", parent);
-                    badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0f);
-                    badge.sizeDelta = new Vector2(80, 22);
-                    badge.anchoredPosition = new Vector2(0, 12);
+                    badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0.28f);
+                    badge.sizeDelta = new Vector2(76, 20);
+                    badge.anchoredPosition = new Vector2(0, 10);
                     var bImg = badge.gameObject.AddComponent<Image>();
                     bImg.color = Hex("#357E84");
-                    var bTxt = Label(badge, "Hanbok", 14, 22, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold);
+                    var bTxt = Label(badge, "Hanbok", 12, 20, Color.white, TextAnchor.MiddleCenter, FontStyle.Bold);
                     Stretch(bTxt.rectTransform);
                 }
                 return;
@@ -3869,17 +3894,19 @@ namespace TastePassport.Core
             if (charSprite != null)
             {
                 // Shadow underneath
-                PortraitPart(parent, "Traveler pedestal shadow", new Color(0.28f, 0.22f, 0.18f, 0.28f), new Vector2(0, -135), new Vector2(170 * scaleX, 24), CircleSprite());
+                PortraitPart(parent, "Traveler pedestal shadow", new Color(0.28f, 0.22f, 0.18f, 0.28f), new Vector2(0, -125), new Vector2(170 * scaleX, 24), CircleSprite());
 
                 var charRect = NewRect("High res traveler showcase", parent);
                 charRect.anchorMin = charRect.anchorMax = new Vector2(0.5f, 0.5f);
+                charRect.pivot = new Vector2(0.5f, 0.5f);
                 charRect.sizeDelta = new Vector2(250, 280);
-                charRect.anchoredPosition = new Vector2(0, -5);
+                charRect.anchoredPosition = new Vector2(0, 10);
                 var img = charRect.gameObject.AddComponent<Image>();
                 img.sprite = charSprite;
                 img.preserveAspect = true;
                 img.raycastTarget = false;
                 charRect.localScale = new Vector3(scaleX, scaleY, 1f);
+                charRect.gameObject.AddComponent<CharacterPreviewBobbing>();
 
                 // Outfit badge
                 if (outfitId == 1)
@@ -3887,7 +3914,7 @@ namespace TastePassport.Core
                     var badge = NewRect("Outfit badge", parent);
                     badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0.5f);
                     badge.sizeDelta = new Vector2(130, 28);
-                    badge.anchoredPosition = new Vector2(0, -145);
+                    badge.anchoredPosition = new Vector2(0, -135);
                     var bImg = badge.gameObject.AddComponent<Image>();
                     bImg.color = Hex("#A94A42");
                     var bOutline = badge.gameObject.AddComponent<Outline>();
@@ -3901,7 +3928,7 @@ namespace TastePassport.Core
                     var badge = NewRect("Outfit badge", parent);
                     badge.anchorMin = badge.anchorMax = new Vector2(0.5f, 0.5f);
                     badge.sizeDelta = new Vector2(130, 28);
-                    badge.anchoredPosition = new Vector2(0, -145);
+                    badge.anchoredPosition = new Vector2(0, -135);
                     var bImg = badge.gameObject.AddComponent<Image>();
                     bImg.color = Hex("#357E84");
                     var bOutline = badge.gameObject.AddComponent<Outline>();
@@ -4159,20 +4186,26 @@ namespace TastePassport.Core
     {
         private RectTransform target;
         private Vector2 origin;
+        private Vector3 baseScale = Vector3.one;
 
-        private void Awake()
+        private void Start()
         {
             target = transform as RectTransform;
-            if (target != null) origin = target.anchoredPosition;
+            if (target != null)
+            {
+                origin = target.anchoredPosition;
+                baseScale = target.localScale;
+            }
         }
 
         private void Update()
         {
             if (target == null) return;
             float time = Time.unscaledTime;
-            float breath = Mathf.Sin(time * 2.2f) * 2.5f;
+            float breath = Mathf.Sin(time * 2.2f) * 3f;
             target.anchoredPosition = origin + new Vector2(0f, breath);
-            target.localScale = new Vector3(1f + Mathf.Sin(time * 2.2f) * 0.008f, 1f + Mathf.Sin(time * 2.2f) * 0.012f, 1f);
+            float scaleBreath = 1f + Mathf.Sin(time * 2.2f) * 0.012f;
+            target.localScale = new Vector3(baseScale.x * scaleBreath, baseScale.y * scaleBreath, 1f);
         }
     }
 }
